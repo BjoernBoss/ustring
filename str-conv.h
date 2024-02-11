@@ -15,29 +15,67 @@ namespace stc {
 
 	namespace detail {
 		template <class Type, class CType>
-		concept IsCharString = std::convertible_to<Type, std::basic_string_view<CType>>;
+		concept StringViewFromChar = std::convertible_to<Type, std::basic_string_view<CType>>;
 
 		template <class Type>
 		struct CharType { using type = void; };
 
-		template <detail::IsCharString<char> Type>
+		template <detail::StringViewFromChar<char> Type>
 		struct CharType<Type> { using type = char; };
 
-		template <detail::IsCharString<wchar_t> Type>
+		template <detail::StringViewFromChar<wchar_t> Type>
 		struct CharType<Type> { using type = wchar_t; };
 
-		template <detail::IsCharString<char8_t> Type>
+		template <detail::StringViewFromChar<char8_t> Type>
 		struct CharType<Type> { using type = char8_t; };
 
-		template <detail::IsCharString<char16_t> Type>
+		template <detail::StringViewFromChar<char16_t> Type>
 		struct CharType<Type> { using type = char16_t; };
 
-		template <detail::IsCharString<char32_t> Type>
+		template <detail::StringViewFromChar<char32_t> Type>
 		struct CharType<Type> { using type = char32_t; };
+	}
 
+	/* is type a supported character */
+	template <class Type>
+	concept IsChar = std::same_as<Type, char> || std::same_as<Type, wchar_t> || std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>;
+
+	/* is type anything that can be converted to string-view */
+	template <class Type>
+	concept IsString = !std::same_as<typename detail::CharType<Type>::type, void>;
+
+	/* get char-base of string-view this type is convertible to */
+	template <stc::IsString Type>
+	using CharType = typename detail::CharType<Type>::type;
+
+	/* string-view for the char-type */
+	template <stc::IsChar Type>
+	using View = std::basic_string_view<Type>;
+
+	/* string-view the type can be converted to */
+	template <stc::IsString Type>
+	using ViewFromStr = std::basic_string_view<stc::CharType<Type>>;
+
+	/* string for the char-type */
+	template <stc::IsChar Type>
+	using String = std::basic_string<Type>;
+
+	/* string the type can be converted to */
+	template <stc::IsString Type>
+	using StringFromStr = std::basic_string<stc::CharType<Type>>;
+
+	/* type supports writing single characters or sequences to */
+	template <class Type>
+	concept IsWritable = requires(Type t) {
+		{ t } -> stc::IsString;
+		{ t.push_back(stc::CharType<Type>()) };
+		{ t.append(stc::ViewFromStr<Type>()) };
+	};
+
+	namespace detail {
 		/* expects s to contain at least one character */
 		template <class Type>
-		std::tuple<stc::CodePoint, size_t, bool> ReadCodePoint(const std::basic_string_view<Type>& s) {
+		std::tuple<stc::CodePoint, size_t, bool> ReadCodePoint(const stc::View<Type>& s) {
 			/* utf-8 */
 			if constexpr (sizeof(Type) == 1) {
 				uint8_t c8 = static_cast<uint8_t>(s[0]);
@@ -96,78 +134,60 @@ namespace stc {
 				return { static_cast<stc::CodePoint>(s[0]), 1, true };
 		}
 
-		template <class Type>
-		void WriteCodePoint(std::basic_string<Type>& s, stc::CodePoint cp) {
+		template <stc::IsWritable Type>
+		void WriteCodePoint(Type& s, stc::CodePoint cp) {
+			using CType = stc::CharType<Type>;
+
 			/* utf-8 */
-			if constexpr (sizeof(Type) == 1) {
+			if constexpr (sizeof(CType) == 1) {
 				if (cp <= 0x7f) {
-					s.push_back(static_cast<Type>(cp));
+					s.push_back(static_cast<CType>(cp));
 					return;
 				}
 
 				if (cp <= 0x07ff)
-					s.push_back(static_cast<Type>(0xc0 | ((cp >> 6) & 0x1f)));
+					s.push_back(static_cast<CType>(0xc0 | ((cp >> 6) & 0x1f)));
 				else {
 					if (cp <= 0xffff)
-						s.push_back(static_cast<Type>(0xe0 | ((cp >> 12) & 0x0f)));
+						s.push_back(static_cast<CType>(0xe0 | ((cp >> 12) & 0x0f)));
 					else {
-						s.push_back(static_cast<Type>(0xf0 | ((cp >> 18) & 0x07)));
-						s.push_back(static_cast<Type>(0x80 | ((cp >> 12) & 0x3f)));
+						s.push_back(static_cast<CType>(0xf0 | ((cp >> 18) & 0x07)));
+						s.push_back(static_cast<CType>(0x80 | ((cp >> 12) & 0x3f)));
 					}
 
 					/* push the second to last 6 bits of the codepoint */
-					s.push_back(static_cast<Type>(0x80 | ((cp >> 6) & 0x3f)));
+					s.push_back(static_cast<CType>(0x80 | ((cp >> 6) & 0x3f)));
 				}
 
 				/* push the last 6 bits of the codepoint */
-				s.push_back(static_cast<Type>(0x80 | (cp & 0x3f)));
+				s.push_back(static_cast<CType>(0x80 | (cp & 0x3f)));
 			}
 
 			/* utf-16 */
-			else if constexpr (sizeof(Type) == 2) {
+			else if constexpr (sizeof(CType) == 2) {
 				if (cp >= 0x10000) {
 					cp -= 0x10000;
-					s.push_back(static_cast<Type>(0xd800 + ((cp >> 10) & 0x03ff)));
+					s.push_back(static_cast<CType>(0xd800 + ((cp >> 10) & 0x03ff)));
 					cp = 0xdc00 + (cp & 0x03ff);
 				}
-				s.push_back(static_cast<Type>(cp));
+				s.push_back(static_cast<CType>(cp));
 			}
 
 			/* utf-32 */
 			else
-				s.push_back(static_cast<Type>(cp));
+				s.push_back(static_cast<CType>(cp));
 		}
 	}
 
-	/* is type a supported character */
-	template <class Type>
-	concept IsChar = std::same_as<Type, char> || std::same_as<Type, wchar_t> || std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>;
-
-	/* is type anything that can be converted to string-view */
-	template <class Type>
-	concept IsString = !std::same_as<typename detail::CharType<Type>::type, void>;
-
-	/* get char-base of string-view this type is convertible to */
-	template <stc::IsString Type>
-	using CharType = typename detail::CharType<Type>::type;
-
-	/* string-view the type is convertible to */
-	template <stc::IsString Type>
-	using CharView = std::basic_string_view<stc::CharType<Type>>;
-
-	/* string the type is convertible to */
-	template <stc::IsString Type>
-	using CharString = std::basic_string<stc::CharType<Type>>;
-
 	/* append the source-string of any type to the destination-type string */
-	template <stc::IsChar DType, stc::IsString SType>
-	std::basic_string<DType>& Append(std::basic_string<DType>& dest, SType&& source, stc::CodePoint charOnError = '?') {
+	template <stc::IsWritable DType, stc::IsString SType>
+	DType& Append(DType& dest, SType&& source, stc::CodePoint charOnError = '?') {
 		using SChar = stc::CharType<SType>;
 
 		if constexpr (std::same_as<SType, DType>)
-			dest.append(stc::CharView<SType>{ source });
+			dest.append(stc::View<SChar>{ source });
 		else {
-			stc::CharView<SType> view{ source };
+			stc::View<SChar> view{ source };
 
 			/* fetch the code-points and append them back to the destination */
 			while (!view.empty()) {
@@ -185,15 +205,42 @@ namespace stc {
 	}
 
 	/* append the source-character of any type to the destination-type string */
-	template <stc::IsChar DType, stc::IsChar SType>
-	std::basic_string<DType>& Append(std::basic_string<DType>& dest, SType&& source, stc::CodePoint charOnError = '?') {
-		return stc::Append(dest, std::basic_string_view<SType>{ &source, 1 });
+	template <stc::IsWritable DType, stc::IsChar SType>
+	DType& Append(DType& dest, SType&& source, stc::CodePoint charOnError = '?') {
+		return stc::Append(dest, stc::View<SType>{ &source, 1 }, charOnError);
+	}
+
+	/* read a single codepoint from the beginning of the string (return: code-point, num-consumed, is-valid) */
+	template <stc::IsString Type>
+	std::tuple<stc::CodePoint, size_t, bool> Decode(Type&& source) {
+		stc::ViewFromStr<Type> view{ source };
+		if (view.empty())
+			return { 0, 0, true };
+		return detail::ReadCodePoint(view);
+	}
+
+	/* return a string containing the single codepoint encoded in the corresponding type (size is small enough such that basic_string should not allocate) */
+	template <stc::IsChar Type>
+	stc::String<Type> Encode(stc::CodePoint cp) {
+		stc::String<Type> out{};
+		detail::WriteCodePoint(out, cp);
+		return out;
+	}
+
+	/* return a string containing the byte-order-mark encoded in the corresponding type (empty if
+	*	not utf8/utf16/utf32; size is small enough such that basic_string should not allocate) */
+	template <stc::IsChar Type>
+	stc::String<Type> BOM() {
+		stc::String<Type> out{};
+		if constexpr (std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>)
+			detail::WriteCodePoint<Type>(out, 0xfeff);
+		return out;
 	}
 
 	/* convert any object of s-type to a string using d-type characters */
 	template <stc::IsChar DType, stc::IsString SType>
-	std::basic_string<DType> Conf(SType&& s) {
-		std::basic_string<DType> out;
+	stc::String<DType> Conf(SType&& s) {
+		stc::String<DType> out{};
 		return stc::Append(out, s);
 	}
 
