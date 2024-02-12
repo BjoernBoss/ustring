@@ -11,6 +11,9 @@
 *	Does not validate code-points to be valid (i.e. out-of-bounds/surrogate-pairs/overlong utf8-encoding...)
 */
 namespace stc {
+	/* maximum number of characters to potentially be consumed/produced per codepoint */
+	static constexpr size_t MaxEncodeLength = 4;
+
 	using CodePoint = uint32_t;
 
 	namespace detail {
@@ -177,11 +180,23 @@ namespace stc {
 			else
 				s.push_back(static_cast<CType>(cp));
 		}
+
+		template <stc::IsWritable Type>
+		void TryWriteErrorChar(Type& s, char c) {
+			/* will not be written if its a null-byte */
+			if (c == 0)
+				return;
+
+			/* this should be rare, therefore it can be decoded and encoded properly (ignore any kind of failures) */
+			auto [cp, _, valid] = detail::ReadCodePoint<char>(std::string_view{ &c, 1 });
+			if (valid)
+				detail::WriteCodePoint(s, cp);
+		}
 	}
 
 	/* append the source-string of any type to the destination-type string */
 	template <stc::IsWritable DType, stc::IsString SType>
-	DType& Append(DType& dest, SType&& source, stc::CodePoint charOnError = '?') {
+	DType& Append(DType& dest, SType&& source, char charOnError = '?') {
 		using SChar = stc::CharType<SType>;
 
 		if constexpr (std::same_as<SType, DType>)
@@ -194,11 +209,11 @@ namespace stc {
 				auto [cp, len, valid] = detail::ReadCodePoint<SChar>(view);
 				view = view.substr(len);
 
-				/* check if the code-point is valid and otherwise check if the error-replacement should be inserted */
+				/* check if the code-point is valid and otherwise try to write the error-char */
 				if (valid)
 					detail::WriteCodePoint<DType>(dest, cp);
-				else if (charOnError != 0)
-					detail::WriteCodePoint<DType>(dest, charOnError);
+				else
+					detail::TryWriteErrorChar(dest, charOnError);
 			}
 		}
 		return dest;
@@ -206,7 +221,7 @@ namespace stc {
 
 	/* append the source-character of any type to the destination-type string */
 	template <stc::IsWritable DType, stc::IsChar SType>
-	DType& Append(DType& dest, SType&& source, stc::CodePoint charOnError = '?') {
+	DType& Append(DType& dest, SType&& source, char charOnError = '?') {
 		return stc::Append(dest, stc::View<SType>{ &source, 1 }, charOnError);
 	}
 
@@ -219,12 +234,40 @@ namespace stc {
 		return detail::ReadCodePoint(view);
 	}
 
-	/* return a string containing the single codepoint encoded in the corresponding type (size is small enough such that basic_string should not allocate) */
+	/* return a string containing the single codepoint encoded in the corresponding type
+	*	(size is small enough such that basic_string should not allocate; max: stc::MaxEncodeLength) */
 	template <stc::IsChar Type>
 	stc::String<Type> Encode(stc::CodePoint cp) {
 		stc::String<Type> out{};
 		detail::WriteCodePoint(out, cp);
 		return out;
+	}
+
+	/* return a string containing the next character from the source encoded in the corresponding type
+	*	(empty-string returned on error; size is small enough such that basic_string should not allocate; max: stc::MaxEncodeLength) */
+	template <stc::IsChar DType, stc::IsString SType>
+	std::tuple<stc::String<DType>, size_t> Transcode(SType&& source, char charOnError = '?') {
+		stc::String<DType> out{};
+
+		/* cannot just copy first value on identical char-types, as it might require multiple
+		*	chars (like utf8 made from 3 chars) and it has to be validated */
+		stc::ViewFromStr<SType> view{ source };
+		if (view.empty())
+			return { out, 0 };
+
+		/* decode the next codepoint (and check if an error occurred) */
+		auto [cp, len, valid] = detail::ReadCodePoint(view);
+		if (!valid) {
+			detail::TryWriteErrorChar(out, charOnError);
+			return { out, len };
+		}
+
+		/* check if the types are the same, in which case the cp does not need to be transcoded, but the length can just be copied */
+		if constexpr (std::same_as<DType, stc::CharType<SType>>)
+			out.append(view.substr(0, len));
+		else
+			detail::WriteCodePoint(out, cp);
+		return { out, len };
 	}
 
 	/* return a string containing the byte-order-mark encoded in the corresponding type (empty if
