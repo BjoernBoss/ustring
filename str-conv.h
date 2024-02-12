@@ -276,7 +276,7 @@ namespace stc {
 	stc::String<Type> BOM() {
 		stc::String<Type> out{};
 		if constexpr (std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>)
-			detail::WriteCodePoint<Type>(out, 0xfeff);
+			detail::WriteCodePoint(out, 0xfeff);
 		return out;
 	}
 
