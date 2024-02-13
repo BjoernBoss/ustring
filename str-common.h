@@ -6,12 +6,15 @@
 #include <cinttypes>
 #include <type_traits>
 #include <stdexcept>
-#include <utility>
 
 namespace str {
 	/* is type a supported character (not convertible, but exact type!) */
 	template <class Type>
-	concept IsChar = (std::same_as<Type, char> || std::same_as<Type, wchar_t> || std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>);
+	concept IsUnicode = (std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>);
+	template <class Type>
+	concept IsNative = (std::same_as<Type, char> || std::same_as<Type, wchar_t>);
+	template <class Type>
+	concept IsChar = (str::IsNative<Type> || str::IsUnicode<Type>);
 
 	namespace detail {
 		template <class Type, class ChType> concept IsCharString = requires(const Type t, size_t n) {

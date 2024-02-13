@@ -5,9 +5,11 @@
 #include <string>
 #include <concepts>
 #include <utility>
+#include <cwchar>
 
 /*
-*	Parses char/wchar_t to be unicode-encoded
+*	Parses char to be multi-byte and using the current locale
+*	wchar_t to be unicode-encoded, depending on size of type
 */
 namespace str {
 	static constexpr char CharOnError = '?';
@@ -32,47 +34,27 @@ namespace str {
 		incomplete
 	};
 	struct DecodeOut {
+		size_t consumed = 0;
 		str::CodePoint cp = 0;
-		uint8_t consumed = 0;
 		str::DecodeResult result = str::DecodeResult::empty;
 	};
 
 	namespace detail {
-		/* default-implementation for utf-8/utf-16/utf-32, which can write any valid codepoint */
-		template <class ChType>
-		struct CanWriteChar {
-			constexpr bool operator()(ChType c) const {
-				return true;
-			}
-		};
-		template <>
-		struct CanWriteChar<char> {
-			constexpr bool operator()(char c) const {
-				return true;
-			}
-		};
-		template <>
-		struct CanWriteChar<wchar_t> {
-			constexpr bool operator()(wchar_t c) const {
-				return true;
-			}
-		};
-
-		template <class ChType, bool Strict>
-		str::DecodeOut ReadUtf8(const std::basic_string_view<ChType>& source) {
+		template <bool Strict>
+		str::DecodeOut ReadUtf8(const auto& source) {
 			static constexpr str::CodePoint OverlongBound[4] = { 0x00'007f, 0x00'07ff, 0x00'ffff, 0x1f'ffff };
 			uint8_t c8 = static_cast<uint8_t>(source[0]);
 
 			/* check if its a single byte and validate the overlong boundary (although only out of principle) */
 			if ((c8 & 0x80) == 0x00) {
 				if (Strict && c8 > OverlongBound[0])
-					return { 0, 1, str::DecodeResult::strictness };
-				return { c8, 1, str::DecodeResult::valid };
+					return { 1, 0, str::DecodeResult::strictness };
+				return { 1, c8, str::DecodeResult::valid };
 			}
 
 			/* extract the length of the encoding */
 			str::CodePoint cp = 0;
-			uint8_t len = 1;
+			size_t len = 1;
 			if ((c8 & 0xe0) == 0xc0) {
 				len = 2;
 				cp = (c8 & 0x1f);
@@ -86,7 +68,7 @@ namespace str {
 				cp = (c8 & 0x07);
 			}
 			else
-				return { 0, 1, str::DecodeResult::encoding };
+				return { 1, 0, str::DecodeResult::encoding };
 
 			/* validate the buffer has capacity enough */
 			if (source.size() < len) {
@@ -94,43 +76,102 @@ namespace str {
 			}
 
 			/* validate the contiunation-bytes and construct the final code-point */
-			for (uint8_t j = 1; j < len; ++j) {
+			for (size_t j = 1; j < len; ++j) {
 				uint8_t n8 = static_cast<uint8_t>(source[j]);
 				if ((n8 & 0xc0) != 0x80)
-					return { 0, j, str::DecodeResult::encoding };
+					return { j, 0, str::DecodeResult::encoding };
 				cp = ((cp << 6) | (n8 & 0x3f));
 			}
 
 			/* check if this is a strict decoding and check the overlong bondaries */
 			if (Strict && cp > OverlongBound[len - 1])
-				return { 0, len, str::DecodeResult::strictness };
-			return { cp, len, str::DecodeResult::valid };
+				return { len, 0, str::DecodeResult::strictness };
+			return { len, cp, str::DecodeResult::valid };
 		}
-		template <class ChType>
-		str::DecodeOut ReadUtf16(const std::basic_string_view<ChType>& source) {
+		str::DecodeOut ReadUtf16(const auto& source) {
 			str::CodePoint cp = static_cast<uint16_t>(source[0]);
 
 			/* check if its a valid single-token codepoint */
 			if (cp < 0xd800 || cp > 0xdfff)
-				return { cp, 1, str::DecodeResult::valid };
+				return { 1, cp, str::DecodeResult::valid };
 
 			/* ensure there are enough characters for a surrogate-pair and that the first value is valid */
 			if (cp > 0xdbff)
-				return { cp, 1, str::DecodeResult::encoding };
+				return { 1, 0, str::DecodeResult::encoding };
 			if (source.size() < 2)
-				return { cp, 0, str::DecodeResult::incomplete };
+				return { 0, 0, str::DecodeResult::incomplete };
 
 			/* extract and validate the second token */
 			str::CodePoint next = static_cast<uint16_t>(source[1]);
 			if (next < 0xdc00 || next > 0xdfff)
-				return { cp, 2, str::DecodeResult::encoding };
+				return { 2, 0, str::DecodeResult::encoding };
 
 			/* decode the overall code-point */
-			return { 0x10000 + ((cp & 0x03ff) << 10) | (next & 0x03ff), 2, str::DecodeResult::valid };
+			return { 2, 0x10000 + ((cp & 0x03ff) << 10) | (next & 0x03ff), str::DecodeResult::valid };
 		}
-		template <class ChType>
-		str::DecodeOut ReadUtf32(const std::basic_string_view<ChType>& source) {
-			return { static_cast<str::CodePoint>(source[0]), 1, str::DecodeResult::valid };
+		str::DecodeOut ReadUtf32(const auto& source) {
+			return { 1, static_cast<str::CodePoint>(source[0]), str::DecodeResult::valid };
+		}
+		template <bool Strict>
+		str::DecodeOut ReadWideChar(const auto& source) {
+			/* decode the next codepoint (wide-char is expected to be any form of utf, depending on character size) */
+			if constexpr (sizeof(wchar_t) == 1)
+				return detail::ReadUtf8<Strict>(source);
+			else if constexpr (sizeof(wchar_t) == 2)
+				return detail::ReadUtf16(source);
+			else
+				return detail::ReadUtf32(source);
+		}
+		template <bool Strict>
+		str::DecodeOut ReadMultiByte(const auto& source) {
+			std::mbstate_t state{ 0 };
+			wchar_t wc = 0;
+
+			/* read the next character and check if the character is incomplete (documentation
+			*	suggests that decoded codepoint should always fit into single wide-char) */
+			size_t res = std::mbrtowc(&wc, source.data(), source.size(), &state);
+			if (res == static_cast<size_t>(-2)) {
+				/* check if the max encoding length promise would be broken by this character (should not be possible for any encoding) */
+				if (source.size() >= str::MaxEncodeLength)
+					return { 1, 0, str::DecodeResult::encoding };
+				return { 0, 0, str::DecodeResult::incomplete };
+			}
+			size_t len = res;
+
+			/* check if there is a decoding-error or its a null-character, in which
+			*	case the length has to be figured out by creeping up to the previous response */
+			if (res == static_cast<size_t>(-1) || res == 0) {
+				len = 1;
+				while (true) {
+					/* always use a clean state to ensure the previous try does not polute this result */
+					state = { 0 };
+					size_t temp = std::mbrtowc(0, source.data(), len, &state);
+
+					/* check if the given result has been reached, or the character is still incomplete */
+					if (temp == res)
+						break;
+					if (temp == static_cast<size_t>(-2) && len < source.size()) {
+						++len;
+						continue;
+					}
+
+					/* a new error has been received/end of source has been reached, in which case an error in the encoding can
+					*	just be returned as this state should really never be reached for a valid and deterministic std::mbrtowc */
+					return { std::min<size_t>(len, str::MaxEncodeLength), 0, str::DecodeResult::encoding };
+				}
+			}
+
+			/* check if the char is longer than the internal max character-length, which should really not happen
+			*	in any encoding and would break the promise of str::MaxEncodeLength, and can therefore be dropped */
+			if (len > str::MaxEncodeLength)
+				return { str::MaxEncodeLength, 0, str::DecodeResult::encoding };
+
+			/* try to decode the wide-character to the code-point (cannot use std::mbrtoc8 or std::mbrtoc32 as they
+			*	are missing/do not respect the codepage in MSVC) and fail with encoding if it cannot be decoded */
+			str::DecodeOut out = detail::ReadWideChar<Strict>(std::basic_string_view<wchar_t>{ &wc, 1 });
+			if (out.result != str::DecodeResult::valid)
+				return { len, 0, str::DecodeResult::encoding };
+			return { len, out.cp, str::DecodeResult::valid };
 		}
 
 		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
@@ -139,74 +180,113 @@ namespace str {
 			str::DecodeOut res{};
 
 			/* decode the next codepoint */
-			if constexpr (std::same_as<ChType, char> || std::same_as<ChType, char8_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 1))
-				res = str::detail::ReadUtf8<ChType, Strict>(source);
-			else if constexpr (std::same_as<ChType, char16_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 2))
-				res = str::detail::ReadUtf16<ChType>(source);
+			if constexpr (std::same_as<ChType, char>)
+				res = detail::ReadMultiByte<Strict>(source);
+			else if constexpr (std::same_as<ChType, wchar_t>)
+				res = detail::ReadWideChar<Strict>(source);
+			else if constexpr (std::same_as<ChType, char8_t>)
+				res = detail::ReadUtf8<Strict>(source);
+			else if constexpr (std::same_as<ChType, char16_t>)
+				res = detail::ReadUtf16(source);
 			else
-				res = str::detail::ReadUtf32<ChType>(source);
+				res = detail::ReadUtf32(source);
 
 			/* validate the codepoint itself */
 			if (Strict && res.result == str::DecodeResult::valid && !str::ValidCodePoint(res.cp))
-				return { 0, res.consumed, str::DecodeResult::strictness };
+				return { res.consumed, 0, str::DecodeResult::strictness };
 			return res;
 		}
 
-		template <class ChType>
 		void WriteUtf8(auto& sink, str::CodePoint cp) {
 			/* check if a single character fits */
 			if (cp <= 0x7f) {
-				sink.push_back(static_cast<ChType>(cp));
+				sink.push_back(static_cast<char8_t>(cp));
 				return;
 			}
 
 			/* write the first 1-3 characters out */
 			if (cp <= 0x07ff)
-				sink.push_back(static_cast<ChType>(0xc0 | ((cp >> 6) & 0x1f)));
+				sink.push_back(static_cast<char8_t>(0xc0 | ((cp >> 6) & 0x1f)));
 			else {
 				if (cp <= 0xffff)
-					sink.push_back(static_cast<ChType>(0xe0 | ((cp >> 12) & 0x0f)));
+					sink.push_back(static_cast<char8_t>(0xe0 | ((cp >> 12) & 0x0f)));
 				else {
-					sink.push_back(static_cast<ChType>(0xf0 | ((cp >> 18) & 0x07)));
-					sink.push_back(static_cast<ChType>(0x80 | ((cp >> 12) & 0x3f)));
+					sink.push_back(static_cast<char8_t>(0xf0 | ((cp >> 18) & 0x07)));
+					sink.push_back(static_cast<char8_t>(0x80 | ((cp >> 12) & 0x3f)));
 				}
 
 				/* push the second to last 6 bits of the codepoint */
-				sink.push_back(static_cast<ChType>(0x80 | ((cp >> 6) & 0x3f)));
+				sink.push_back(static_cast<char8_t>(0x80 | ((cp >> 6) & 0x3f)));
 			}
 
 			/* push the last 6 bits of the codepoint */
-			sink.push_back(static_cast<ChType>(0x80 | (cp & 0x3f)));
+			sink.push_back(static_cast<char8_t>(0x80 | (cp & 0x3f)));
 		}
-		template <class ChType>
 		void WriteUtf16(auto& sink, str::CodePoint cp) {
 			if (cp >= 0x10000) {
 				cp -= 0x10000;
-				sink.push_back(static_cast<ChType>(0xd800 + ((cp >> 10) & 0x03ff)));
+				sink.push_back(static_cast<char16_t>(0xd800 + ((cp >> 10) & 0x03ff)));
 				cp = 0xdc00 + (cp & 0x03ff);
 			}
-			sink.push_back(static_cast<ChType>(cp));
+			sink.push_back(static_cast<char16_t>(cp));
 		}
-		template <class ChType>
 		void WriteUtf32(auto& sink, str::CodePoint cp) {
-			sink.push_back(static_cast<ChType>(cp));
+			sink.push_back(static_cast<char32_t>(cp));
+		}
+		void WriteWideChar(auto& sink, str::CodePoint cp) {
+			/* encode the next codepoint (wide-char is expected to be any form of utf, depending on character size) */
+			if constexpr (sizeof(wchar_t) == 1)
+				detail::WriteUtf8(sink, cp);
+			else if constexpr (sizeof(wchar_t) == 2)
+				detail::WriteUtf16(sink, cp);
+			else
+				detail::WriteUtf32(sink, cp);
+		}
+		bool WriteMultiByte(auto& sink, str::CodePoint cp) {
+			/* convert the code-point first to wide-characters (will succeed at all times)  and check if it only resulted in
+			*	one, as a single multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
+			str::Small<wchar_t, str::MaxEncodeLength> wc;
+			detail::WriteWideChar(wc, cp);
+			if (wc.size() != 1)
+				return false;
+
+			/* try to convert the character to the multi-byte presentation
+			*	(no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
+#pragma warning(push)
+#pragma warning(disable : 4996)
+			std::basic_string<char> buf(MB_CUR_MAX, '\0');
+			std::mbstate_t state{ 0 };
+			size_t res = std::wcrtomb(&buf[0], wc[0], &state);
+#pragma warning(pop)
+
+			/* check if the character could not be converted or if the converted character would break the promise of
+			*	the string-conversion max encoding length in which case the codepoint is not considered encodable */
+			if (res == static_cast<size_t>(-1) || res > str::MaxEncodeLength)
+				return false;
+
+			/* write the characters to the sink */
+			for (size_t i = 0; i < res; ++i)
+				sink.push_back(buf[i]);
+			return true;
 		}
 
 		template <class ChType, bool Strict>
 		bool WriteCodePoint(auto& sink, str::CodePoint cp) {
-			/* check if the codepoint is invalid or cannot be encoded */
+			/* check if the codepoint is invalid */
 			if (Strict && !str::ValidCodePoint(cp))
 				return false;
-			if (!detail::CanWriteChar<ChType>{}(cp))
-				return false;
 
-			/* encode the codepoint */
-			if constexpr (std::same_as<ChType, char> || std::same_as<ChType, char8_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 1))
-				str::detail::WriteUtf8<ChType>(sink, cp);
-			else if constexpr (std::same_as<ChType, char16_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 2))
-				str::detail::WriteUtf16<ChType>(sink, cp);
+			/* encode the codepoint (only multi-byte can potentially fail, depending on code-page) */
+			if constexpr (std::same_as<ChType, char>)
+				return detail::WriteMultiByte(sink, cp);
+			else if constexpr (std::same_as<ChType, wchar_t>)
+				detail::WriteWideChar(sink, cp);
+			else if constexpr (std::same_as<ChType, char8_t>)
+				detail::WriteUtf8(sink, cp);
+			else if constexpr (std::same_as<ChType, char16_t>)
+				detail::WriteUtf16(sink, cp);
 			else
-				str::detail::WriteUtf32<ChType>(sink, cp);
+				detail::WriteUtf32(sink, cp);
 			return true;
 		}
 
@@ -217,16 +297,10 @@ namespace str {
 				return;
 
 			/* this should be rare, therefore it can be decoded and encoded properly (ignore any kind of failures) */
-			auto [cp, _, res] = str::detail::ReadCodePoint<char, true>(std::basic_string_view{ &c, 1 });
+			auto [_, cp, res] = detail::ReadCodePoint<char, true>(std::basic_string_view{ &c, 1 });
 			if (res == str::DecodeResult::valid)
-				str::detail::WriteCodePoint<ChType, true>(s, cp);
+				detail::WriteCodePoint<ChType, true>(s, cp);
 		}
-	}
-
-	/* check if the character can be encoded by the corresponding character */
-	template <str::IsChar ChType>
-	constexpr bool CanWrite(ChType c) {
-		return detail::CanWriteChar<ChType>{}(c);
 	}
 
 	/* read a single codepoint from the beginning of the string (if strictness is required,
