@@ -15,9 +15,9 @@ namespace str {
 
 	namespace detail {
 		template <class Type, class ChType> concept IsCharString = requires(const Type t, size_t n) {
-			{ t[n] } -> std::convertible_to<ChType>;
 			{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
 		};
+		/* without append, could not pin char-type, as chars are at least up-castable to the next type... */
 		template <class Type, class ChType> concept IsCharWritable = requires(Type t, ChType c) {
 			{  t.push_back(c) };
 			{ t.append(&c) };
@@ -47,12 +47,6 @@ namespace str {
 		template <size_t Capacity> using SizeType32OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint16_t>::max(), detail::SizeType8Or16<Capacity>, uint32_t>;
 		template <size_t Capacity> using SizeType64OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint32_t>::max(), detail::SizeType32OrLess<Capacity>, uint64_t>;
 		template <size_t Capacity> using SizeType = std::conditional_t<Capacity <= std::numeric_limits<uint64_t>::max(), detail::SizeType64OrLess<Capacity>, size_t>;
-
-		/* read the size of the object */
-		template <class ChType, class Type>
-		size_t GetSize(const Type& s) {
-			return std::basic_string_view<ChType>{ s }.size();
-		}
 	}
 
 	/* is type a character string or like a string_view (.data, .size) and get corresponding char-type */
@@ -63,7 +57,7 @@ namespace str {
 	template <str::AnyString Type>
 	using StringChar = typename detail::GetCharString<Type>::type;
 
-	/* type has a push_back and is like a string_view (.data, .size) and get corresponding char-type */
+	/* type has a push_back and append method (.append not used, but required for template to derive a pinned type) and get corresponding char-type */
 	template <class Type>
 	concept AnySink = detail::AnyCharWritable<Type>;
 	template <class Type, class ChType>
@@ -78,71 +72,82 @@ namespace str {
 
 	/* small stack-buffered string, which can only be appended to, for intermediate/temporary value building, not null-terminated
 	*	Implements: str::IsString, str::IsSink
-	*	(if SilentError is true, any values written over the buffer-size are discarded, otherwise an exception is thrown) */
-	template <str::IsChar ChType, size_t Size, bool SilentError = false>
-		requires (Size > 0)
+	*	(if SilentError is true, any values written over the buffer-capacity are discarded, otherwise an exception is thrown) */
+	template <str::IsChar ChType, size_t Capacity, bool SilentError = false>
+		requires (Capacity > 0)
 	class Small {
-		using ThisType = str::Small<ChType, Size, SilentError>;
+		using ThisType = str::Small<ChType, Capacity, SilentError>;
 	private:
-		ChType pBuffer[Size] = { 0 };
-		detail::SizeType<Size> pSize = 0;
+		ChType pBuffer[Capacity] = { 0 };
+		detail::SizeType<Capacity> pSize = 0;
 
 	public:
-		Small() = default;
-		Small(const ThisType&) = default;
-		Small(ThisType&&) = default;
-		Small(const str::IsString<ChType> auto& s) {
+		constexpr Small() = default;
+		constexpr Small(const ThisType&) = default;
+		constexpr Small(ThisType&&) = default;
+		constexpr Small(const str::IsString<ChType> auto& s) {
 			fAppend(s);
 		}
 
 	private:
-		void fAppend(const auto& s) {
-			size_t size = detail::GetSize<ChType>(s);
+		constexpr void fAppend(const auto& s) {
+			std::basic_string_view<ChType> view{ s };
 
 			/* check if an error should be thrown or the buffer should only be filled up to the end */
 			if constexpr (SilentError)
-				size = std::min<size_t>(size, Size - pSize);
-			else if (Size - pSize < size)
+				size = std::min<size_t>(view.size(), Capacity - pSize);
+			else if (Capacity - pSize < view.size())
 				throw str::BufferException("str::Small capacity exceeded");
 
 			/* write the data to the buffer */
-			for (size_t i = 0; i < size; ++i)
-				pBuffer[pSize++] = s[i];
+			for (size_t i = 0; i < view.size(); ++i)
+				pBuffer[pSize++] = view[i];
 		}
 
 	public:
-		ThisType& operator+=(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& operator+=(const str::IsString<ChType> auto& s) {
 			fAppend(s);
 			return *this;
 		}
-		const ChType& operator[](size_t index) const {
+		constexpr ThisType& operator=(const str::IsString<ChType> auto& s) {
+			pSize = 0;
+			fAppend(s);
+			return *this;
+		}
+		constexpr const ChType& operator[](size_t index) const {
 			return pBuffer[index];
 		}
-		operator std::basic_string_view<ChType>() const {
+		constexpr operator std::basic_string_view<ChType>() const {
 			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		operator std::basic_string<ChType>() const {
+		constexpr operator std::basic_string<ChType>() const {
 			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
 		}
 
 	public:
-		ThisType& append(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
+			return (*this = s);
+		}
+		constexpr ThisType& append(const str::IsString<ChType> auto& s) {
 			return (*this += s);
 		}
-		void push_back(ChType c) {
+		constexpr void push_back(ChType c) {
 			fAppend(std::basic_string_view<ChType>{ &c, 1 });
 		}
-		size_t size() const {
+		constexpr size_t size() const {
 			return static_cast<size_t>(pSize);
 		}
-		bool empty() const {
+		constexpr bool empty() const {
 			return (pSize == 0);
 		}
-		const ChType* begin() const {
+		constexpr const ChType* begin() const {
 			return pBuffer;
 		}
-		const ChType* end() const {
+		constexpr const ChType* end() const {
 			return (pBuffer + pSize);
+		}
+		constexpr void clear() {
+			pSize = 0;
 		}
 	};
 }

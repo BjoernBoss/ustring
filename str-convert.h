@@ -59,9 +59,9 @@ namespace str {
 		};
 
 		template <class ChType, bool Strict>
-		str::DecodeOut ReadUtf8(const auto& source, size_t off, size_t size) {
+		str::DecodeOut ReadUtf8(const std::basic_string_view<ChType>& source) {
 			static constexpr str::CodePoint OverlongBound[4] = { 0x00'007f, 0x00'07ff, 0x00'ffff, 0x1f'ffff };
-			uint8_t c8 = static_cast<uint8_t>(source[off]);
+			uint8_t c8 = static_cast<uint8_t>(source[0]);
 
 			/* check if its a single byte and validate the overlong boundary (although only out of principle) */
 			if ((c8 & 0x80) == 0x00) {
@@ -89,13 +89,13 @@ namespace str {
 				return { 0, 1, str::DecodeResult::encoding };
 
 			/* validate the buffer has capacity enough */
-			if (size - off < len) {
+			if (source.size() < len) {
 				return { 0, 0, str::DecodeResult::incomplete };
 			}
 
 			/* validate the contiunation-bytes and construct the final code-point */
 			for (uint8_t j = 1; j < len; ++j) {
-				uint8_t n8 = static_cast<uint8_t>(source[off + j]);
+				uint8_t n8 = static_cast<uint8_t>(source[j]);
 				if ((n8 & 0xc0) != 0x80)
 					return { 0, j, str::DecodeResult::encoding };
 				cp = ((cp << 6) | (n8 & 0x3f));
@@ -107,8 +107,8 @@ namespace str {
 			return { cp, len, str::DecodeResult::valid };
 		}
 		template <class ChType>
-		str::DecodeOut ReadUtf16(const auto& source, size_t off, size_t size) {
-			str::CodePoint cp = static_cast<uint16_t>(source[off]);
+		str::DecodeOut ReadUtf16(const std::basic_string_view<ChType>& source) {
+			str::CodePoint cp = static_cast<uint16_t>(source[0]);
 
 			/* check if its a valid single-token codepoint */
 			if (cp < 0xd800 || cp > 0xdfff)
@@ -117,11 +117,11 @@ namespace str {
 			/* ensure there are enough characters for a surrogate-pair and that the first value is valid */
 			if (cp > 0xdbff)
 				return { cp, 1, str::DecodeResult::encoding };
-			if (size - off < 2)
+			if (source.size() < 2)
 				return { cp, 0, str::DecodeResult::incomplete };
 
 			/* extract and validate the second token */
-			str::CodePoint next = static_cast<uint16_t>(source[off + 1]);
+			str::CodePoint next = static_cast<uint16_t>(source[1]);
 			if (next < 0xdc00 || next > 0xdfff)
 				return { cp, 2, str::DecodeResult::encoding };
 
@@ -129,22 +129,22 @@ namespace str {
 			return { 0x10000 + ((cp & 0x03ff) << 10) | (next & 0x03ff), 2, str::DecodeResult::valid };
 		}
 		template <class ChType>
-		str::DecodeOut ReadUtf32(const auto& source, size_t off, size_t size) {
-			return { static_cast<str::CodePoint>(source[off]), 1, str::DecodeResult::valid };
+		str::DecodeOut ReadUtf32(const std::basic_string_view<ChType>& source) {
+			return { static_cast<str::CodePoint>(source[0]), 1, str::DecodeResult::valid };
 		}
 
 		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
 		template <class ChType, bool Strict>
-		str::DecodeOut ReadCodePoint(const auto& source, size_t off, size_t size) {
+		str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source) {
 			str::DecodeOut res{};
 
 			/* decode the next codepoint */
 			if constexpr (std::same_as<ChType, char> || std::same_as<ChType, char8_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 1))
-				res = str::detail::ReadUtf8<ChType, Strict>(source, off, size);
+				res = str::detail::ReadUtf8<ChType, Strict>(source);
 			else if constexpr (std::same_as<ChType, char16_t> || (std::same_as<ChType, wchar_t> && sizeof(wchar_t) == 2))
-				res = str::detail::ReadUtf16<ChType>(source, off, size);
+				res = str::detail::ReadUtf16<ChType>(source);
 			else
-				res = str::detail::ReadUtf32<ChType>(source, off, size);
+				res = str::detail::ReadUtf32<ChType>(source);
 
 			/* validate the codepoint itself */
 			if (Strict && res.result == str::DecodeResult::valid && !str::ValidCodePoint(res.cp))
@@ -217,7 +217,7 @@ namespace str {
 				return;
 
 			/* this should be rare, therefore it can be decoded and encoded properly (ignore any kind of failures) */
-			auto [cp, _, res] = str::detail::ReadCodePoint<ChType, true>(&c, 0, 1);
+			auto [cp, _, res] = str::detail::ReadCodePoint<char, true>(std::basic_string_view{ &c, 1 });
 			if (res == str::DecodeResult::valid)
 				str::detail::WriteCodePoint<ChType, true>(s, cp);
 		}
@@ -235,10 +235,10 @@ namespace str {
 	str::DecodeOut Decode(const str::AnyString auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 
-		size_t size = detail::GetSize<ChType>(source);
-		if (size == 0)
+		std::basic_string_view<ChType> view{ source };
+		if (view.empty())
 			return { 0, 0, str::DecodeResult::empty };
-		return detail::ReadCodePoint<ChType, Strict>(source, 0, size);
+		return detail::ReadCodePoint<ChType, Strict>(view);
 	}
 
 	/* write the single codepoint encoded in the corresponding type to the sink (returns the false and does not modify
@@ -272,12 +272,12 @@ namespace str {
 		using DChType = str::SinkChar<decltype(sink)>;
 
 		/* check if the source is empty, in which case nothing can be transcoded */
-		size_t size = detail::GetSize<SChType>(source);
-		if (size == 0)
+		std::basic_string_view<SChType> view{ source };
+		if (view.empty())
 			return 0;
 
 		/* decode the next character and check if its incomplete, in which case nothing will be done */
-		str::DecodeOut out = detail::ReadCodePoint<SChType, Strict>(source, 0, size);
+		str::DecodeOut out = detail::ReadCodePoint<SChType, Strict>(view);
 		if (out.result == str::DecodeResult::incomplete)
 			return 0;
 
@@ -290,7 +290,7 @@ namespace str {
 		/* check if the source and destination are of the same type, in which case the characters can just be copied */
 		if constexpr (std::same_as<SChType, DChType>) {
 			for (size_t i = 0; i < out.consumed; ++i)
-				sink.push_back(source[i]);
+				sink.push_back(view[i]);
 			return out.consumed;
 		}
 
