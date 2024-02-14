@@ -20,10 +20,9 @@ namespace str {
 		template <class Type, class ChType> concept IsCharString = requires(const Type t, size_t n) {
 			{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
 		};
-		/* without append, could not pin char-type, as chars are at least up-castable to the next type... */
 		template <class Type, class ChType> concept IsCharWritable = requires(Type t, ChType c) {
-			{  t.push_back(c) };
-			{ t.append(&c) };
+			{ t.push_back(c) };
+			{ t.append(std::basic_string_view<ChType>{}) };
 		};
 
 		template <class Type> concept AnyCharString = (detail::IsCharString<Type, char> || detail::IsCharString<Type, wchar_t> || detail::IsCharString<Type, char8_t> || detail::IsCharString<Type, char16_t> || detail::IsCharString<Type, char32_t>);
@@ -86,8 +85,6 @@ namespace str {
 
 	public:
 		constexpr Small() = default;
-		constexpr Small(const ThisType&) = default;
-		constexpr Small(ThisType&&) = default;
 		constexpr Small(const str::IsString<ChType> auto& s) {
 			fAppend(s);
 		}
@@ -121,6 +118,9 @@ namespace str {
 		constexpr const ChType& operator[](size_t index) const {
 			return pBuffer[index];
 		}
+		constexpr ChType& operator[](size_t index) {
+			return pBuffer[index];
+		}
 		constexpr operator std::basic_string_view<ChType>() const {
 			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
 		}
@@ -147,11 +147,29 @@ namespace str {
 		constexpr const ChType* begin() const {
 			return pBuffer;
 		}
+		constexpr ChType* begin() {
+			return pBuffer;
+		}
 		constexpr const ChType* end() const {
+			return (pBuffer + pSize);
+		}
+		constexpr ChType* end() {
 			return (pBuffer + pSize);
 		}
 		constexpr void clear() {
 			pSize = 0;
 		}
 	};
+
+	/* convenience for fast construction */
+	template <size_t Capacity, bool SilentError = false>
+	using ChSmall = str::Small<char, Capacity, SilentError>;
+	template <size_t Capacity, bool SilentError = false>
+	using WdSmall = str::Small<wchar_t, Capacity, SilentError>;
+	template <size_t Capacity, bool SilentError = false>
+	using U8Small = str::Small<char8_t, Capacity, SilentError>;
+	template <size_t Capacity, bool SilentError = false>
+	using U16Small = str::Small<char16_t, Capacity, SilentError>;
+	template <size_t Capacity, bool SilentError = false>
+	using U32Small = str::Small<char32_t, Capacity, SilentError>;
 }
