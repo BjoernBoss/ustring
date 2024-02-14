@@ -6,10 +6,12 @@
 #include <concepts>
 #include <utility>
 #include <cwchar>
+#include <type_traits>
 
 /*
-*	Parses char to be multi-byte and using the current locale
-*	wchar_t to be unicode-encoded, depending on size of type
+*	char8_t/char16_t/char32_t must be their respective unicode-encodings
+*	wchar_t must be a unicode-encoding
+*	char can be multi-byte using the current locale or any unicode-encoding
 */
 namespace str {
 	static constexpr char CharOnError = '?';
@@ -40,6 +42,65 @@ namespace str {
 	};
 
 	namespace detail {
+		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
+		constexpr bool IsBufferSame(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
+			if (sizeof(ExpType) != sizeof(ActType) || ExpSize != ActSize)
+				return false;
+
+			size_t i = 0;
+			while (i < ExpSize && expected[i] == static_cast<ExpType>(actual[i]))
+				++i;
+
+			return (i == ExpSize);
+		}
+
+		/* utf8 test-string: \U0000007f\U0000ff00\U00010000 */
+		template <class Type, size_t Size>
+		constexpr bool IsUtf8(const Type(&test)[Size]) {
+			constexpr uint8_t expected[] = { 0x7f, 0xef, 0xbc, 0x80, 0xf0, 0x90, 0x80, 0x80, 0x00 };
+			return detail::IsBufferSame(expected, test);
+		};
+
+		/* utf16 test-string: \U00010000\U0000ff00 */
+		template <class Type, size_t Size>
+		constexpr bool IsUtf16(const Type(&test)[Size]) {
+			constexpr uint16_t expected[] = { 0xd800, 0xdc00, 0xff00, 0x0000 };
+			return detail::IsBufferSame(expected, test);
+		};
+
+		/* utf32 test-string: \U00010000\U0000ff00 */
+		template <class Type, size_t Size>
+		constexpr bool IsUtf32(const Type(&test)[Size]) {
+			constexpr uint32_t expected[] = { 0x10000, 0xff00, 0x0000 };
+			return detail::IsBufferSame(expected, test);
+		};
+
+		/* check assumptions hold */
+		static_assert(detail::IsUtf8(u8"\U0000007f\U0000ff00\U00010000"), "char8_t is expected to be utf-8 encoded");
+		static_assert(detail::IsUtf16(u"\U00010000\U0000ff00"), "char16_t is expected to be utf-16 encoded");
+		static_assert(detail::IsUtf32(U"\U00010000\U0000ff00"), "char32_t is expected to be utf-32 encoded");
+
+		/* [character cannot be represented in current code page] */
+#pragma warning(push)
+#pragma warning(disable : 4566)
+
+		/* type equals char or char8_t/char16_t/char32_t, depending on encoding */
+		using MBEquivalence = std::conditional_t<detail::IsUtf8("\U0000007f\U0000ff00\U00010000"), char8_t,
+			std::conditional_t<detail::IsUtf16("\U00010000\U0000ff00"), char16_t,
+			std::conditional_t<detail::IsUtf32("\U00010000\U0000ff00"), char32_t, char>>>;
+
+		/* type equals wchar_t or char8_t/char16_t/char32_t, depending on encoding */
+		using WideEquivalence = std::conditional_t<detail::IsUtf8(L"\U0000007f\U0000ff00\U00010000"), char8_t,
+			std::conditional_t<detail::IsUtf16(L"\U00010000\U0000ff00"), char16_t,
+			std::conditional_t<detail::IsUtf32(L"\U00010000\U0000ff00"), char32_t, wchar_t>>>;
+		static_assert(!std::is_same_v<detail::WideEquivalence, wchar_t>, "wchar_t is expected to be a unicode encoding");
+#pragma warning(pop)
+
+		/* extract effective character (char/char8_t/char16_t/char32_t) */
+		template <class Type>
+		using EffectiveChar = std::conditional_t<std::is_same_v<Type, char>, detail::MBEquivalence,
+			std::conditional_t<std::is_same_v<Type, wchar_t>, detail::WideEquivalence, Type>>;
+
 		template <bool Strict>
 		str::DecodeOut ReadUtf8(const auto& source) {
 			static constexpr str::CodePoint OverlongBound[4] = { 0x00'007f, 0x00'07ff, 0x00'ffff, 0x1f'ffff };
@@ -113,16 +174,6 @@ namespace str {
 			return { 1, static_cast<str::CodePoint>(source[0]), str::DecodeResult::valid };
 		}
 		template <bool Strict>
-		str::DecodeOut ReadWideChar(const auto& source) {
-			/* decode the next codepoint (wide-char is expected to be any form of utf, depending on character size) */
-			if constexpr (sizeof(wchar_t) == 1)
-				return detail::ReadUtf8<Strict>(source);
-			else if constexpr (sizeof(wchar_t) == 2)
-				return detail::ReadUtf16(source);
-			else
-				return detail::ReadUtf32(source);
-		}
-		template <bool Strict>
 		str::DecodeOut ReadMultiByte(const auto& source) {
 			std::mbstate_t state{ 0 };
 			wchar_t wc = 0;
@@ -168,33 +219,19 @@ namespace str {
 
 			/* try to decode the wide-character to the code-point (cannot use std::mbrtoc8 or std::mbrtoc32 as they
 			*	are missing/do not respect the codepage in MSVC) and fail with encoding if it cannot be decoded */
-			str::DecodeOut out = detail::ReadWideChar<Strict>(std::basic_string_view<wchar_t>{ &wc, 1 });
+			str::DecodeOut out{};
+			if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>)
+				out = detail::ReadUtf8<Strict>(std::basic_string_view<wchar_t>{ &wc, 1 });
+			else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>)
+				out = detail::ReadUtf16(std::basic_string_view<wchar_t>{ &wc, 1 });
+			else
+				out = detail::ReadUtf32(std::basic_string_view<wchar_t>{ &wc, 1 });
+
+			/* check if the wide character could be decoded properly (no need to check for valid code-points,
+			*	as this function is only called by ReadCodePoint, which will perform the check) */
 			if (out.result != str::DecodeResult::valid)
 				return { len, 0, str::DecodeResult::encoding };
 			return { len, out.cp, str::DecodeResult::valid };
-		}
-
-		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
-		template <class ChType, bool Strict>
-		str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source) {
-			str::DecodeOut res{};
-
-			/* decode the next codepoint */
-			if constexpr (std::same_as<ChType, char>)
-				res = detail::ReadMultiByte<Strict>(source);
-			else if constexpr (std::same_as<ChType, wchar_t>)
-				res = detail::ReadWideChar<Strict>(source);
-			else if constexpr (std::same_as<ChType, char8_t>)
-				res = detail::ReadUtf8<Strict>(source);
-			else if constexpr (std::same_as<ChType, char16_t>)
-				res = detail::ReadUtf16(source);
-			else
-				res = detail::ReadUtf32(source);
-
-			/* validate the codepoint itself */
-			if (Strict && res.result == str::DecodeResult::valid && !str::ValidCodePoint(res.cp))
-				return { res.consumed, 0, str::DecodeResult::strictness };
-			return res;
 		}
 
 		void WriteUtf8(auto& sink, str::CodePoint cp) {
@@ -233,27 +270,26 @@ namespace str {
 		void WriteUtf32(auto& sink, str::CodePoint cp) {
 			sink.push_back(static_cast<char32_t>(cp));
 		}
-		void WriteWideChar(auto& sink, str::CodePoint cp) {
-			/* encode the next codepoint (wide-char is expected to be any form of utf, depending on character size) */
-			if constexpr (sizeof(wchar_t) == 1)
-				detail::WriteUtf8(sink, cp);
-			else if constexpr (sizeof(wchar_t) == 2)
-				detail::WriteUtf16(sink, cp);
-			else
-				detail::WriteUtf32(sink, cp);
-		}
 		bool WriteMultiByte(auto& sink, str::CodePoint cp) {
+			str::Small<wchar_t, str::MaxEncodeLength> wc;
+
 			/* convert the code-point first to wide-characters (will succeed at all times)  and check if it only resulted in
 			*	one, as a single multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
-			str::Small<wchar_t, str::MaxEncodeLength> wc;
-			detail::WriteWideChar(wc, cp);
+			if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>)
+				detail::WriteUtf8(wc, cp);
+			else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>)
+				detail::WriteUtf16(wc, cp);
+			else
+				detail::WriteUtf32(wc, cp);
 			if (wc.size() != 1)
 				return false;
 
-			/* try to convert the character to the multi-byte presentation
-			*	(no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
+			/* [std::wcrtomb is unsafe, use std::wcrtomb_s instead] */
 #pragma warning(push)
 #pragma warning(disable : 4996)
+
+			/* try to convert the character to the multi-byte presentation
+			*	(no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
 			std::basic_string<char> buf(MB_CUR_MAX, '\0');
 			std::mbstate_t state{ 0 };
 			size_t res = std::wcrtomb(&buf[0], wc[0], &state);
@@ -270,20 +306,42 @@ namespace str {
 			return true;
 		}
 
+		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
+		template <class ChType, bool Strict>
+		str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source) {
+			using EffType = detail::EffectiveChar<ChType>;
+			str::DecodeOut res{};
+
+			/* decode the next codepoint */
+			if constexpr (std::is_same_v<EffType, char>)
+				res = detail::ReadMultiByte<Strict>(source);
+			else if constexpr (std::is_same_v<EffType, char8_t>)
+				res = detail::ReadUtf8<Strict>(source);
+			else if constexpr (std::is_same_v<EffType, char16_t>)
+				res = detail::ReadUtf16(source);
+			else
+				res = detail::ReadUtf32(source);
+
+			/* validate the codepoint itself */
+			if (Strict && res.result == str::DecodeResult::valid && !str::ValidCodePoint(res.cp))
+				return { res.consumed, 0, str::DecodeResult::strictness };
+			return res;
+		}
+
 		template <class ChType, bool Strict>
 		bool WriteCodePoint(auto& sink, str::CodePoint cp) {
+			using EffType = detail::EffectiveChar<ChType>;
+
 			/* check if the codepoint is invalid */
 			if (Strict && !str::ValidCodePoint(cp))
 				return false;
 
 			/* encode the codepoint (only multi-byte can potentially fail, depending on code-page) */
-			if constexpr (std::same_as<ChType, char>)
+			if constexpr (std::is_same_v<EffType, char>)
 				return detail::WriteMultiByte(sink, cp);
-			else if constexpr (std::same_as<ChType, wchar_t>)
-				detail::WriteWideChar(sink, cp);
-			else if constexpr (std::same_as<ChType, char8_t>)
+			else if constexpr (std::is_same_v<EffType, char8_t>)
 				detail::WriteUtf8(sink, cp);
-			else if constexpr (std::same_as<ChType, char16_t>)
+			else if constexpr (std::is_same_v<EffType, char16_t>)
 				detail::WriteUtf16(sink, cp);
 			else
 				detail::WriteUtf32(sink, cp);
@@ -302,6 +360,16 @@ namespace str {
 				detail::WriteCodePoint<ChType, true>(s, cp);
 		}
 	}
+
+	/* check if the normal character string uses a given utf-encoding */
+	static constexpr bool IsCharUtf8 = std::is_same_v<detail::MBEquivalence, char8_t>;
+	static constexpr bool IsCharUtf16 = std::is_same_v<detail::MBEquivalence, char16_t>;
+	static constexpr bool IsCharUtf32 = std::is_same_v<detail::MBEquivalence, char32_t>;
+
+	/* check if the wide character string uses a given utf-encoding */
+	static constexpr bool IsWideUtf8 = std::is_same_v<detail::WideEquivalence, char8_t>;
+	static constexpr bool IsWideUtf16 = std::is_same_v<detail::WideEquivalence, char16_t>;
+	static constexpr bool IsWideUtf32 = std::is_same_v<detail::WideEquivalence, char32_t>;
 
 	/* read a single codepoint from the beginning of the string (if strictness is required,
 	*	any overlong utf8-chars or invalid codepoints will result in strictness-errors) */
@@ -362,7 +430,7 @@ namespace str {
 		}
 
 		/* check if the source and destination are of the same type, in which case the characters can just be copied */
-		if constexpr (std::same_as<SChType, DChType>) {
+		if constexpr (std::is_same_v<SChType, DChType>) {
 			for (size_t i = 0; i < out.consumed; ++i)
 				sink.push_back(view[i]);
 			return out.consumed;
@@ -414,7 +482,7 @@ namespace str {
 	template <str::IsChar ChType>
 	str::Small<ChType, str::MaxEncodeLength> BOM() {
 		str::Small<ChType, str::MaxEncodeLength> out{};
-		if constexpr (std::same_as<ChType, char8_t> || std::same_as<ChType, char16_t> || std::same_as<ChType, char32_t>)
+		if constexpr (str::IsUnicode<ChType>)
 			detail::WriteCodePoint<ChType, true>(out, 0xfeff);
 		return out;
 	}

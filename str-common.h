@@ -95,15 +95,16 @@ namespace str {
 	private:
 		constexpr void fAppend(const auto& s) {
 			std::basic_string_view<ChType> view{ s };
+			size_t size = view.size();
 
 			/* check if an error should be thrown or the buffer should only be filled up to the end */
 			if constexpr (SilentError)
-				size = std::min<size_t>(view.size(), Capacity - pSize);
-			else if (Capacity - pSize < view.size())
+				size = std::min<size_t>(size, Capacity - pSize);
+			else if (Capacity - pSize < size)
 				throw str::BufferException("str::Small capacity exceeded");
 
 			/* write the data to the buffer */
-			for (size_t i = 0; i < view.size(); ++i)
+			for (size_t i = 0; i < size; ++i)
 				pBuffer[pSize++] = view[i];
 		}
 
