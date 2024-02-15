@@ -59,7 +59,7 @@ namespace str {
 	template <str::AnyString Type>
 	using StringChar = typename detail::GetCharString<Type>::type;
 
-	/* type has a push_back and append method (.append not used, but required for template to derive a pinned type) and get corresponding char-type */
+	/* type has a push_back and append method and get corresponding char-type */
 	template <class Type>
 	concept AnySink = detail::AnyCharWritable<Type>;
 	template <class Type, class ChType>
@@ -72,7 +72,7 @@ namespace str {
 		BufferException(const std::string& s) : runtime_error(s) {}
 	};
 
-	/* small stack-buffered string, which can only be appended to, for intermediate/temporary value building, not null-terminated
+	/* small stack-buffered string, to be appended to, for intermediate/temporary value building, not null-terminated
 	*	Implements: str::IsString, str::IsSink
 	*	(if SilentError is true, any values written over the buffer-capacity are discarded, otherwise an exception is thrown) */
 	template <str::IsChar ChType, size_t Capacity, bool SilentError = false>
@@ -130,10 +130,13 @@ namespace str {
 
 	public:
 		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
-			return (*this = s);
+			pSize = 0;
+			fAppend(s);
+			return *this;
 		}
 		constexpr ThisType& append(const str::IsString<ChType> auto& s) {
-			return (*this += s);
+			fAppend(s);
+			return *this;
 		}
 		constexpr void push_back(ChType c) {
 			fAppend(std::basic_string_view<ChType>{ &c, 1 });
@@ -161,7 +164,7 @@ namespace str {
 		}
 	};
 
-	/* convenience for fast construction */
+	/* convenience for fast usage */
 	template <size_t Capacity, bool SilentError = false>
 	using ChSmall = str::Small<char, Capacity, SilentError>;
 	template <size_t Capacity, bool SilentError = false>
