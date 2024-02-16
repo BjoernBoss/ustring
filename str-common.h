@@ -8,14 +8,6 @@
 #include <stdexcept>
 
 namespace str {
-	/* is type a supported character (not convertible, but exact type!) */
-	template <class Type>
-	concept IsUnicode = (std::same_as<Type, char8_t> || std::same_as<Type, char16_t> || std::same_as<Type, char32_t>);
-	template <class Type>
-	concept IsNative = (std::same_as<Type, char> || std::same_as<Type, wchar_t>);
-	template <class Type>
-	concept IsChar = (str::IsNative<Type> || str::IsUnicode<Type>);
-
 	namespace detail {
 		template <class Type, class ChType> concept IsCharString = requires(const Type t, size_t n) {
 			{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
@@ -25,8 +17,20 @@ namespace str {
 			{ t.append(std::basic_string_view<ChType>{}) };
 		};
 
-		template <class Type> concept AnyCharString = (detail::IsCharString<Type, char> || detail::IsCharString<Type, wchar_t> || detail::IsCharString<Type, char8_t> || detail::IsCharString<Type, char16_t> || detail::IsCharString<Type, char32_t>);
-		template <class Type> concept AnyCharWritable = (detail::IsCharWritable<Type, char> || detail::IsCharWritable<Type, wchar_t> || detail::IsCharWritable<Type, char8_t> || detail::IsCharWritable<Type, char16_t> || detail::IsCharWritable<Type, char32_t>);
+		/* check if the type is a character */
+		template <class Type> struct GetCharNative { using type = void; };
+		template <> struct GetCharNative<char> { using type = char; };
+		template <> struct GetCharNative<wchar_t> { using type = wchar_t; };
+		template <class Type> struct GetCharUnicode { using type = void; };
+		template <> struct GetCharUnicode<char8_t> { using type = char8_t; };
+		template <> struct GetCharUnicode<char16_t> { using type = char16_t; };
+		template <> struct GetCharUnicode<char32_t> { using type = char32_t; };
+		template <class Type> struct GetCharAny { using type = void; };
+		template <> struct GetCharAny<char> { using type = char; };
+		template <> struct GetCharAny<wchar_t> { using type = wchar_t; };
+		template <> struct GetCharAny<char8_t> { using type = char8_t; };
+		template <> struct GetCharAny<char16_t> { using type = char16_t; };
+		template <> struct GetCharAny<char32_t> { using type = char32_t; };
 
 		/* get the type that fullfills detail::IsCharString */
 		template <class Type> struct GetCharString { using type = void; };
@@ -51,9 +55,17 @@ namespace str {
 		template <size_t Capacity> using SizeType = std::conditional_t<Capacity <= std::numeric_limits<uint64_t>::max(), detail::SizeType64OrLess<Capacity>, size_t>;
 	}
 
+	/* is type a supported character (not convertible, but exact type!) */
+	template <class Type>
+	concept IsUnicode = !std::is_void_v<typename detail::GetCharUnicode<Type>::type>;
+	template <class Type>
+	concept IsNative = !std::is_void_v<typename detail::GetCharNative<Type>::type>;
+	template <class Type>
+	concept IsChar = !std::is_void_v<typename detail::GetCharAny<Type>::type>;
+
 	/* is type a character string or like a string_view (.data, .size) and get corresponding char-type */
 	template <class Type>
-	concept AnyString = detail::AnyCharString<Type>;
+	concept AnyString = !std::is_void_v<typename detail::GetCharString<Type>::type>;
 	template <class Type, class ChType>
 	concept IsString = detail::IsCharString<Type, ChType>;
 	template <str::AnyString Type>
@@ -61,7 +73,7 @@ namespace str {
 
 	/* type has a push_back and append method and get corresponding char-type */
 	template <class Type>
-	concept AnySink = detail::AnyCharWritable<Type>;
+	concept AnySink = !std::is_void_v<typename detail::GetCharWritable<Type>::type>;
 	template <class Type, class ChType>
 	concept IsSink = detail::IsCharWritable<Type, ChType>;
 	template <str::AnySink Type>
@@ -74,14 +86,17 @@ namespace str {
 
 	/* small stack-buffered string, to be appended to, for intermediate/temporary value building, not null-terminated
 	*	Implements: str::IsString, str::IsSink
-	*	(if SilentError is true, any values written over the buffer-capacity are discarded, otherwise an exception is thrown) */
-	template <str::IsChar ChType, size_t Capacity, bool SilentError = false>
-		requires (Capacity > 0)
+	*	If capacity is negative any values written over the buffer-capacity are discarded, otherwise an exception is thrown) */
+	template <str::IsChar ChType, intptr_t Capacity>
+		requires (Capacity != 0)
 	class Small {
-		using ThisType = str::Small<ChType, Capacity, SilentError>;
+		using ThisType = str::Small<ChType, Capacity>;
+		static constexpr size_t ActCapacity = static_cast<size_t>(Capacity < 0 ? -Capacity : Capacity);
+		static constexpr bool SilentErrors = (Capacity < 0);
+
 	private:
-		ChType pBuffer[Capacity] = { 0 };
-		detail::SizeType<Capacity> pSize = 0;
+		ChType pBuffer[ActCapacity] = { 0 };
+		detail::SizeType<ActCapacity> pSize = 0;
 
 	public:
 		constexpr Small() = default;
@@ -95,9 +110,9 @@ namespace str {
 			size_t size = view.size();
 
 			/* check if an error should be thrown or the buffer should only be filled up to the end */
-			if constexpr (SilentError)
-				size = std::min<size_t>(size, Capacity - pSize);
-			else if (Capacity - pSize < size)
+			if constexpr (SilentErrors)
+				size = std::min<size_t>(size, ActCapacity - pSize);
+			else if (ActCapacity - pSize < size)
 				throw str::BufferException("str::Small capacity exceeded");
 
 			/* write the data to the buffer */
@@ -124,11 +139,14 @@ namespace str {
 		constexpr operator std::basic_string_view<ChType>() const {
 			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		constexpr operator std::basic_string<ChType>() const {
-			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
-		}
 
 	public:
+		constexpr std::basic_string_view<ChType> view() const {
+			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
+		}
+		constexpr std::basic_string<ChType> str() const {
+			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
+		}
 		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
 			pSize = 0;
 			fAppend(s);
@@ -146,6 +164,12 @@ namespace str {
 		}
 		constexpr bool empty() const {
 			return (pSize == 0);
+		}
+		constexpr const ChType* data() const {
+			return pBuffer;
+		}
+		constexpr ChType* data() {
+			return pBuffer;
 		}
 		constexpr const ChType* begin() const {
 			return pBuffer;
@@ -165,14 +189,14 @@ namespace str {
 	};
 
 	/* convenience for fast usage */
-	template <size_t Capacity, bool SilentError = false>
-	using ChSmall = str::Small<char, Capacity, SilentError>;
-	template <size_t Capacity, bool SilentError = false>
-	using WdSmall = str::Small<wchar_t, Capacity, SilentError>;
-	template <size_t Capacity, bool SilentError = false>
-	using U8Small = str::Small<char8_t, Capacity, SilentError>;
-	template <size_t Capacity, bool SilentError = false>
-	using U16Small = str::Small<char16_t, Capacity, SilentError>;
-	template <size_t Capacity, bool SilentError = false>
-	using U32Small = str::Small<char32_t, Capacity, SilentError>;
+	template <intptr_t Capacity>
+	using ChSmall = str::Small<char, Capacity>;
+	template <intptr_t Capacity>
+	using WdSmall = str::Small<wchar_t, Capacity>;
+	template <intptr_t Capacity>
+	using U8Small = str::Small<char8_t, Capacity>;
+	template <intptr_t Capacity>
+	using U16Small = str::Small<char16_t, Capacity>;
+	template <intptr_t Capacity>
+	using U32Small = str::Small<char32_t, Capacity>;
 }
