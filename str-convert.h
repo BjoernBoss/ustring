@@ -33,22 +33,46 @@ namespace str {
 	/*
 	*	valid: valid decoded codepoint
 	*	empty: source was empty and therefore nothing decoded
-	*	encoding: encoding error was detected in source
-	*	strictness: encoded codepoint is invalid or did not use the proper encoding-form
+	*	invalid: encoding error was detected in source or encoded codepoint is invalid or did not use the proper encoding-form
 	*	incomplete: codepoint seems to be encoded properly, but missing one or more characters for completion
 	*/
 	enum class DecResult : uint8_t {
 		valid,
 		empty,
-		encoding,
-		strictness,
+		invalid,
 		incomplete
+	};
+
+	/*
+	*	Transcode-Mode
+	*		fast: if source and destination are of the same type, dont perform a full decoding, at most a length estimation, else equal to [relaxed]
+	*		relaxed: only check encoding, but do not check for invalid codepoints or overlong utf8-encodings
+	*		strict: ensure every unicode-codepoint is decoded properly and a valid codepoint
+	*/
+	enum class TrMode : uint8_t {
+		fast,
+		relaxed,
+		strict
 	};
 
 	struct DecodeOut {
 		size_t consumed = 0;
 		char32_t cp = 0;
 		str::DecResult result = str::DecResult::empty;
+	};
+	struct EstimateOut {
+		size_t consumed = 0;
+		str::DecResult result = str::DecResult::empty;
+	};
+	struct TranscodeOut {
+		size_t consumed = 0;
+		bool valid = false;
+	};
+	template <str::IsChar ChType>
+	struct TranscodeBufOut {
+		str::Small<ChType, str::MaxEncodeLength> buffer;
+		size_t consumed = 0;
+		bool valid = false;
 	};
 
 	namespace detail {
@@ -111,35 +135,31 @@ namespace str {
 		using EffectiveChar = std::conditional_t<std::is_same_v<Type, char>, detail::MBEquivalence,
 			std::conditional_t<std::is_same_v<Type, wchar_t>, detail::WideEquivalence, Type>>;
 
+		/* utf-8 help lookup maps (of the upper 5 bits) and boundary maps (for length) */
+		static constexpr uint8_t Utf8InitCharLength[32] = {
+			1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+			0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 3, 3, 4, 0
+		};
+		static constexpr uint8_t Utf8InitCharCodeBits[32] = {
+			0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x1f, 0x1f, 0x0f, 0x0f, 0x07, 0x00
+		};
+		static constexpr uint32_t Utf8OverlongLowerBound[4] = { 0x00'0000, 0x00'0080, 0x00'0800, 0x01'0000 };
+
+		/* utf-16 help variables */
+		static constexpr uint16_t Utf16LowerSurrogate = 0xd800;
+		static constexpr uint16_t Utf16UpperSurrogate = 0xdc00;
+		static constexpr uint16_t Utf16LastSurrogate = 0xdfff;
+
 		template <bool Strict>
 		constexpr std::tuple<size_t, uint32_t, str::DecResult> ReadUtf8(const auto& source) {
-			static constexpr uint32_t OverlongBound[4] = { 0x00'007f, 0x00'07ff, 0x00'ffff, 0x1f'ffff };
 			uint8_t c8 = static_cast<uint8_t>(source[0]);
 
-			/* check if its a single byte and validate the overlong boundary (although only out of principle) */
-			if ((c8 & 0x80) == 0x00) {
-				if (Strict && c8 > OverlongBound[0])
-					return { 1, 0, str::DecResult::strictness };
-				return { 1, c8, str::DecResult::valid };
-			}
-
-			/* extract the length of the encoding */
-			uint32_t cp = 0;
-			size_t len = 1;
-			if ((c8 & 0xe0) == 0xc0) {
-				len = 2;
-				cp = (c8 & 0x1f);
-			}
-			else if ((c8 & 0xf0) == 0xe0) {
-				len = 3;
-				cp = (c8 & 0x0f);
-			}
-			else if ((c8 & 0xf8) == 0xf0) {
-				len = 4;
-				cp = (c8 & 0x07);
-			}
-			else
-				return { 1, 0, str::DecResult::encoding };
+			/* lookup the length of the character (with 0 invalid encoding) and extract the initial codepoint bits */
+			size_t len = detail::Utf8InitCharLength[c8 >> 3];
+			if (len == 0)
+				return { 1, 0, str::DecResult::invalid };
+			uint32_t cp = (c8 & detail::Utf8InitCharCodeBits[c8 >> 3]);
 
 			/* validate the buffer has capacity enough */
 			if (source.size() < len) {
@@ -150,32 +170,32 @@ namespace str {
 			for (size_t j = 1; j < len; ++j) {
 				uint8_t n8 = static_cast<uint8_t>(source[j]);
 				if ((n8 & 0xc0) != 0x80)
-					return { j, 0, str::DecResult::encoding };
+					return { j, 0, str::DecResult::invalid };
 				cp = ((cp << 6) | (n8 & 0x3f));
 			}
 
 			/* check if this is a strict decoding and check the overlong bondaries */
-			if (Strict && cp > OverlongBound[len - 1])
-				return { len, 0, str::DecResult::strictness };
+			if (Strict && cp < detail::Utf8OverlongLowerBound[len - 1])
+				return { len, 0, str::DecResult::invalid };
 			return { len, cp, str::DecResult::valid };
 		}
 		constexpr std::tuple<size_t, uint32_t, str::DecResult> ReadUtf16(const auto& source) {
 			uint32_t cp = static_cast<uint16_t>(source[0]);
 
 			/* check if its a valid single-token codepoint */
-			if (cp < 0xd800 || cp > 0xdfff)
+			if (cp < detail::Utf16LowerSurrogate || cp > detail::Utf16LastSurrogate)
 				return { 1, cp, str::DecResult::valid };
 
 			/* ensure there are enough characters for a surrogate-pair and that the first value is valid */
-			if (cp > 0xdbff)
-				return { 1, 0, str::DecResult::encoding };
+			if (cp >= detail::Utf16UpperSurrogate)
+				return { 1, 0, str::DecResult::invalid };
 			if (source.size() < 2)
 				return { 0, 0, str::DecResult::incomplete };
 
 			/* extract and validate the second token */
 			uint32_t next = static_cast<uint16_t>(source[1]);
-			if (next < 0xdc00 || next > 0xdfff)
-				return { 2, 0, str::DecResult::encoding };
+			if (next < detail::Utf16UpperSurrogate || next > detail::Utf16LastSurrogate)
+				return { 2, 0, str::DecResult::invalid };
 
 			/* decode the overall codepoint */
 			return { 2, 0x10000 + ((cp & 0x03ff) << 10) | (next & 0x03ff), str::DecResult::valid };
@@ -183,26 +203,28 @@ namespace str {
 		constexpr std::tuple<size_t, uint32_t, str::DecResult> ReadUtf32(const auto& source) {
 			return { 1, static_cast<uint32_t>(source[0]), str::DecResult::valid };
 		}
-		template <bool Strict>
-		std::tuple<size_t, uint32_t, str::DecResult> ReadMultiByte(const auto& source) {
+		template <bool SizeOnly>
+		std::tuple<size_t, wchar_t, str::DecResult> ReadMultiByte(const std::basic_string_view<char>& source) {
 			std::mbstate_t state{ 0 };
 			wchar_t wc = 0;
 
 			/* read the next character and check if the character is incomplete (documentation
-			*	suggests that decoded codepoint should always fit into single wide-char) */
-			size_t res = std::mbrtowc(&wc, source.data(), source.size(), &state);
+			*	suggests that a decoded codepoint should always fit into single wide-char) */
+			size_t res = std::mbrtowc((SizeOnly ? nullptr : &wc), source.data(), source.size(), &state);
 			if (res == static_cast<size_t>(-2)) {
 				/* check if the max encoding length promise would be broken by this character (should not be possible for any encoding) */
 				if (source.size() >= str::MaxEncodeLength)
-					return { 1, 0, str::DecResult::encoding };
+					return { str::MaxEncodeLength, 0, str::DecResult::invalid };
 				return { 0, 0, str::DecResult::incomplete };
 			}
 			size_t len = res;
 
-			/* check if there is a decoding-error or its a null-character, in which
-			*	case the length has to be figured out by creeping up to the previous response */
+			/* check if the decoded character is not a valid character or the null-character, in which case
+			*	the length is not returned and has to be figured out by creeping up to the previous response */
 			if (res == static_cast<size_t>(-1) || res == 0) {
-				len = 1;
+				size_t len = 1;
+
+				/* try to find the length by creeping up to the previous response (as we dont know the length of the error/null-byte) */
 				while (true) {
 					/* always use a clean state to ensure the previous try does not polute this result */
 					state = { 0 };
@@ -218,30 +240,15 @@ namespace str {
 
 					/* a new error has been received/end of source has been reached, in which case an error in the encoding can
 					*	just be returned as this state should really never be reached for a valid and deterministic std::mbrtowc */
-					return { std::min<size_t>(len, str::MaxEncodeLength), 0, str::DecResult::encoding };
+					return { std::min<size_t>(len, str::MaxEncodeLength), 0, str::DecResult::invalid };
 				}
 			}
 
-			/* check if the char is longer than the internal max character-length, which should really not happen
-			*	in any encoding and would break the promise of str::MaxEncodeLength, and can therefore be dropped */
-			if (len > str::MaxEncodeLength)
-				return { str::MaxEncodeLength, 0, str::DecResult::encoding };
-
-			/* try to decode the wide-character to the codepoint (cannot use std::mbrtoc8 or std::mbrtoc32 as they
-			*	are missing/do not respect the codepage in MSVC) and fail with encoding if it cannot be decoded */
-			std::tuple<size_t, uint32_t, str::DecResult> out{};
-			if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>)
-				out = detail::ReadUtf8<Strict>(std::basic_string_view<wchar_t>{ &wc, 1 });
-			else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>)
-				out = detail::ReadUtf16(std::basic_string_view<wchar_t>{ &wc, 1 });
-			else
-				out = detail::ReadUtf32(std::basic_string_view<wchar_t>{ &wc, 1 });
-
-			/* check if the wide character could be decoded properly (no need to check for valid codepoints,
-			*	as this function is only called by ReadCodePoint, which will perform the check) */
-			if (std::get<2>(out) != str::DecResult::valid)
-				return { len, 0, str::DecResult::encoding };
-			return { len, std::get<1>(out), str::DecResult::valid };
+			/* check if the char is longer than the internal max character-length, which should really not happen in any encoding
+			*	and would break the promise of str::MaxEncodeLength, or invalid for both of which an error can be returned */
+			if (res == static_cast<size_t>(-1) || len > str::MaxEncodeLength)
+				return { std::min<size_t>(len, str::MaxEncodeLength), 0, str::DecResult::invalid };
+			return { len, wc, str::DecResult::valid };
 		}
 
 		constexpr void WriteUtf8(auto& sink, uint32_t cp) {
@@ -272,8 +279,8 @@ namespace str {
 		constexpr void WriteUtf16(auto& sink, uint32_t cp) {
 			if (cp >= 0x10000) {
 				cp -= 0x10000;
-				sink.push_back(static_cast<char16_t>(0xd800 + ((cp >> 10) & 0x03ff)));
-				cp = 0xdc00 + (cp & 0x03ff);
+				sink.push_back(static_cast<char16_t>(detail::Utf16LowerSurrogate + ((cp >> 10) & 0x03ff)));
+				cp = detail::Utf16UpperSurrogate + (cp & 0x03ff);
 			}
 			sink.push_back(static_cast<char16_t>(cp));
 		}
@@ -318,34 +325,57 @@ namespace str {
 
 		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
 		template <class ChType, bool Strict>
-		constexpr str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source) {
+		constexpr str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source, bool sourceCompleted) {
 			using EffType = detail::EffectiveChar<ChType>;
 			std::tuple<size_t, uint32_t, str::DecResult> res{};
 
 			/* decode the next codepoint */
-			if constexpr (std::is_same_v<EffType, char>)
-				res = detail::ReadMultiByte<Strict>(source);
+			if constexpr (std::is_same_v<EffType, char>) {
+				/* for multibytes, it will first be decoded to wide-chars (as the standard libraries
+				*	functions to utf32 only work for utf8 inputs, at least on some msvc versions) */
+				auto [len, wc, result] = detail::ReadMultiByte<false>(source);
+				res = { len, 0, result };
+
+				/* decode the wide-character */
+				if (result == str::DecResult::valid) {
+					std::tuple<size_t, uint32_t, str::DecResult> wres{};
+
+					/* check which kind of unicode-encoding needs to be used */
+					if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>)
+						wres = detail::ReadUtf8<Strict>(std::basic_string_view{ &wc, 1 });
+					else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>)
+						wres = detail::ReadUtf16(std::basic_string_view{ &wc, 1 });
+					else
+						wres = detail::ReadUtf32(std::basic_string_view{ &wc, 1 });
+
+					/* parse wchar_t-result to the primary result */
+					if (std::get<2>(wres) != str::DecResult::valid || std::get<0>(wres) != 1)
+						std::get<2>(res) = str::DecResult::invalid;
+					else
+						std::get<1>(res) = std::get<1>(wres);
+				}
+			}
 			else if constexpr (std::is_same_v<EffType, char8_t>)
 				res = detail::ReadUtf8<Strict>(source);
 			else if constexpr (std::is_same_v<EffType, char16_t>)
 				res = detail::ReadUtf16(source);
 			else
 				res = detail::ReadUtf32(source);
-			char32_t cp = static_cast<char32_t>(std::get<1>(res));
 
 			/* validate the codepoint itself */
+			char32_t cp = static_cast<char32_t>(std::get<1>(res));
 			if (Strict && std::get<2>(res) == str::DecResult::valid && !str::ValidCodePoint(cp))
-				return { std::get<0>(res), 0, str::DecResult::strictness };
+				return { std::get<0>(res), 0, str::DecResult::invalid };
+
+			/* check if the end of the source has been reached, in which case a last incomplete encoding should be considered invalid */
+			if (sourceCompleted && std::get<2>(res) == str::DecResult::incomplete)
+				return { source.size(), 0, str::DecResult::invalid };
 			return { std::get<0>(res), cp, std::get<2>(res) };
 		}
 
-		template <class ChType, bool Strict>
+		template <class ChType>
 		constexpr bool WriteCodePoint(auto& sink, char32_t cp) {
 			using EffType = detail::EffectiveChar<ChType>;
-
-			/* check if the codepoint is invalid */
-			if (Strict && !str::ValidCodePoint(cp))
-				return false;
 
 			/* encode the codepoint (only multi-byte can potentially fail, depending on code-page) */
 			if constexpr (std::is_same_v<EffType, char>)
@@ -359,16 +389,70 @@ namespace str {
 			return true;
 		}
 
+		/* estimate the size of the next character based on reading the first character (expects s to contain at least one character) */
 		template <class ChType>
-		constexpr void TryWriteErrorChar(auto& s, char c) {
-			/* will not be written if its a null-byte */
-			if (c == 0)
-				return;
+		constexpr str::EstimateOut FastEstimateSize(const std::basic_string_view<ChType>& source, bool sourceCompleted) {
+			using EffType = detail::EffectiveChar<ChType>;
+			size_t len = 0;
 
-			/* this should be rare, therefore it can be decoded and encoded properly (ignore any kind of failures) */
-			auto [_, cp, res] = detail::ReadCodePoint<char, true>(std::basic_string_view{ &c, 1 });
-			if (res == str::DecResult::valid)
-				detail::WriteCodePoint<ChType, true>(s, cp);
+			/* check what encoding it is and try to estimate the size (invalid encodings result in length 0) */
+			if constexpr (std::is_same_v<EffType, char8_t>)
+				len = detail::Utf8InitCharLength[static_cast<uint8_t>(source[0]) >> 3];
+			else if constexpr (std::is_same_v<EffType, char16_t>) {
+				uint16_t c16 = static_cast<uint16_t>(source[0]);
+				if (c16 < detail::Utf16LowerSurrogate || c16 > detail::Utf16LastSurrogate)
+					len = 1;
+				else
+					len = (c16 < detail::Utf16UpperSurrogate ? 2 : 0);
+			}
+			else if constexpr (std::is_same_v<EffType, char32_t>)
+				len = 1;
+			else {
+				/* estimate the length of the multibyte-character by decoding it to a wchar_t */
+				auto [len, _, res] = detail::ReadMultiByte<true>(source);
+				if (res == str::DecResult::incomplete && sourceCompleted)
+					return { source.size(), str::DecResult::invalid };
+				return { len, res };
+			}
+
+			/* construct the intermediate result (invalid first-byte encodings are just considered size-1) */
+			if (len == 0)
+				return { 1, str::DecResult::invalid };
+			if (len <= source.size())
+				return { len, str::DecResult::valid };
+			if (sourceCompleted)
+				return { source.size(), str::DecResult::invalid };
+			return { 0, str::DecResult::incomplete };
+		}
+
+		/* expects s to contain at least one character */
+		template <class SourceType, class SinkType, str::TrMode Mode = str::TrMode::fast>
+		constexpr str::TranscodeOut TranscodeNext(auto& sink, const std::basic_string_view<SourceType>& source, bool sourceCompleted) {
+			str::DecodeOut out{};
+
+			/* check if fast transcoding has been selected, and the source and destination are the same type, in which case the
+			*	length can be estimated and copied over to the source (codepoint can be set to null, as it will not be used) */
+			if constexpr (Mode == str::TrMode::fast && std::is_same_v<SourceType, SinkType>) {
+				auto [len, res] = detail::FastEstimateSize(source, sourceCompleted);
+				out = { len, 0, res };
+			}
+			else
+				out = detail::ReadCodePoint<SourceType, Mode == str::TrMode::strict>(source, sourceCompleted);
+
+			/* check if its incomplete or if an error occurred and handle it */
+			if (out.result == str::DecResult::incomplete)
+				return { 0, true };
+			else if (out.result != str::DecResult::valid)
+				return { out.consumed, false };
+
+			/* check if the source and destination are of the same type, in which case the characters can just be copied */
+			if constexpr (std::is_same_v<SourceType, SinkType>)
+				sink.append(source.substr(0, out.consumed));
+
+			/* try to write the codepoint to the destination and otherwise return the consumed number of token */
+			else if (!detail::WriteCodePoint<SinkType>(sink, out.cp))
+				return { out.consumed, false };
+			return { out.consumed, true };
 		}
 	}
 
@@ -383,125 +467,92 @@ namespace str {
 	static constexpr bool IsWideUtf32 = std::is_same_v<detail::WideEquivalence, char32_t>;
 
 	/* read a single codepoint from the beginning of the string (if strictness is required,
-	*	any overlong utf8-chars or invalid codepoints will result in strictness-errors) */
+	*	any overlong utf8-chars or invalid codepoints will result in strictness-errors; if
+	*	source is completed, result will never be 'incomplete' and consumed will never be 0) */
 	template <bool Strict = true>
-	constexpr str::DecodeOut Decode(const str::AnyString auto& source) {
+	constexpr str::DecodeOut Decode(const str::AnyString auto& source, bool sourceCompleted) {
 		using ChType = str::StringChar<decltype(source)>;
 
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
 			return { 0, 0, str::DecResult::empty };
-		return detail::ReadCodePoint<ChType, Strict>(view);
+		return detail::ReadCodePoint<ChType, Strict>(view, sourceCompleted);
+	}
+
+	constexpr str::EstimateOut Estimate(const str::AnyString auto& source, bool sourceCompleted) {
+		using ChType = str::StringChar<decltype(source)>;
+
+		std::basic_string_view<ChType> view{ source };
+		if (view.empty())
+			return { 0, str::DecResult::empty };
+		return detail::FastEstimateSize<ChType>(view, sourceCompleted);
 	}
 
 	/* write the single codepoint encoded in the corresponding type to the sink (returns false and does not modify
-	*	the sink if strictness is enabled and the codepoint is invalid, or the charset cannot hold the character) */
-	template <bool Strict = true>
+	*	the sink if the charset cannot hold the character; undefined behavior for invalid code-points) */
 	constexpr bool EncodeInto(str::AnySink auto& sink, char32_t cp) {
 		using ChType = str::SinkChar<decltype(sink)>;
-
-		/* write the codepoint to the output (will automatically check for errors) */
-		return detail::WriteCodePoint<ChType, Strict>(sink, cp);
+		return detail::WriteCodePoint<ChType>(sink, cp);
 	}
 
 	/* return a string containing the single codepoint encoded in the corresponding type (returns the empty string
-	*	if strictness is enabled and the codepoint is invalid, or the charset cannot hold the character) */
-	template <str::IsChar ChType, bool Strict = true>
+	*	if the charset cannot hold the character; undefined behavior for invalid code-points) */
+	template <str::IsChar ChType>
 	constexpr str::Small<ChType, str::MaxEncodeLength> Encode(char32_t cp) {
 		str::Small<ChType, str::MaxEncodeLength> out{};
-		str::EncodeInto<Strict>(out, cp);
+		str::EncodeInto(out, cp);
 		return out;
 	}
 
 	/*
-	*	Transcode-Mode
-	*		fast: if source and destination are of the same type, just copy char-by-char without decoding, else equal to [relaxed]
-	*		relaxed: only check encoding, but do not check for invalid codepoints or overlong utf8-encodings
-	*		strict: ensure every unicode-codepoint is decoded properly and a valid codepoint
-	*/
-	enum class TrMode : uint8_t {
-		fast,
-		relaxed,
-		strict
-	};
-
-	/*
 	*	Read a single codepoint from the source and transcode it to the sink
 	*	Returns [consumed, valid] with consumed number of characters read from the sink and valid if the character could be decoded properly and was valid
-	*	If invalid character or incomplete and transcode-argument [sourceIncomplete] is false, the error character will be written instead (if not null) and the erroneous number of characters is returned
-	*	If incomplete and [sourceIncomplete] is true, no characters are consumed and nothing is written to the sink
-	*	If [sourceIncomplete] is false, returned consumed count will always be greater than 0, if the source is not empty
+	*	If invalid character or incomplete and transcode-argument [sourceCompleted] is true, the erroneous number of characters is returned
+	*	If incomplete and [sourceCompleted] is false, no characters are consumed and nothing is written to the sink
+	*	If [sourceCompleted] is true, returned consumed count will always be greater than 0, if the source is not empty
 	*/
 	template <str::TrMode Mode = str::TrMode::fast>
-	constexpr std::pair<size_t, bool> TranscodeInto(str::AnySink auto& sink, const str::AnyString auto& source, bool sourceIncomplete, char charOnError = str::CharOnError) {
-		using SChType = str::StringChar<decltype(source)>;
-		using DChType = str::SinkChar<decltype(sink)>;
+	constexpr str::TranscodeOut TranscodeInto(str::AnySink auto& sink, const str::AnyString auto& source, bool sourceCompleted) {
+		using SourceType = str::StringChar<decltype(source)>;
+		using SinkType = str::SinkChar<decltype(sink)>;
 
-		/* check if the source is empty, in which case nothing can be transcoded */
-		std::basic_string_view<SChType> view{ source };
+		std::basic_string_view<SourceType> view{ source };
 		if (view.empty())
 			return { 0, true };
 
-		/* check if fast transcoding has been selected, and the source and destination are the same type, in which case
-		*	just one character will be copied, no matter the validity of the encoding/the length of the actual encoding */
-		if constexpr (Mode == str::TrMode::fast && std::is_same_v<SChType, DChType>) {
-			sink.push_back(view[0]);
-			return { 1, true };
-		}
-
-		/* decode the next character and check if its incomplete, in which case nothing will be done */
-		str::DecodeOut out = detail::ReadCodePoint<SChType, Mode == str::TrMode::strict>(view);
-		if (out.result == str::DecResult::incomplete) {
-			if (sourceIncomplete)
-				return { 0, true };
-			out.consumed = view.size();
-		}
-
-		/* check if an error occurred, in which case the char-error will be written */
-		if (out.result != str::DecResult::valid) {
-			detail::TryWriteErrorChar<DChType>(sink, charOnError);
-			return { out.consumed, false };
-		}
-
-		/* check if the source and destination are of the same type, in which case the characters can just be copied */
-		if constexpr (std::is_same_v<SChType, DChType>) {
-			for (size_t i = 0; i < out.consumed; ++i)
-				sink.push_back(view[i]);
-		}
-
-		/* try to write the codepoint to the destination and otherwise write the error-token and return the consumed number of token */
-		else if (!detail::WriteCodePoint<DChType, Mode == str::TrMode::strict>(sink, out.cp)) {
-			detail::TryWriteErrorChar<DChType>(sink, charOnError);
-			return { out.consumed, false };
-		}
-		return { out.consumed, true };
+		return detail::TranscodeNext<SourceType, SinkType, Mode>(sink, view, sourceCompleted);
 	}
 
 	/* Behave like str::TranscodeInto but use small-string as sink and return it from the call */
 	template <str::IsChar ChType, str::TrMode Mode = str::TrMode::fast>
-	constexpr std::tuple<str::Small<ChType, str::MaxEncodeLength>, size_t, bool> Transcode(const str::AnyString auto& source, bool sourceIncomplete, char charOnError = str::CharOnError) {
+	constexpr str::TranscodeBufOut<ChType> Transcode(const str::AnyString auto& source, bool sourceCompleted) {
 		str::Small<ChType, str::MaxEncodeLength> out{};
-		auto [consumed, valid] = str::TranscodeInto<Mode>(out, source, sourceIncomplete, charOnError);
-		return { out, consumed, valid };
+		str::TranscodeOut res = str::TranscodeInto<Mode>(out, source, sourceCompleted);
+		return { out, res.consumed, res.valid };
 	}
 
-	/* convert the source-string of any type and append it to the sink-string (append error char, if last is incomplete and error-char is not null) */
+	/* convert the source-string of any type and append it to the sink-string (insert error char, if a character could not be transcoded and the error-char is not null) */
 	template <str::TrMode Mode = str::TrMode::fast>
 	constexpr auto& ConvertInto(str::AnySink auto& sink, const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		using SChType = str::StringChar<decltype(source)>;
-		using DChType = str::SinkChar<decltype(sink)>;
-		std::basic_string_view<SChType> view{ source };
+		using SourceType = str::StringChar<decltype(source)>;
+		using SinkType = str::SinkChar<decltype(sink)>;
+		std::basic_string_view<SourceType> view{ source };
 
 		/* check if the source and destination are the same and can just be appended, due to fast transcoding-mode */
-		if constexpr (Mode == str::TrMode::fast && std::is_same_v<SChType, DChType>) {
+		if constexpr (Mode == str::TrMode::fast && std::is_same_v<SourceType, SinkType>) {
 			sink.append(view);
 			return sink;
 		}
 
-		/* transcode all characters until the end of the string has been reached (ignore errors) */
+		/* transcode all characters until the end of the string has been reached (and insert errors if error-char is not null) */
 		while (!view.empty()) {
-			auto [consumed, _] = str::TranscodeInto<Mode>(sink, view, false, charOnError);
+			auto [consumed, valid] = detail::TranscodeNext<SourceType, SinkType, Mode>(sink, view, true);
 			view = view.substr(consumed);
+
+			/* check if an error occurred and the error character should be inserted instead and write the error character
+			*	to the sink (this should be rare, therefore it can be decoded and encoded properly; ignore any kind of failures) */
+			if (!valid && charOnError != 0)
+				detail::TranscodeNext<char, SinkType, TrMode::strict>(sink, std::basic_string_view{ &charOnError, 1 }, true);
 		}
 		return sink;
 	}
@@ -520,7 +571,7 @@ namespace str {
 		return str::ConvertInto<Mode>(out, source, charOnError);
 	}
 
-	/* convenience for fast conversion */
+	/* convenience for fast conversion to a std::basic_string */
 	template <str::TrMode Mode = str::TrMode::fast>
 	constexpr std::string ToChar(const str::AnyString auto& source, char charOnError = str::CharOnError) {
 		return str::Convert<char, Mode>(source, charOnError);
@@ -542,6 +593,27 @@ namespace str {
 		return str::Convert<char32_t, Mode>(source, charOnError);
 	}
 
+	/* convenience for fast conversion to a str::Small */
+	template <intptr_t Capacity, str::TrMode Mode = str::TrMode::fast>
+	constexpr str::ChSmall<Capacity> ToChar(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+		return str::Convert<char, Capacity, Mode>(source, charOnError);
+	}
+	template <intptr_t Capacity, str::TrMode Mode = str::TrMode::fast>
+	constexpr str::WdSmall<Capacity> ToWide(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+		return str::Convert<wchar_t, Capacity, Mode>(source, charOnError);
+	}
+	template <intptr_t Capacity, str::TrMode Mode = str::TrMode::fast>
+	constexpr str::U8Small<Capacity> ToUtf8(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+		return str::Convert<char8_t, Capacity, Mode>(source, charOnError);
+	}
+	template <intptr_t Capacity, str::TrMode Mode = str::TrMode::fast>
+	constexpr str::U16Small<Capacity> ToUtf16(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+		return str::Convert<char16_t, Capacity, Mode>(source, charOnError);
+	}
+	template <intptr_t Capacity, str::TrMode Mode = str::TrMode::fast>
+	constexpr str::U32Small<Capacity> ToUtf32(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+		return str::Convert<char32_t, Capacity, Mode>(source, charOnError);
+	}
 
 
 	/* return a string containing the byte-order-mark encoded in the corresponding type (empty if not utf8/utf16/utf32) */
@@ -549,7 +621,7 @@ namespace str {
 	constexpr str::Small<ChType, str::MaxEncodeLength> BOM() {
 		str::Small<ChType, str::MaxEncodeLength> out{};
 		if constexpr (str::IsUnicode<ChType>)
-			detail::WriteCodePoint<ChType, true>(out, 0xfeff);
+			detail::WriteCodePoint<ChType>(out, 0xfeff);
 		return out;
 	}
 }

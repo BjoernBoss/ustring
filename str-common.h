@@ -17,6 +17,13 @@ namespace str {
 			{ t.append(std::basic_string_view<ChType>{}) };
 		};
 
+		/* check expected assumptions */
+		static_assert(sizeof(char32_t) == sizeof(uint32_t), "char32_t is expected to be 32bit");
+		static_assert(sizeof(char16_t) == sizeof(uint16_t), "char16_t is expected to be 16bit");
+		static_assert(sizeof(char8_t) == sizeof(uint8_t), "char8_t is expected to be 8bit");
+		static_assert(sizeof(char32_t) >= sizeof(wchar_t), "char32_t is expected to be greater or equal to wchar_t");
+		static_assert(sizeof(char32_t) >= sizeof(char), "char32_t is expected to be greater or equal to char");
+
 		/* check if the type is a character */
 		template <class Type> struct GetCharNative { using type = void; };
 		template <> struct GetCharNative<char> { using type = char; };
