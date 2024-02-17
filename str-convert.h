@@ -45,9 +45,10 @@ namespace str {
 
 	/*
 	*	Transcode-Mode
-	*		fast: if source and destination are of the same type, dont perform a full decoding, at most a length estimation, else equal to [relaxed]
-	*		relaxed: only check encoding, but do not check for invalid codepoints or overlong utf8-encodings
 	*		strict: ensure every unicode-codepoint is decoded properly and a valid codepoint
+	*		relaxed: only check encoding, but do not check for invalid codepoints or overlong utf8-encodings
+	*		fast: if operation allows for it, perform the fastest operation without checking encoding or codepoint validity,
+	*			but encoding will still be respected, if byproduct of operation allows for it (if no fast operation possible, degrades to relaxed)
 	*/
 	enum class TrMode : uint8_t {
 		fast,
