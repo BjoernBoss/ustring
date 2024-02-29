@@ -23,6 +23,9 @@ namespace str {
 	/* maximum number of characters to potentially be consumed/produced per codepoint */
 	static constexpr size_t MaxEncodeLength = 4;
 
+	/* number of ascii characters */
+	static constexpr size_t AsciiChars = 128;
+
 	/* check if this is a codepoint defined as valid by the unicode standard (does not check internally reserved codes, just overall bounds) */
 	inline constexpr bool ValidCodePoint(char32_t cp) {
 		if (cp < 0 || cp > 0x10ffff)
@@ -99,6 +102,18 @@ namespace str {
 
 			return (i == ExpSize);
 		}
+		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
+		constexpr bool HoldSameValues(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
+			if (ExpSize != ActSize)
+				return false;
+			using LargeType = std::conditional_t<sizeof(ExpType) >= sizeof(ActType), ExpType, ActType>;
+
+			size_t i = 0;
+			while (i < ExpSize && static_cast<LargeType>(expected[i]) == static_cast<LargeType>(actual[i]))
+				++i;
+
+			return (i == ExpSize);
+		}
 
 		/* utf8 test-string: \U0000007f\U0000ff00\U00010000 */
 		template <class Type, size_t Size>
@@ -141,6 +156,12 @@ namespace str {
 			std::conditional_t<detail::IsUtf32(L"\U00010000\U0000ff00"), char32_t, wchar_t>>>;
 		static_assert(!std::is_same_v<detail::WideEquivalence, wchar_t>, "wchar_t is expected to be a unicode encoding");
 #pragma warning(pop)
+
+		static constexpr bool CharHoldsAscii = detail::HoldSameValues(
+			U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
+			U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
+			"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
+			" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177");
 
 		/* extract effective character (char/char8_t/char16_t/char32_t) */
 		template <class Type>
@@ -341,6 +362,12 @@ namespace str {
 			using EffType = detail::EffectiveChar<ChType>;
 			std::tuple<size_t, uint32_t, str::DecResult> res{};
 
+			/* check for the fast way out by the character being an immediate ascii character */
+			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+				if (source[0] >= 0 && source[0] < str::AsciiChars)
+					return { 1, char32_t(source[0]), str::DecResult::valid };
+			}
+
 			/* decode the next codepoint */
 			if constexpr (std::is_same_v<EffType, char>) {
 				/* for multibytes, it will first be decoded to wide-chars (as the standard libraries
@@ -389,6 +416,14 @@ namespace str {
 		constexpr bool WriteCodePoint(auto& sink, char32_t cp) {
 			using EffType = detail::EffectiveChar<ChType>;
 
+			/* check for the fast way out by the character being an immediate ascii character */
+			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+				if (cp >= 0 && cp < str::AsciiChars) {
+					sink.push_back(static_cast<ChType>(cp));
+					return true;
+				}
+			}
+
 			/* check if the codepoint needs to be validated */
 			if (Strict && !str::ValidCodePoint(cp))
 				return false;
@@ -410,6 +445,12 @@ namespace str {
 		constexpr str::LengthOut NextSizeFast(const std::basic_string_view<ChType>& source, bool sourceCompleted) {
 			using EffType = detail::EffectiveChar<ChType>;
 			size_t len = 0;
+
+			/* check for the fast way out by the character being an immediate ascii character */
+			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+				if (source[0] >= 0 && source[0] < str::AsciiChars)
+					return { 1, str::DecResult::valid };
+			}
 
 			/* check what encoding it is and read the size (invalid encodings result in length 0) */
 			if constexpr (std::is_same_v<EffType, char8_t>) {

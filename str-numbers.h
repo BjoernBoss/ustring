@@ -7,6 +7,8 @@
 #include <cinttypes>
 #include <limits>
 #include <cmath>
+#include <utility>
+#include <tuple>
 
 namespace str {
 	/* check if type is non-bool numeric type */
@@ -23,7 +25,9 @@ namespace str {
 		valid,
 		overflow
 	};
+	template <str::IsNumber Type>
 	struct NumParseOut {
+		Type value = 0;
 		size_t consumed = 0;
 		str::NumResult result = str::NumResult::empty;
 	};
@@ -34,9 +38,9 @@ namespace str {
 		size_t expBase = 0;
 
 	public:
-		constexpr FloatRadix(size_t r = 10) : manRadix(r), expRadix(r), expBase(r) {}
-		constexpr FloatRadix(size_t rad, size_t base) : manRadix(rad), expRadix(rad), expBase(base) {}
-		constexpr FloatRadix(size_t man, size_t exp, size_t base) : manRadix(man), expRadix(exp), expBase(base) {}
+		explicit constexpr FloatRadix(size_t r = 10) : manRadix(r), expRadix(r), expBase(r) {}
+		explicit constexpr FloatRadix(size_t rad, size_t base) : manRadix(rad), expRadix(rad), expBase(base) {}
+		explicit constexpr FloatRadix(size_t man, size_t exp, size_t base) : manRadix(man), expRadix(exp), expBase(base) {}
 	};
 	static constexpr str::FloatRadix HexFloat = str::FloatRadix{ 16, 10, 2 };
 
@@ -80,7 +84,7 @@ namespace str {
 					v >>= -bt;
 					bt = 0;
 				}
-				size_t full = (bt / UnitBits), off = (bt % UnitBits);
+				BtType full = (bt / UnitBits), off = (bt % UnitBits);
 
 				/* check if a full group is being set */
 				if (off == 0) {
@@ -107,7 +111,7 @@ namespace str {
 				BtType use = std::max<BtType>(bt, 0);
 
 				/* check if a full group is being fetched (and adjust for negative requests) */
-				size_t full = (use / UnitBits), off = (use % UnitBits);
+				BtType full = (use / UnitBits), off = (use % UnitBits);
 				if (off == 0) {
 					if (bt >= 0)
 						return TType(pBuffer[full]);
@@ -131,7 +135,7 @@ namespace str {
 				}
 
 				/* count the remaining bits (there must be a non-zero bit) */
-				size_t bit = UnitBits;
+				BtType bit = UnitBits;
 				while (((pBuffer[index] >> --bit) & 0x01) == 0)
 					++count;
 				return count;
@@ -147,7 +151,7 @@ namespace str {
 				}
 
 				/* count the remaining bits (there must be a non-zero bit) */
-				size_t bit = 0;
+				BtType bit = 0;
 				while (((pBuffer[index] >> bit++) & 0x01) == 0)
 					++count;
 				return count;
@@ -567,16 +571,16 @@ namespace str {
 				return out;
 			}
 
-			/* return closest float describing the correponsing value, overflow */
+			/* return closest float describing the correponsing value, overflow/underflow */
 			template <class FlType>
-			static std::pair<FlType, bool> ReadFloat(const ThisType& val) {
+			static std::pair<FlType, int8_t> ReadFloat(const ThisType& val) {
 				static_assert(LargeBits <= std::numeric_limits<FlType>::max_exponent && std::numeric_limits<FlType>::min_exponent <= 0, "Exponent of FlType must at least be able to hold one LType");
 				FlType out{};
 
 				/* extract the highest (most relevant) bit such that the mantissa can be positioned to hold the highest bit to the right of the decimal-point */
 				ExpType highest = val.pMantissa.upper();
 
-				/* write all bits to the float (cannot overflow) */
+				/* write all bits to the float (cannot overflow, and ignore underflow) */
 				for (ExpType i = TotalBits - highest - LargeBits; i > -LargeBits; i -= LargeBits) {
 					FlType temp = FlType(val.pMantissa.get<LType>(i));
 					if (temp == 0)
@@ -589,17 +593,19 @@ namespace str {
 				}
 
 				/* compute the final exponent to be applied to the result and check if it has overflown */
-				intptr_t exponent = val.pExponent + TotalBits - highest;
+				ExpType exponent = val.pExponent + TotalBits - highest;
 				if (exponent < 0 && val.pExponent > 0)
 					return { out, true };
 
 				/* check if the exponent can even fit into an integer */
 				if (exponent < std::numeric_limits<int>::min() || exponent > std::numeric_limits<int>::max())
-					return { FlType{}, (exponent > 0) };
+					return { FlType{}, (exponent < 0 ? -1 : 1) };
 
 				/* apply the exponent to the result and check for an overflow */
 				out = std::ldexp(out, static_cast<int>(exponent));
-				return { out, (errno == ERANGE) };
+				if (errno != ERANGE)
+					return { out, 0 };
+				return { out, (exponent < 0 ? -1 : 1) };
 			}
 		};
 
@@ -650,7 +656,7 @@ namespace str {
 			size_t prefixConsumed = 0;
 			bool negative = false;
 		};
-		template <class Type, class ChType>
+		template <class Type, class ChType, class Mode>
 		detail::PrefixParseOut ParseSignAndPrefix(const std::basic_string_view<ChType>& view, bool signOnly) {
 			enum class PrState : uint8_t {
 				preSign,
@@ -662,7 +668,7 @@ namespace str {
 			size_t prefixConsumed = 0;
 			while (true) {
 				/* decode the next character */
-				auto [consumed, cp, result] = str::Decode(view.substr(out.signConsumed + prefixConsumed), true);
+				auto [consumed, cp, result] = str::Decode<Mode>(view.substr(out.signConsumed + prefixConsumed), true);
 				if (result != str::DecResult::valid)
 					return out;
 
@@ -671,10 +677,10 @@ namespace str {
 					if (cp == U'+' || (std::is_signed_v<Type> && cp == U'-')) {
 						out.negative = (cp == U'-');
 						out.signConsumed += consumed;
-						state = PrState::preZero;
 					}
 					if (signOnly)
 						return out;
+					state = PrState::preZero;
 					continue;
 				}
 
@@ -705,51 +711,64 @@ namespace str {
 			}
 		}
 
-		template<class Type, class ChType>
-		std::pair<Type, str::NumParseOut> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
-			static_assert(sizeof(uint64_t) >= sizeof(Type), "Type must be smaller/equal to 64-bit type of corresponding signedness");
-
-			std::conditional_t<std::is_signed_v<Type>, int64_t, uint64_t> value = 0;
+		template<class Type, class ChType, class Mode>
+		std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, const str::DecodeOut& initDec) {
+			Type value = 0;
 			size_t totalConsumed = 0;
 			bool overflow = false;
 
 			/* iterate over the digits and parse them */
-			while (true) {
-				/* decode the next character and check if a valid character has been found */
-				auto [consumed, cp, res] = str::Decode(view.substr(totalConsumed), true);
-				if (res != str::DecResult::valid || cp < 0 || cp >= detail::MaxDigitMap)
-					break;
-
+			str::DecodeOut dec{ initDec };
+			while (dec.result == str::DecResult::valid && dec.cp >= 0 && dec.cp < detail::MaxDigitMap) {
 				/* check if the codepoint is a valid digit */
-				size_t digit = detail::CPDigitMap[cp];
+				size_t digit = detail::CPDigitMap[dec.cp];
 				if (digit >= radix)
 					break;
 
 				/* update the value and consumed characters */
 				auto old = value;
 				value = value * radix + digit;
-				totalConsumed += consumed;
+				totalConsumed += dec.consumed;
 
-				/* check if the value has overflown or apply the sign */
-				if constexpr (std::is_signed_v<Type>) {
-					if ((old > 0) != (value > 0))
-						overflow = true;
-					else if (old == 0 && value != 0 && negative)
-						value = -value;
-				}
-				else if (old > value)
+				/* check if the value has overflown (can only grow in one direction) */
+				if (old > value)
 					overflow = true;
-			}
 
-			/* check if the destination can hold the value and clamp it */
-			if (value < std::numeric_limits<Type>::min() || value > std::numeric_limits<Type>::max())
+				/* decode the next character */
+				dec = str::Decode<Mode>(view.substr(totalConsumed), true);
+			}
+			return { value, totalConsumed, overflow };
+		}
+
+		template<class Type, class ChType, class Mode>
+		str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
+			using LsType = int64_t;
+			using LuType = uint64_t;
+
+			static_assert(sizeof(LuType) >= sizeof(Type), "Type must be smaller/equal to 64-bit type of corresponding signedness");
+
+			/* parse the raw unsigned integer */
+			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<LuType, ChType, Mode>(view, radix, str::Decode<Mode>(view, true));
+
+			/* check if the destination can hold the value and setup the output value */
+			str::NumParseOut<Type> out{};
+			if constexpr (std::is_signed_v<Type>) {
+				if (value > (negative ? LuType(-std::numeric_limits<Type>::min()) : LuType(std::numeric_limits<Type>::max()))) {
+					out.value = (negative ? std::numeric_limits<Type>::min() : std::numeric_limits<Type>::max());
+					overflow = true;
+				}
+				else if (negative)
+					out.value = static_cast<Type>(-LsType(value));
+				else
+					out.value = static_cast<Type>(LsType(value));
+			}
+			else if (value > std::numeric_limits<Type>::max())
 				overflow = true;
-			if (overflow)
-				value = (negative ? std::numeric_limits<Type>::min() : std::numeric_limits<Type>::max());
+			else
+				out.value = static_cast<Type>(value);
 
 			/* finalize the output structure (string cannot be empty, or will only be empty if a prefix
 			*	has already been parsed, in which case the empty string will be considered an error as well) */
-			str::NumParseOut out{};
 			out.consumed = totalConsumed;
 			if (totalConsumed == 0)
 				out.result = str::NumResult::invalid;
@@ -757,75 +776,63 @@ namespace str {
 				out.result = str::NumResult::overflow;
 			else
 				out.result = str::NumResult::valid;
-			return { static_cast<Type>(value), out };
+			return out;
 		}
 
-		template<class Type, class ChType>
-		std::pair<Type, str::NumParseOut> ParseFloat(const std::basic_string_view<ChType>& view, const str::FloatRadix& radix, bool negative) {
-			using FlType = std::conditional_t<(sizeof(Type) < sizeof(uint64_t)), detail::LargeFloat<uint32_t, uint64_t, 1>, detail::LargeFloat<uint32_t, uint64_t, 2>>;
+		template<class Type, class ChType, class Mode>
+		str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, const str::FloatRadix& radix, bool negative) {
+			using SType = uint32_t;
+			using LsType = int64_t;
+			using LuType = uint64_t;
+			using FlType = std::conditional_t<(sizeof(Type) <= sizeof(LuType)), detail::LargeFloat<SType, LuType, 1>, detail::LargeFloat<SType, LuType, 2>>;
+
 			static_assert(std::numeric_limits<Type>::digits <= FlType::TotalBits, "Type must have mantissa smaller than the mantissa of large float");
 			static_assert(std::numeric_limits<Type>::radix == 2, "Type must use exponent-base two");
-			static_assert(std::numeric_limits<Type>::min_exponent >= std::numeric_limits<typename FlType::ExpType>::min() && std::numeric_limits<Type>::max_exponent <= std::numeric_limits<typename FlType::ExpType>::max(), "Type must have an exponent included by the large float's exponent");
+			static_assert(std::numeric_limits<Type>::min_exponent >= std::numeric_limits<typename FlType::ExpType>::min() && std::numeric_limits<Type>::max_exponent <= std::numeric_limits<typename FlType::ExpType>::max(),
+				"Type must have an exponent included by the large float's exponent");
 
 			FlType flVal{};
-			int64_t exponent = 0, mantissaOffset = 0;
-			uint64_t mantissa = 0, magnitude = 1;
 			size_t totalConsumed = 0;
-			enum class FlState : uint8_t {
-				preNumber,
-				prePoint,
-				postPoint,
-				preExpSign,
-				preExpNeg,
-				preExpPos,
-				inExpNeg,
-				inExpPos
-			} state = FlState::preNumber;
 			enum class OfState : uint8_t {
 				none,
 				positive,
 				negative
 			} overflow = OfState::none;
-			bool isNull = true, expDigit = false;
+
+			/* decode the initial character of the mantissa */
+			str::DecodeOut dec = str::Decode<Mode>(view, true);
 
 			/* compute the maximum number of digits to consider for the mantissa (approximate by computing the number
 			*	of digits required to hold the given mantissa's number of bits; cannot overflow the large-float exponent,
 			*	as the requirement for the mantissa itself ensures that the exponent can hold the given bits) */
-			size_t digitsLeft = size_t(std::ceil(std::numeric_limits<Type>::digits / detail::LogBase2[radix.manRadix]));
+			size_t digitsLeft = size_t(std::ceil(std::numeric_limits<Type>::digits / detail::LogBase2[radix.manRadix])) + 1;
+			LuType mantissa = 0, magnitude = 1;
 
-			/* iterate over the digits and parse the mantissa/exponent */
-			while (true) {
-				/* decode the next character and check if a valid character has been found */
-				auto [consumed, cp, res] = str::Decode(view.substr(totalConsumed), true);
-				if (res != str::DecResult::valid || cp < 0)
-					break;
+			/* parse the entire mantissa (integer component and fractional part) */
+			LsType dotOffset = 0;
+			bool inFraction = false, hasValue = false;
+			while (dec.result == str::DecResult::valid && dec.cp >= 0) {
+				size_t digit = 0;
 
-				/* check if the character is a digit */
-				if (cp < detail::MaxDigitMap && detail::CPDigitMap[cp] < (expDigit ? radix.expRadix : radix.manRadix)) {
-					size_t digit = detail::CPDigitMap[cp];
-
-					/* check if the start of the number has been encountered or the start of the exponent */
-					if (state == FlState::preNumber)
-						state = FlState::prePoint;
-					else if (state == FlState::preExpPos || state == FlState::preExpSign)
-						state = FlState::inExpPos;
-					else if (state == FlState::preExpNeg)
-						state = FlState::inExpNeg;
-
-					/* update the shift to the mantissa-counter, depending on the digits after the decimal-point or the ignored digits before the decimal-point */
-					if (state == FlState::prePoint && digitsLeft == 0) {
-						if (++mantissaOffset < 0)
-							overflow = OfState::positive;
-					}
-					else if (state == FlState::postPoint && digitsLeft > 0) {
-						if (--mantissaOffset > 0)
+				/* extract the digit or check if its the dot */
+				if (dec.cp >= detail::MaxDigitMap || (digit = detail::CPDigitMap[dec.cp]) >= radix.manRadix) {
+					if (dec.cp != U'.' || inFraction)
+						break;
+					inFraction = true;
+				}
+				else {
+					/* update the dot-offset as either the ignored digits of the integer part or the considered digits of the fractional part */
+					if (inFraction) {
+						if (digitsLeft > 0 && --dotOffset == 0)
 							overflow = OfState::negative;
 					}
+					else if (digitsLeft == 0 && ++dotOffset == 0)
+						overflow = OfState::positive;
 
-					/* update the mantissa (only if further digits should be consumed and the value is not null anymore) */
-					if ((state == FlState::prePoint || state == FlState::postPoint) && digitsLeft > 0 && (!isNull || cp != U'0')) {
+					/* check if an actual digit has been encountered and add it to the mantissa-accumulation */
+					if (digitsLeft > 0 && (hasValue || dec.cp != U'0')) {
 						--digitsLeft;
-						isNull = false;
+						hasValue = true;
 						mantissa = radix.manRadix * mantissa + digit;
 
 						/* check if the value should be flushed to the large float */
@@ -835,76 +842,65 @@ namespace str {
 							magnitude = 1;
 						}
 					}
-
-					/* update the exponent (only if there has not occurred an overflow yet and the mantissa is not null) */
-					else if ((state == FlState::inExpPos || state == FlState::inExpNeg) && overflow == OfState::none && !isNull) {
-						int64_t old = exponent;
-						if (state == FlState::inExpPos)
-							exponent = radix.expRadix * exponent + digit;
-						else
-							exponent = radix.expRadix * exponent - digit;
-
-						/* check if an overflow occurred (exponent can only grow in one direction) */
-						if (old != 0 && (old > 0) != (exponent > 0))
-							overflow = (old < 0 ? OfState::negative : OfState::positive);
-					}
 				}
 
-				/* check if the exponent sign has been encountered */
-				else if ((cp == U'+' || cp == U'-') && state == FlState::preExpSign)
-					state = (cp == U'-' ? FlState::preExpNeg : FlState::preExpPos);
-
-				/* check if the decimal point has been encountered */
-				else if (cp == U'.' && (state == FlState::preNumber || state == FlState::prePoint))
-					state = FlState::postPoint;
-
-				/* check if the exponent indicator has been encountered (no need to check if the exponent-indicator
-				*	might be a digit, as it would otherwise already have been handled as a digit) */
-				else if ((cp == U'p' || cp == U'P' || cp == U'e' || cp == U'E' || cp == U'^') && (state == FlState::prePoint || state == FlState::postPoint)) {
-					state = FlState::preExpSign;
-					expDigit = true;
-				}
-
-				/* no valid character has been encountered */
-				else
-					break;
-
-				/* mark the character as consumed */
-				totalConsumed += consumed;
+				/* decode the next character */
+				dec = str::Decode<Mode>(view.substr(totalConsumed += dec.consumed), true);
 			}
 
-			/* check if a valid final-state has been reached (string cannot be empty, or will only be empty if a
+			/* check if an invalid mantissa has been encountered (string cannot be empty, or will only be empty if a
 			*	prefix has already been parsed, in which case the empty string will be considered an error as well) */
-			if (state == FlState::preNumber || state == FlState::preExpSign || state == FlState::preExpNeg || state == FlState::preExpPos)
-				return { Type{}, str::NumParseOut{ totalConsumed, str::NumResult::invalid } };
-
-			/* check if the mantissa is null, in which case null can just be returned */
-			if (isNull)
-				return { Type{}, str::NumParseOut{ totalConsumed,str::NumResult::valid } };
+			if (totalConsumed == 0)
+				return str::NumParseOut<Type>{ (negative ? -Type(0) : Type(0)), totalConsumed, str::NumResult::invalid };
 
 			/* flush the remainder to the large float (cannot overflow due to the maximum number of digits) */
 			if (magnitude > 1)
 				flVal = FlType::MulAdd(flVal, magnitude, mantissa);
 
+			/* check if an exponent has been detected and parse it */
+			LsType exponent = 0;
+			if (dec.result == str::DecResult::valid && (dec.cp == U'p' || dec.cp == U'P' || dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
+				bool expNegative = false;
+
+				/* extract a potential sign of the prefix */
+				dec = str::Decode<Mode>(view.substr(totalConsumed += dec.consumed), true);
+				if (dec.result == str::DecResult::valid && (dec.cp == U'+' || dec.cp == U'-')) {
+					expNegative = (dec.cp == U'-');
+					dec = str::Decode<Mode>(view.substr(totalConsumed += dec.consumed), true);
+				}
+
+				/* parse the raw unsigned integer of the exponent and check if an invalid exponent has been encountered */
+				auto [value, consumed, ov] = detail::ParseRawInteger<LuType, ChType, Mode>(view.substr(totalConsumed), radix.expRadix, dec);
+				if (consumed == 0)
+					return str::NumParseOut<Type>{ (negative ? -Type(0) : Type(0)), totalConsumed, str::NumResult::invalid };
+				totalConsumed += consumed;
+
+				/* compute the final exponent and check if an overflow occurred */
+				if (!ov && value <= (expNegative ? LuType(-std::numeric_limits<LsType>::min()) : LuType(std::numeric_limits<LsType>::max())))
+					exponent = (expNegative ? -LsType(value) : LsType(value));
+				else if (overflow != OfState::none)
+					overflow = (expNegative ? OfState::negative : OfState::positive);
+			}
+
 			/* apply the shift to the exponent, based on the encountered decimal digits or perform a separate mul-power, in case of
 			*	the exponent-base not matching the mantissa-radix, as the post-point digits otherwise have a different weighting) */
-			if (mantissaOffset != 0 && overflow == OfState::none) {
+			if (dotOffset != 0 && overflow == OfState::none) {
 				bool overflown = false;
 
 				if (radix.expBase == radix.manRadix) {
-					int64_t old = exponent;
-					exponent += mantissaOffset;
-					overflown = (mantissaOffset < 0 ? (old <= exponent) : (old >= exponent));
+					LsType old = exponent;
+					exponent += dotOffset;
+					overflown = (dotOffset < 0 ? (old <= exponent) : (old >= exponent));
 				}
 				else {
-					auto [num, ov] = FlType::MulPow(flVal, FlType{ radix.manRadix }, mantissaOffset);
+					auto [num, ov] = FlType::MulPow(flVal, FlType{ radix.manRadix }, dotOffset);
 					flVal = num;
 					overflown = ov;
 				}
 
 				/* check if an overflow occurred */
 				if (overflown)
-					overflow = (mantissaOffset < 0 ? OfState::negative : OfState::positive);
+					overflow = (dotOffset < 0 ? OfState::negative : OfState::positive);
 			}
 
 			/* apply the exponent to the accumulated mantissa and check if an overflow occurred */
@@ -918,19 +914,17 @@ namespace str {
 			/* read the final float value */
 			if (overflow == OfState::none) {
 				auto [value, ov] = FlType::ReadFloat<Type>(flVal);
-				if (!ov) {
+				if (ov == 0) {
 					if (negative)
 						value = -value;
-					return { value, str::NumParseOut{ totalConsumed, str::NumResult::valid } };
+					return str::NumParseOut{ value, totalConsumed, str::NumResult::valid };
 				}
-				overflow = OfState::positive;
+				overflow = (ov < 0 ? OfState::negative : OfState::positive);
 			}
 
 			/* setup the overflown value and return the response */
 			Type value = (overflow == OfState::negative ? Type(0.0) : std::numeric_limits<Type>::infinity());
-			if (negative)
-				value = -value;
-			return { value, str::NumParseOut{ totalConsumed, str::NumResult::overflow } };
+			return str::NumParseOut{ (negative ? -value : value), totalConsumed, str::NumResult::overflow };
 		}
 	}
 
@@ -939,46 +933,46 @@ namespace str {
 	*
 	*	r: any valid digit for given radix (lower or upper case)
 	*	integer: [\+\-]?(0[bBqQoOdDxX])?r+
-	*	float: [\+\-]?(0[bBqQoOdDxX])?(r+|(r*\.r*))([eEpP^][\+\-]?r+)?
+	*	float: [\+\-]?(0[bBqQoOdDxX])?(r*(r|\.)r*)([eEpP^][\+\-]?r+)?
 	*/
-	template <str::IsNumber Type>
-	std::pair<Type, str::NumParseOut> ParseNum(const str::AnyString auto& source, size_t radix = 10, bool noPrefix = false) {
+	template <str::IsNumber Type, str::IsMode Mode = str::Relaxed>
+	str::NumParseOut<Type> ParseNum(const str::AnyString auto& source, size_t radix = 10, bool noPrefix = false) {
 		using ChType = str::StringChar<decltype(source)>;
 
 		/* check if the string is empty */
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
-			return { Type{}, str::NumParseOut{} };
+			return str::NumParseOut<Type>{};
 
 		/* ensure the radix is valid */
 		if (radix < 2 || radix > detail::MaxRadix)
 			radix = 10;
 
 		/* parse the sign and prefix and check if the parsed prefix is valid */
-		detail::PrefixParseOut prefix = detail::ParseSignAndPrefix<Type, ChType>(view, noPrefix);
+		detail::PrefixParseOut prefix = detail::ParseSignAndPrefix<Type, ChType, Mode>(view, noPrefix);
 		if (prefix.radix != radix)
 			prefix.prefixConsumed = 0;
 		size_t prefixSize = prefix.prefixConsumed + prefix.signConsumed;
 
 		/* parse the integer or float and add the sign/prefix consumed characters to the overall consumed characters */
-		std::pair<Type, str::NumParseOut> out{};
+		NumParseOut<Type> out{};
 		if constexpr (std::is_integral_v<Type>)
-			out = detail::ParseInteger<Type, ChType>(view.substr(prefixSize), radix, prefix.negative);
+			out = detail::ParseInteger<Type, ChType, Mode>(view.substr(prefixSize), radix, prefix.negative);
 		else
-			out = detail::ParseFloat<Type, ChType>(view.substr(prefixSize), str::FloatRadix{ radix, radix, radix }, prefix.negative);
-		out.second.consumed += prefixSize;
+			out = detail::ParseFloat<Type, ChType, Mode>(view.substr(prefixSize), str::FloatRadix{ radix, radix, radix }, prefix.negative);
+		out.consumed += prefixSize;
 		return out;
 	}
 
 	/* Parse floats but specifically specify the radix/base to be used for the corresponding float */
-	template <str::IsFloat Type>
-	std::pair<Type, str::NumParseOut> ParseNum(const str::AnyString auto& source, const str::FloatRadix& radix, bool noPrefix = false) {
+	template <str::IsFloat Type, str::IsMode Mode = str::Relaxed>
+	str::NumParseOut<Type> ParseNum(const str::AnyString auto& source, const str::FloatRadix& radix, bool noPrefix = false) {
 		using ChType = str::StringChar<decltype(source)>;
 
 		/* check if the string is empty */
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
-			return { Type{}, str::NumParseOut{} };
+			return str::NumParseOut<Type>{};
 
 		/* ensure the radix is valid */
 		str::FloatRadix actual{ radix };
@@ -990,20 +984,20 @@ namespace str {
 			actual.expBase = 10;
 
 		/* parse the sign and prefix and check if the parsed prefix is valid */
-		detail::PrefixParseOut prefix = detail::ParseSignAndPrefix<Type, ChType>(view, noPrefix);
+		detail::PrefixParseOut prefix = detail::ParseSignAndPrefix<Type, ChType, Mode>(view, noPrefix);
 		if (prefix.radix != actual.manRadix)
 			prefix.prefixConsumed = 0;
 		size_t prefixSize = prefix.prefixConsumed + prefix.signConsumed;
 
 		/* parse the float and add the sign/prefix consumed characters to the overall consumed characters */
-		std::pair<Type, str::NumParseOut> out = detail::ParseFloat<Type, ChType>(view.substr(prefixSize), actual, prefix.negative);
-		out.second.consumed += prefixSize;
+		str::NumParseOut<Type> out = detail::ParseFloat<Type, ChType, Mode>(view.substr(prefixSize), actual, prefix.negative);
+		out.consumed += prefixSize;
 		return out;
 	}
 
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)
 	*	and return defRadix for invalid prefixes or the radix (prefixes: [0b/0q/0o/0d/0x]) */
-	template <str::IsNumber Type>
+	template <str::IsNumber Type, str::IsMode Mode = str::Relaxed>
 	size_t ParsePrefix(const str::AnyString auto& source, size_t defRadix = 10) {
 		using ChType = str::StringChar<decltype(source)>;
 
@@ -1013,7 +1007,7 @@ namespace str {
 			return defRadix;
 
 		/* parse the sign and prefix and return the parsed radix */
-		detail::PrefixParseOut out = detail::ParseSignAndPrefix<Type, ChType>(view, false);
+		detail::PrefixParseOut out = detail::ParseSignAndPrefix<Type, ChType, Mode>(view, false);
 		return (out.radix == 0 ? defRadix : out.radix);
 	}
 
