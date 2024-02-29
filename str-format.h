@@ -8,6 +8,7 @@
 #include <charconv>
 #include <utility>
 #include <vector>
+#include <limits>
 
 namespace str {
 
@@ -390,52 +391,181 @@ namespace str {
 	}
 
 	/*
-	*	parse a formatting-padding where:
-	*	[.] changes the padding character to '.'
-	*	[0] changes the padding character for numbers to '0'
-	*	[-] changes the padding side to trailing (discarded for '0'-padding)
-	*	[\d+] defines the padding length (first zero, including leading zeros, interpreted as padding character change)
+	*	parse standard formatting-string
+	*
+	*	padding: (.)?(<|^|>)?(\d+)(\.\d+)?(,\d+)
+	*	[0]: fill-character (optional; default: ' ')
+	*	[1]: fill-side (optional; leading,center,trailing; default: '<')
+	*	[2]: min-size (if not found, no padding used; cannot be zero; default: 0)
+	*	[3]: precision (optional; if type allows for it; default: 0)
+	*	[4]: max-size (optional; will be increased if smaller than min-size; default: max-size)
+	*	numbers might overwrite padding-side if padding-character is '0'
+	*
+	*	nested: (.*)(|(.*))?
+	*	[0]: normal formatting considered (must exist)
+	*	[1]: optional nested formatting (optional; if type allows for it; default: '')
+	*
+	*	options: additional options passed in, of which the first occurrence counts
+	*		chars[n] = option[n][...] or 0, if not found
+	*		chars[sizeof(options)] is padding-character
+	*
+	*	strict: (!|\?)? if contains any of them, should perform any char-formatting as strict
+	*	[0]: If group == '?', use '?' as replacement character for invalid encodings, else no replacement
 	*/
-	struct PaddingStyle {
-		size_t length = 0;
-		char32_t character = U' ';
-		bool trailing = false;
+	enum class PaddingSide : uint8_t {
+		leading,
+		trailing,
+		center
 	};
-	inline str::PaddingStyle ParsePadding(const std::u32string_view& fmt, bool number) {
-		str::PaddingStyle out{};
-		bool charFound = false, lengthFound = false, inLength = false;
+	template <size_t OptCount>
+	struct FormatParseOut {
+		std::u32string_view nested;
+		char32_t chars[OptCount + 1] = { 0 };
+		size_t length = 0;
+		size_t maximum = std::numeric_limits<size_t>::max();
+		size_t precision = 0;
+		str::PaddingSide side = str::PaddingSide::leading;
+		bool strict = false;
+		bool replace = false;
+	};
+	template <size_t OptCount>
+	inline str::FormatParseOut<OptCount> ParseFormatting(const std::u32string_view& fmt, bool precision, bool nested, const std::u32string_view(&options)[OptCount]) {
+		str::FormatParseOut<OptCount> out{};
+		size_t size = 0;
 
-		/* check if the format contains a number and parse it (leading zeros are used by the padding character) */
-		for (size_t i = 0; i < fmt.size(); ++i) {
-			/* check if the padding character is being overwritten */
-			if (!inLength && !charFound && (fmt[i] == U'.' || (number && fmt[i] == U'0'))) {
-				out.character = fmt[i];
-				charFound = true;
-				continue;
+		/* check if the formatting may contain a nested formatting-string and look it up */
+		if (nested) {
+			while (size < fmt.size() && fmt[size] != U'|')
+				++size;
+			out.nested = fmt.substr(size + 1);
+		}
+		else
+			size = fmt.size();
+
+		/* look for the start of the padding (first digit greater than 0) */
+		size_t start = 0;
+		for (; start < size; ++start) {
+			if (fmt[start] >= U'1' && fmt[start] <= U'9')
+				break;
+		}
+		size_t end = start;
+
+		/* check if a number has been found and parse the numbers */
+		if (start < size) {
+			/* parse the length of the padding as well as the precision and maximum length */
+			for (size_t i = 0; i < 3; ++i) {
+				/* check if another number should be parsed */
+				bool nextPrecision = false;
+				if (i > 0) {
+					if (end + 1 >= size || fmt[end + 1] < U'1' || fmt[end + 1] > U'9')
+						break;
+					if (fmt[end] == U'.' && i == 1 && precision)
+						nextPrecision = true;
+					else if (fmt[end] != U',')
+						break;
+					++end;
+				}
+
+				/* parse the next number */
+				size_t number = 0;
+				for (; end < size; ++end) {
+					if (fmt[end] < U'0' || fmt[end] > U'9')
+						break;
+					number = number * 10 + static_cast<size_t>(fmt[end] - U'0');
+				}
+
+				/* assign the number to the right property */
+				if (i == 0)
+					out.length = number;
+				else if (nextPrecision)
+					out.precision = number;
+				else {
+					out.maximum = std::max<size_t>(out.length, number);
+					break;
+				}
 			}
 
-			/* check if the first digit of a number has been encountered */
-			if (!lengthFound && (fmt[i] >= U'0' && fmt[i] <= U'9')) {
-				lengthFound = true;
-				inLength = true;
+			/* check if the padding side has been overwritten */
+			if (start > 0 && (fmt[start - 1] == U'<' || fmt[start - 1] == U'^' || fmt[start - 1] == U'>')) {
+				--start;
+				if (fmt[start] == U'<')
+					out.side = str::PaddingSide::leading;
+				else if (fmt[start] == U'^')
+					out.side = str::PaddingSide::center;
+				else
+					out.side = str::PaddingSide::trailing;
 			}
 
-			/* check if the number is currently being processed */
-			if (inLength && fmt[i] >= U'0' && fmt[i] <= U'9') {
-				out.length = out.length * 10 + static_cast<size_t>(fmt[i] - U'0');
-				continue;
-			}
-			inLength = false;
-
-			/* check if the trailing attribute is being overwritten */
-			if (fmt[i] == U'-')
-				out.trailing = true;
+			/* check if the padding character has been overwritten */
+			if (start > 0)
+				out.chars[OptCount] = fmt[--start];
 		}
 
-		/* sanitize the values */
-		out.trailing = (out.trailing && out.character != U'0');
+		/* iterate over the remaining characters and check if they pick any of the options */
+		for (size_t i = 0; i < size; ++i) {
+			/* check if the current index lies within the padding-string */
+			if (i >= start && i < end) {
+				i = end - 1;
+				continue;
+			}
+
+			/* check if the character is the strict/strict-with-replacement option */
+			if (!out.strict && (fmt[i] == U'!' || fmt[i] == U'?')) {
+				out.strict = true;
+				out.replace = (fmt[i] == U'?');
+				continue;
+			}
+
+			/* check if the character is one of the options */
+			for (size_t j = 0; j < OptCount; ++j) {
+				if (out.chars[j] != 0 || options[j].find(fmt[i]) == std::u32string_view::npos)
+					continue;
+				out.chars[j] = fmt[i];
+				break;
+			}
+		}
 		return out;
 	}
+
+	/* write the string and optionally enforce the limitations and perform the padding */
+	template <bool Format, str::IsChar ChType, size_t OptCount>
+	void WriteFormattedString(const str::FormatParseOut<OptCount>& parsed, str::AnySink auto& sink, const std::basic_string_view<ChType>& str) {
+		/* limit the string to the boundary */
+		std::basic_string_view<ChType> limited = str.substr(0, Format ? parsed.maximum : str.size());
+
+		/* compute the padding characters to be written */
+		size_t leading = 0, trailing = 0;
+		if (Format && limited.size() < parsed.length) {
+			size_t left = parsed.length - limited.size();
+
+			if (parsed.side == str::PaddingSide::leading)
+				leading = left;
+			else if (parsed.side == str::PaddingSide::center)
+				leading = (left / 2);
+			trailing = left - leading;
+		}
+
+		/* write the leading-padding characters */
+		if constexpr (Format) {
+			for (size_t i = 0; i < leading; ++i)
+				str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
+		}
+
+		/* write the string itself */
+		if (parsed.strict)
+			str::ConvertInto<str::Strict>(sink, limited, parsed.replace ? '?' : 0);
+		else
+			str::ConvertInto<str::Copy>(sink, limited, 0);
+
+		/* write the trailing-padding characters */
+		if constexpr (Format) {
+			for (size_t i = 0; i < trailing; ++i)
+				str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
+		}
+	}
+
+
+
 
 	template <str::AnyString Type>
 	struct Formatter<Type> {
@@ -451,47 +581,43 @@ namespace str {
 	/*
 	*	padding-formatting rules for numbers
 	*	[bB] [qQ] [oO] [dD] [xX] for base and casing
-	*	[pP] for prefix (of 0 and given type) and casing
+	*	[#] for prefix (of 0 and given type)
 	*	[ +] for replacement character if number is not signed
 	*/
 	template <std::integral Type> struct Formatter<Type> {
 		constexpr void operator()(Type t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char buffer[64] = { 0 };
 
-			/* parse the current padding style */
-			str::PaddingStyle pad = str::ParsePadding(fmt, true);
+			/* parse the formatting string */
+			str::FormatParseOut<3> parsed = str::ParseFormatting(fmt, false, false, { U"bBqQoOdDxX", U"#", U"+ " });
 
-			/* extract the base to be used and check if a prefix should be added as well as if a sign should be added or a space (use first occurrence) */
+			/* extract the base to be used */
 			int base = 10;
-			bool baseFound = false, baseUppercase = false;
-			uint32_t signChar = 0, prefixChar = 0;
-			for (size_t i = 0; i < fmt.size(); ++i) {
-				/* check if a base character has been encountered */
-				if (!baseFound) {
-					if (baseFound = (fmt[i] == U'x' || fmt[i] == U'X')) {
-						base = 16;
-						baseUppercase = (fmt[i] == U'X');
-					}
-					else if (baseFound = (fmt[i] == U'o' || fmt[i] == U'O'))
-						base = 8;
-					else if (baseFound = (fmt[i] == U'd' || fmt[i] == U'D'))
-						base = 10;
-					else if (baseFound = (fmt[i] == U'b' || fmt[i] == U'B'))
-						base = 2;
-					else if (baseFound = (fmt[i] == U'q' || fmt[i] == U'Q'))
-						base = 4;
-				}
+			switch (parsed.chars[0]) {
+			case U'b':
+			case U'B':
+				base = 2;
+				break;
+			case U'q':
+			case U'Q':
+				base = 4;
+				break;
+			case U'o':
+			case U'O':
+				base = 8;
+				break;
+			case U'd':
+			case U'D':
+				base = 10;
+				break;
+			case U'x':
+			case U'X':
+				base = 16;
+				break;
+			};
+			bool baseUppercase = (parsed.chars[0] == U'X');
 
-				/* check if a prefix character has been encountered */
-				if (prefixChar == 0 && (fmt[i] == U'p' || fmt[i] == U'P'))
-					prefixChar = fmt[i];
-
-				/* check if a sign character has been found */
-				if (signChar == 0 && (fmt[i] == U' ' || fmt[i] == U'+'))
-					signChar = fmt[i];
-			}
-
-			/* remove the sign of the number */
+			/* remove the sign of the number (as it might have to be inserted before the padding) */
 			bool sign = (t < 0);
 			if constexpr (std::is_signed_v<Type>) {
 				if (sign)
@@ -505,41 +631,29 @@ namespace str {
 				t /= base;
 			} while (t != 0);
 
-			/* compute the effective size of the number to determine the number of padding to be added */
-			size_t effective = (std::end(buffer) - start);
-			if (sign || signChar != 0)
-				++effective;
-			if (prefixChar != 0)
-				effective += 2;
-
 			/* write the sign and prefix to the buffer (no matter if the '0'-padding needs to be inserted inbetween) */
 			char* prefix = start;
-			if (prefixChar != 0) {
-				*(--prefix) = (prefixChar == U'P' ? "__B_Q___O_D_____X" : "__b_q___o_d_____x")[base];
+			if (parsed.chars[1] == U'#') {
+				*(--prefix) = "__b_q___o_d_____x"[base];
 				*(--prefix) = '0';
 			}
 			if (sign)
 				*(--prefix) = '-';
-			else if (signChar != 0)
-				*(--prefix) = (signChar == U'+' ? '+' : ' ');
+			else if (parsed.chars[2] != 0)
+				*(--prefix) = (parsed.chars[2] == U'+' ? '+' : ' ');
+			size_t total = (std::end(buffer) - prefix);
 
-			/* check if the prefix needs to be written before the padding */
-			if (pad.trailing || pad.character == U'0')
-				str::ConvertInto(sink, std::string_view{ prefix, start });
+			/* check if this is the special case of the 0 padding, in which case the prefix has to be written first */
+			if (parsed.chars[3] == U'0' && total < parsed.maximum) {
+				str::WriteFormattedString<false>(parsed, sink, std::string_view{ prefix, start });
+				for (size_t i = total; i < parsed.length; ++i)
+					str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ U"0" });
+				str::WriteFormattedString<false>(parsed, sink, std::string_view{ start, std::end(buffer) });
+			}
 
-			/* check if the number needs to be written next */
-			if (pad.trailing)
-				str::ConvertInto(sink, std::string_view{ start, std::end(buffer) });
-
-			/* write the padding to the output */
-			for (size_t i = effective; i < pad.length; ++i)
-				str::EncodeInto(sink, pad.character);
-
-			/* check if the prefix and number have to be added */
-			if (!pad.trailing && pad.character != U'0')
-				str::ConvertInto(sink, std::string_view{ prefix, start });
-			if (!pad.trailing)
-				str::ConvertInto(sink, std::string_view{ start, std::end(buffer) });
+			/* write the entire formatted string out */
+			else
+				str::WriteFormattedString<true>(parsed, sink, std::string_view{ prefix, total });
 		}
 	};
 
@@ -613,20 +727,20 @@ namespace str {
 				break;
 			}
 
-			/* parse the padding */
-			str::PaddingStyle pad = str::ParsePadding(fmt, (len == 1));
+			///* parse the padding */
+			//str::PaddingStyle pad = str::ParsePadding(fmt, (len == 1));
 
-			/* check if the string needs to be added before the padding */
-			if (pad.trailing)
-				str::ConvertInto(sink, std::basic_string_view{ str, len });
+			///* check if the string needs to be added before the padding */
+			//if (pad.trailing)
+			//	str::ConvertInto(sink, std::basic_string_view{ str, len });
 
-			/* add the padding */
-			for (size_t i = len; i < pad.length; ++i)
-				str::ConvertInto(sink, std::basic_string_view{ &pad.character, 1 });
+			///* add the padding */
+			//for (size_t i = len; i < pad.length; ++i)
+			//	str::ConvertInto(sink, std::basic_string_view{ &pad.character, 1 });
 
-			/* check if the string needs to be added after the padding */
-			if (!pad.trailing)
-				str::ConvertInto(sink, std::basic_string_view{ str, len });
+			///* check if the string needs to be added after the padding */
+			//if (!pad.trailing)
+			//	str::ConvertInto(sink, std::basic_string_view{ str, len });
 		}
 	};
 }

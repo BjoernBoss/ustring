@@ -93,7 +93,7 @@ namespace str {
 
 	/* small stack-buffered string, to be appended to, for intermediate/temporary value building, not null-terminated
 	*	Implements: str::IsString, str::IsSink
-	*	If capacity is negative any values written over the buffer-capacity are discarded, otherwise an exception is thrown) */
+	*	If capacity is negative any values written over the buffer-capacity are discarded, otherwise an exception is thrown */
 	template <str::IsChar ChType, intptr_t Capacity>
 		requires (Capacity != 0)
 	class Small {
@@ -140,9 +140,6 @@ namespace str {
 		constexpr const ChType& operator[](size_t index) const {
 			return pBuffer[index];
 		}
-		constexpr ChType& operator[](size_t index) {
-			return pBuffer[index];
-		}
 		constexpr operator std::basic_string_view<ChType>() const {
 			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
 		}
@@ -175,19 +172,10 @@ namespace str {
 		constexpr const ChType* data() const {
 			return pBuffer;
 		}
-		constexpr ChType* data() {
-			return pBuffer;
-		}
 		constexpr const ChType* begin() const {
 			return pBuffer;
 		}
-		constexpr ChType* begin() {
-			return pBuffer;
-		}
 		constexpr const ChType* end() const {
-			return (pBuffer + pSize);
-		}
-		constexpr ChType* end() {
 			return (pBuffer + pSize);
 		}
 		constexpr void clear() {
