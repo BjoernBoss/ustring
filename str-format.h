@@ -176,7 +176,7 @@ namespace str {
 		}
 
 		template <class Arg, class... Args>
-		void Append(auto& sink, const Arg& arg, const Args&... args) {
+		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
 			str::Formatter<Arg>{}(arg, sink, std::u32string_view{});
 			if constexpr (sizeof...(args) > 0)
 				detail::Append<Args...>(sink, args...);
@@ -279,7 +279,7 @@ namespace str {
 		return str::FormatInto<Mode>(out, fmt, args...);
 	}
 
-	/* format the arguments to a string of the destination character-type (returning std::basic_string) */
+	/* format the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity, str::IsMode Mode = str::Relaxed>
 	constexpr str::Small<ChType, Capacity> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
@@ -300,7 +300,7 @@ namespace str {
 		return str::BuildInto(out, args...);
 	}
 
-	/* build the arguments to a string of the destination character-type (returning std::basic_string) */
+	/* build the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
 	constexpr str::Small<ChType, Capacity> Build(const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
@@ -329,7 +329,7 @@ namespace str {
 		return str::Format<char32_t, Mode>(fmt, args...);
 	}
 
-	/* convenience for fast formatting to a str::Small */
+	/* convenience for fast formatting to a str::Small<Capacity> */
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
 	constexpr str::ChSmall<Capacity> ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		return str::Format<char, Capacity, Mode>(fmt, args...);
@@ -368,7 +368,7 @@ namespace str {
 		return str::Build<char32_t>(args...);
 	}
 
-	/* convenience for fast formatting to a str::Small */
+	/* convenience for fast formatting to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChBuild(const str::IsFormattable auto&... args) {
 		return str::Build<char, Capacity>(args...);

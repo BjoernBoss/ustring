@@ -671,7 +671,7 @@ namespace str {
 		return str::ConvertInto<Mode>(out, source, charOnError);
 	}
 
-	/* convert any object to the destination character-type (returning str::Small) */
+	/* convert any object to the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity, str::IsConMode Mode = str::Copy>
 	constexpr str::Small<ChType, Capacity> Convert(const str::AnyString auto& source, char charOnError = str::CharOnError) {
 		str::Small<ChType, Capacity> out{};
@@ -700,7 +700,7 @@ namespace str {
 		return str::Convert<char32_t, Mode>(source, charOnError);
 	}
 
-	/* convenience for fast conversion to a str::Small */
+	/* convenience for fast conversion to a str::Small<Capacity> */
 	template <intptr_t Capacity, str::IsConMode Mode = str::Copy>
 	constexpr str::ChSmall<Capacity> ToChar(const str::AnyString auto& source, char charOnError = str::CharOnError) {
 		return str::Convert<char, Capacity, Mode>(source, charOnError);

@@ -622,7 +622,7 @@ namespace str {
 			bool negative = false;
 		};
 		template <class Type, class ChType, class Mode>
-		detail::PrefixParseOut ParseSignAndPrefix(const std::basic_string_view<ChType>& view, bool signOnly) {
+		constexpr detail::PrefixParseOut ParseSignAndPrefix(const std::basic_string_view<ChType>& view, bool signOnly) {
 			enum class PrState : uint8_t {
 				preSign,
 				preZero,
@@ -677,7 +677,7 @@ namespace str {
 		}
 
 		template<class Type, class ChType, class Mode>
-		std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec, bool negative) {
+		constexpr std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec, bool negative) {
 			size_t totalConsumed = 0;
 			bool overflow = false;
 
@@ -718,7 +718,7 @@ namespace str {
 		}
 
 		template<class Type, class ChType, class Mode>
-		str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
+		constexpr str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
 			str::DecodeOut dec = str::Decode<Mode>(view, true);
 			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<Type, ChType, Mode>(view, radix, dec, negative);
@@ -745,7 +745,7 @@ namespace str {
 		}
 
 		template<class Type, class Mode>
-		void PrintInteger(auto& sink, Type num, size_t radix, bool upperCase) {
+		constexpr void PrintInteger(auto& sink, Type num, size_t radix, bool upperCase) {
 			static_assert(sizeof(Type) <= 8, "Type must be smaller than/equal to 64-bit");
 
 			/* digit map to contain all digits */
@@ -789,7 +789,7 @@ namespace str {
 			bool invalid = false;
 		};
 		template<class ChType, class Mode>
-		detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec) {
+		constexpr detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec) {
 			detail::MantissaOut out;
 
 			/* setup the number of digits to be processed (maximum plus one, where the last digit is used to fill remaining bits) */
@@ -860,7 +860,7 @@ namespace str {
 			bool invalid = false;
 		};
 		template<class ChType, class Mode>
-		detail::ExponentOut ParseFloatExponent(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec) {
+		constexpr detail::ExponentOut ParseFloatExponent(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec) {
 			detail::ExponentOut out;
 
 			/* extract a potential sign of the exponent */
@@ -886,7 +886,7 @@ namespace str {
 		}
 
 		template<class Type>
-		std::pair<Type, int8_t> ConstructHexFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent) {
+		constexpr std::pair<Type, int8_t> ConstructHexFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent) {
 			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
 			if (dotOffset != 0) {
 				int64_t old = exponent;
@@ -908,7 +908,7 @@ namespace str {
 		}
 
 		template<class Type>
-		std::pair<Type, int8_t> ConstructNormalFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent, size_t radix) {
+		constexpr std::pair<Type, int8_t> ConstructNormalFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent, size_t radix) {
 			using FlType = detail::LargeFloat<uint32_t, uint64_t, 1>;
 
 			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
@@ -933,7 +933,7 @@ namespace str {
 		}
 
 		template<class Type, class ChType, class Mode>
-		str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
+		constexpr str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
 			static_assert(std::numeric_limits<Type>::digits <= 64, "Type must have mantissa smaller than/equal to 64-bit");
 			static_assert(std::numeric_limits<Type>::radix == 2, "Type must use exponent-base two");
 			static constexpr auto LowerPlay = (std::numeric_limits<Type>::min_exponent - std::numeric_limits<int64_t>::min());
@@ -988,7 +988,7 @@ namespace str {
 		}
 
 		template<class Mode>
-		void FlushFloatDigits(auto& sink, size_t digit, size_t count, intptr_t& digitsBeforePoint, const char32_t* digitSet) {
+		constexpr void FlushFloatDigits(auto& sink, size_t digit, size_t count, intptr_t& digitsBeforePoint, const char32_t* digitSet) {
 			for (size_t j = 0; j < count; ++j) {
 				if (digitsBeforePoint-- == 0)
 					str::EncodeInto<Mode>(sink, U'.');
@@ -1036,7 +1036,7 @@ namespace str {
 		};
 
 		template<class Mode>
-		void PrintHexFloat(auto& sink, intptr_t totalDigits, intptr_t flExponent, uint64_t flMantissa, size_t expDigits, bool clipTrailing, bool upperCase) {
+		constexpr void PrintHexFloat(auto& sink, intptr_t totalDigits, intptr_t flExponent, uint64_t flMantissa, size_t expDigits, bool clipTrailing, bool upperCase) {
 			/* write out the first implicit 1 and patch the digit count */
 			str::EncodeInto<Mode>(sink, U'1');
 			--totalDigits;
@@ -1108,7 +1108,7 @@ namespace str {
 		}
 
 		template<class Type, class Mode, size_t Units>
-		void PrintNormalFloat(auto& sink, intptr_t totalDigits, intptr_t rawExponent, uint64_t flMantissa, str::FloatStyle style, size_t radix, size_t expDigits, bool upperCase) {
+		constexpr void PrintNormalFloat(auto& sink, intptr_t totalDigits, intptr_t rawExponent, uint64_t flMantissa, str::FloatStyle style, size_t radix, size_t expDigits, bool upperCase) {
 			using FlType = detail::LargeFloat<uint32_t, uint64_t, Units>;
 
 			/* compute the exponent, which can be too large by one, as it is computed based on the largest
@@ -1248,7 +1248,7 @@ namespace str {
 		}
 
 		template<class Type, class Mode>
-		void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, size_t expDigits, bool upperCase, bool hexFloat) {
+		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, size_t expDigits, bool upperCase, bool hexFloat) {
 			/* validate the float-type is usable (assume large-float uses uint64_t as LType, otherwise exponent boundaries needs to be adjusted) */
 			static_assert(std::numeric_limits<Type>::digits <= 64, "Type must have mantissa smaller than/equal to 64-bit");
 			static_assert(std::numeric_limits<Type>::radix == 2, "Type must use exponent-base two");
@@ -1360,7 +1360,7 @@ namespace str {
 	*		- with h any hex-digit, and d any decimal-digit
 	*/
 	template <str::IsNumber Type, str::IsMode Mode = str::Relaxed>
-	str::NumParseOut<Type> ParseNum(const str::AnyString auto& source, size_t radix = 10, bool noPrefix = false) {
+	constexpr str::NumParseOut<Type> ParseNum(const str::AnyString auto& source, size_t radix = 10, bool noPrefix = false) {
 		using ChType = str::StringChar<decltype(source)>;
 
 		/* check if the string is empty */
@@ -1394,7 +1394,7 @@ namespace str {
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)
 	*	and return defRadix for invalid prefixes or the radix (prefixes: [0b/0q/0o/0d/0x]) */
 	template <str::IsNumber Type, str::IsMode Mode = str::Relaxed>
-	size_t PeekPrefix(const str::AnyString auto& source, size_t defRadix = 10) {
+	constexpr size_t PeekPrefix(const str::AnyString auto& source, size_t defRadix = 10) {
 		using ChType = str::StringChar<decltype(source)>;
 
 		/* check if the string is empty */
@@ -1407,36 +1407,79 @@ namespace str {
 		return (out.radix == 0 ? defRadix : out.radix);
 	}
 
-	/*
-	*	Print integer/float with optional leading [-] for the given radix to the sink
-	*		Print float as FloatStyle::general, precision = 0, expDigits = 2.
-	*	Use the radix for the mantissa, exponent, and base of floats. (Use str::HexFloat-radix to print hex-floats)
-	*
-	*	r: any valid digit for given radix (lower or upper case)
-	*	integer: \-?r+
-	*	float: \-?r+(\.r+)?([eE^][\+\-]r+)?
-	*	hex-floats: \-?[01](\.h+)?[pP][\+\-]d+
-	*		- with h any hex-digit, and d any decimal-digit
-	*/
+	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
 	template <str::IsMode Mode = str::Relaxed>
-	void NumInto(str::AnySink auto& sink, const str::IsNumber auto& num, size_t radix = 10, bool upperCase = false) {
+	constexpr auto& IntInto(str::AnySink auto& sink, const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
-		/* check if a hex-float has been requested and ensure the radix is valid */
-		bool hexFloat = (radix == str::HexFloat);
+		/* ensure the radix is valid and print the integer */
 		if (radix < str::MinRadix || radix > str::MaxRadix)
 			radix = 10;
-
-		/* print the integer or float */
-		if constexpr (std::is_integral_v<Type>)
-			detail::PrintInteger<Type, Mode>(sink, num, radix, upperCase);
-		else
-			detail::PrintFloat<Type, Mode>(sink, num, str::FloatStyle::general, radix, 0, 2, upperCase, hexFloat);
+		detail::PrintInteger<Type, Mode>(sink, num, radix, upperCase);
+		return sink;
 	}
 
-	/* Print float with optional leading [-] for the given radix, style, and precision to the sink (hex-float radix with fixed style is equivalent to fixed style with radix 16) */
+	/* print the integer to a string of the destination character-type (returning std::basic_string) */
+	template <str::IsChar ChType, str::IsMode Mode = str::Relaxed>
+	constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		std::basic_string<ChType> out{};
+		return str::IntInto<Mode>(out, num, radix, upperCase);
+	}
+
+	/* print the integer to a string of the destination character-type (returning std::basic_string) */
+	template <str::IsChar ChType, intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::Small<ChType, Capacity> Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		str::Small<ChType, Capacity> out{};
+		return str::IntInto<Mode>(out, num, radix, upperCase);
+	}
+
+	/* convenience for fast integer-printing to a std::basic_string */
 	template <str::IsMode Mode = str::Relaxed>
-	void NumInto(str::AnySink auto& sink, const str::IsFloat auto& num, str::FloatStyle style, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+	constexpr std::string ChInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char, Mode>(num, radix, upperCase);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::wstring WdInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<wchar_t, Mode>(num, radix, upperCase);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u8string U8Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char8_t, Mode>(num, radix, upperCase);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u16string U16Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char16_t, Mode>(num, radix, upperCase);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u32string U32Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char32_t, Mode>(num, radix, upperCase);
+	}
+
+	/* convenience for fast integer-printing to a str::Small<Capacity> */
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::ChSmall<Capacity> ChInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char, Capacity, Mode>(num, radix, upperCase);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::WdSmall<Capacity> WdInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<wchar_t, Capacity, Mode>(num, radix, upperCase);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U8Small<Capacity> U8Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char8_t, Capacity, Mode>(num, radix, upperCase);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U16Small<Capacity> U16Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char16_t, Capacity, Mode>(num, radix, upperCase);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U32Small<Capacity> U32Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+		return str::Int<char32_t, Capacity, Mode>(num, radix, upperCase);
+	}
+
+	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr auto& FloatInto(str::AnySink auto& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */
@@ -1444,5 +1487,64 @@ namespace str {
 		if (radix < str::MinRadix || radix > str::MaxRadix)
 			radix = 10;
 		detail::PrintFloat<Type, Mode>(sink, num, style, radix, precision, expDigits, upperCase, hexFloat);
+		return sink;
+	}
+
+	/* print the float to a string of the destination character-type (returning std::basic_string) */
+	template <str::IsChar ChType, str::IsMode Mode = str::Relaxed>
+	constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		std::basic_string<ChType> out{};
+		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits);
+	}
+
+	/* print the float to a string of the destination character-type (returning std::basic_string) */
+	template <str::IsChar ChType, intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::Small<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		str::Small<ChType, Capacity> out{};
+		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits);
+	}
+
+	/* convenience for fast float-printing to a std::basic_string */
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::string ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::wstring WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<wchar_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u8string U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char8_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u16string U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char16_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <str::IsMode Mode = str::Relaxed>
+	constexpr std::u32string U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char32_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+
+	/* convenience for fast float-printing to a str::Small<Capacity> */
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::ChSmall<Capacity> ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::WdSmall<Capacity> WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<wchar_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U8Small<Capacity> U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char8_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U16Small<Capacity> U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char16_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	}
+	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	constexpr str::U32Small<Capacity> U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+		return str::Float<char32_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
 	}
 }
