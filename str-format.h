@@ -429,7 +429,7 @@ namespace str {
 		bool replace = false;
 	};
 	template <size_t OptCount>
-	inline str::FormatParseOut<OptCount> ParseFormatting(const std::u32string_view& fmt, bool precision, bool nested, const std::u32string_view(&options)[OptCount]) {
+	str::FormatParseOut<OptCount> ParseFormatting(const std::u32string_view& fmt, bool precision, bool nested, const std::u32string_view(&options)[OptCount]) {
 		str::FormatParseOut<OptCount> out{};
 		size_t size = 0;
 
