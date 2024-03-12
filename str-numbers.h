@@ -77,6 +77,96 @@ namespace str {
 			return firstTailBit && (!tailIsZero || lowestBit);
 		}
 
+		/* ensure that exponent of this size will not result in any overflows for primitive additions
+		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
+		static constexpr int32_t LargeIntSafeExponentLimit = int32_t(0x01 << 24);
+
+		static constexpr long double LogBase2[str::MaxRadix + 1] = {
+			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
+			2.0000000000000000, 2.3219280948873620, 2.5849625007211560, 2.8073549220576040,
+			3.0000000000000000, 3.1699250014423126, 3.3219280948873626, 3.4594316186372978,
+			3.5849625007211565, 3.7004397181410920, 3.8073549220576037, 3.9068905956085187,
+			4.0000000000000000, 4.0874628412503400, 4.1699250014423120, 4.2479275134435850,
+			4.3219280948873630, 4.3923174227787610, 4.4594316186372970, 4.5235619560570130,
+			4.5849625007211570, 4.6438561897747240, 4.7004397181410930, 4.7548875021634690,
+			4.8073549220576040, 4.8579809951275730, 4.9068905956085190, 4.9541963103868760,
+			5.0000000000000000, 5.0443941193584530, 5.0874628412503400, 5.1292830169449660,
+			5.1699250014423120
+		};
+		static constexpr uint32_t MagnitudeIn32Bit[str::MaxRadix + 1] = {
+			0x00000000, 0x00000000, 0x80000000, 0xcfd41b91, 0x40000000, 0x48c27395, 0x81bf1000, 0x75db9c97,
+			0x40000000, 0xcfd41b91, 0x3b9aca00, 0x8c8b6d2b, 0x19a10000, 0x309f1021, 0x57f6c100, 0x98c29b81,
+			0x10000000, 0x18754571, 0x247dbc80, 0x3547667b, 0x4c4b4000, 0x6b5a6e1d, 0x94ace180, 0xcaf18367,
+			0x0b640000, 0x0e8d4a51, 0x1269ae40, 0x17179149, 0x1cb91000, 0x23744899, 0x2b73a840, 0x34e63b41,
+			0x40000000, 0x4cfa3cc1, 0x5c13d840, 0x6d91b519, 0x81bf1000
+		};
+		static constexpr uint8_t DigitsIn32Bit[str::MaxRadix + 1] = {
+			 0,  0, 31, 20, 15, 13, 12, 11,
+			10, 10,  9,  9,  8,  8,  8,  8,
+			 7,  7,  7,  7,  7,  7,  7,  7,
+			 6,  6,  6,  6,  6,  6,  6,  6,
+			 6,  6,  6,  6,  6
+		};
+		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
+		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+		static constexpr const size_t MaxDigitMap = 128;
+		static constexpr uint8_t CPDigitMap[detail::MaxDigitMap] = {
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff,
+			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff
+		};
+
+		struct PreComputedEntry {
+			int32_t size = 0;
+			int32_t nulls = 0;
+			int32_t offset = 0;
+		};
+		static constexpr uint32_t MaxPowerTenEntries = 16;
+		static constexpr uint32_t MaxPowerTenSplit = 20;
+		static constexpr uint32_t MaxPowerTenExponentDegrade = detail::MaxPowerTenSplit * detail::MaxPowerTenEntries * 4;
+		static constexpr detail::PreComputedEntry PreComputedPowerTen[detail::MaxPowerTenEntries] = {
+			{ 0x01, 0x00, 0x000 }, { 0x03, 0x00, 0x001 }, { 0x04, 0x01, 0x004 }, { 0x06, 0x01, 0x008 }, { 0x07, 0x02, 0x00e }, { 0x08, 0x03, 0x015 }, { 0x0a, 0x03, 0x01d }, { 0x0b, 0x04, 0x027 },
+			{ 0x0c, 0x05, 0x032 }, { 0x0e, 0x05, 0x03e }, { 0x0f, 0x06, 0x04c }, { 0x11, 0x06, 0x05b }, { 0x12, 0x07, 0x06c }, { 0x13, 0x08, 0x07e }, { 0x16, 0x08, 0x091 }, { 0x17, 0x09, 0x0a7 }
+		};
+		static constexpr uint32_t PreComputedPowerTenData[] = {
+			0x00000001, 0x63100000, 0x6bc75e2d, 0x00000005, 0xb9f56100, 0x5ca4bfab, 0x6329f1c3, 0x0000001d,
+			0x10000000, 0x946590d9, 0xd762422c, 0x9a224501, 0x4f272617, 0x0000009f, 0xcec10000, 0x63a22764,
+			0xefa418ca, 0xcdd17b25, 0x6bdfef70, 0x9dea3e1f, 0x0000035f, 0xa82e8f10, 0xaab24308, 0x8e211a7c,
+			0xf38ace40, 0x84c4ce0b, 0x7ceb0b27, 0xad2594c3, 0x00001249, 0x21000000, 0x17bb8a0c, 0x56af8ea4,
+			0x06479fa9, 0x5d4bb236, 0x80dc5fe0, 0xf0feaa0a, 0xa88ed940, 0x6b1a80d0, 0x00006323, 0x1e851000,
+			0x6e4f615b, 0x187b2a69, 0x0450e21c, 0x2fdd342b, 0x635027ee, 0xa6c97199, 0x8e4ae916, 0x17082e28,
+			0x1a496e6f, 0x0002196e, 0xfbc32d81, 0x5222d0f4, 0xb70f2850, 0x5713f2f3, 0xdc421413, 0xd6395d7d,
+			0xf8591999, 0x0092381c, 0x86b314d6, 0x7aa577b9, 0x12b7fe61, 0x000b616a, 0xbb100000, 0x02f79478,
+			0x8c1b74c0, 0xb0f05d00, 0xa9dbc675, 0xe2d9b914, 0x650f72df, 0x77284b4c, 0x6df6e016, 0x514391c2,
+			0x2795c9cf, 0xd6e2ab55, 0x9ca8e627, 0x003db1a6, 0xb9b2e100, 0x8288753c, 0xcd3f1693, 0x89b43a6b,
+			0x089e87de, 0x684d4546, 0xfddba60c, 0xdf249391, 0x3068ec13, 0x99b44427, 0xb68141ee, 0x5802cac3,
+			0xd96851f1, 0x7d7625a2, 0x014e718d, 0x10000000, 0x09ab5531, 0xa60c58d2, 0x566126cb, 0x6a1c8387,
+			0x7587f4c1, 0x2c44e876, 0x41a047cf, 0xc908059e, 0xa0ba063e, 0xe7cfc8e8, 0xe1fac055, 0xef0144b2,
+			0x24207eb0, 0xd1722573, 0xe4b8f981, 0x071505ae, 0x1c410000, 0x6e174a27, 0xec62ae57, 0xef2289aa,
+			0xb6a2fbdd, 0x17e1efe4, 0x3366bdf2, 0x37b48880, 0xbfb82c3e, 0x19acde91, 0xd4f46408, 0x35ff6a4e,
+			0x67566a0e, 0x40dbb914, 0x782a3bca, 0x6b329b68, 0xf5afc5d9, 0x266469bc, 0x97cbe710, 0x26d769e8,
+			0xb4e4723e, 0x5b90aa86, 0x9c333922, 0x4b7a0775, 0x2d47e991, 0x9a6ef977, 0x160b40e7, 0x0c92f8c4,
+			0xf25ff010, 0x25c36c11, 0xc9f98b42, 0x730b919d, 0x05ff7caf, 0xb0432d85, 0x2d2b7569, 0xa657842c,
+			0xd01fef10, 0xa1000000, 0x6c5cd4e9, 0x9be47d6f, 0xf93bd9e7, 0x77626fa1, 0xc68b3451, 0xde2b59e8,
+			0xcf3cde58, 0x2246ff58, 0xa8577c15, 0x26e77559, 0x17776753, 0xebe6b763, 0xe3fd0a5f, 0x33e83969,
+			0xa805a035, 0xf631b987, 0x211f0f43, 0xd85a43db, 0xab1bf596, 0x683f19a2, 0x00000004, 0xf4dd1000,
+			0x5d450952, 0xaeb442e1, 0xa3b3342e, 0x3fcda36f, 0xb4287a6e, 0x4bc177f7, 0x67d2c8d0, 0xaea8f8e0,
+			0xadc93b67, 0x6cc856b3, 0x959d9d0b, 0x5b48c100, 0x4abe8a3d, 0x52d936f4, 0x71dbe84d, 0xf91c21c5,
+			0x4a458109, 0xd7aad86a, 0x08e14c7c, 0x759ba59c, 0xe43c8800, 0x00000017
+		};
+		static constexpr uint64_t PreComputedPowerTenSmall[detail::MaxPowerTenSplit] = {
+			0x0000000000000001, 0x000000000000000a, 0x0000000000000064, 0x00000000000003e8,
+			0x0000000000002710, 0x00000000000186a0, 0x00000000000f4240, 0x0000000000989680,
+			0x0000000005f5e100, 0x000000003b9aca00, 0x00000002540be400, 0x000000174876e800,
+			0x000000e8d4a51000, 0x000009184e72a000, 0x00005af3107a4000, 0x00038d7ea4c68000,
+			0x002386f26fc10000, 0x016345785d8a0000, 0x0de0b6b3a7640000, 0x8ac7230489e80000
+		};
+
 		template <size_t Units>
 		static constexpr bool DynamicInt = (Units < 2);
 
@@ -117,18 +207,18 @@ namespace str {
 		}
 		template <size_t Units>
 		constexpr void LargeMul(detail::LargeInt<Units>& a, uint32_t b) {
-			/* count the leading nulls of a and compute its actual size */
-			int32_t aOff = 0;
-			while (aOff < a.size && a.data[aOff] == 0)
-				++aOff;
-			int32_t aSize = a.size - aOff;
-
 			/* check if one of the values is null */
-			if (aSize == 0 || b == 0) {
+			if (a.size == 0 || b == 0) {
 				a.size = 0;
 				a.nulls = 0;
 				return;
 			}
+
+			/* count the leading nulls of a and compute its actual size */
+			int32_t aOff = 0;
+			while (a.data[aOff] == 0)
+				++aOff;
+			int32_t aSize = a.size - aOff;
 
 			/* compute the output size and nulls and check if additional information must be skipped, as the result would overflow the capacity */
 			a.size = aSize + 1;
@@ -165,17 +255,17 @@ namespace str {
 		constexpr detail::LargeInt<Units> LargeMul(const detail::LargeInt<Units>& a, const detail::LargeInt<Units>& b) {
 			detail::LargeInt<Units> out = detail::LargeLoad<Units>(0, a.capacity);
 
+			/* check if the values themselves are null */
+			if (a.size == 0 || b.size == 0)
+				return out;
+
 			/* count the leading nulls of a and b and compute their actual sizes */
 			int32_t aOff = 0, bOff = 0;
-			while (aOff < a.size && a.data[aOff] == 0)
+			while (a.data[aOff] == 0)
 				++aOff;
-			while (bOff < b.size && b.data[bOff] == 0)
+			while (b.data[bOff] == 0)
 				++bOff;
 			int32_t aSize = a.size - aOff, bSize = b.size - bOff;
-
-			/* check if the values themselves are null */
-			if (aSize == 0 || bSize == 0)
-				return out;
 
 			/* compute the output size and nulls and check if additional information must be skipped, as the result would overflow the capacity */
 			out.size = aSize + bSize;
@@ -358,7 +448,37 @@ namespace str {
 			return result;
 		}
 		template <size_t Units>
-		constexpr detail::LargeInt<Units> LargePow2(const detail::LargeInt<Units>& v, uint32_t e) {
+		constexpr detail::LargeInt<Units> LargePowDef(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(b, v.capacity);
+
+			/* square-multiply algorithm */
+			while (e > 0) {
+				if (e & 0x01)
+					out = detail::LargeMul<Units>(out, temp);
+				if ((e >>= 1) > 0)
+					temp = detail::LargeMul<Units>(temp, temp);
+			}
+			return out;
+		}
+		template <size_t Units>
+		constexpr detail::LargeInt<Units> LargePowSmall(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
+			detail::LargeInt<Units> out = v;
+
+			/* perform the direct in-place scale-up (using square-multiply algorithm) */
+			uint32_t scaleUp = 1, walk = b;
+			while (e > 0) {
+				if (e & 0x01)
+					scaleUp *= walk;
+				if ((e >>= 1) > 0)
+					walk *= walk;
+			}
+
+			/* perform the small multiplication and return the value */
+			detail::LargeMul<Units>(out, scaleUp);
+			return out;
+		}
+		template <size_t Units>
+		constexpr detail::LargeInt<Units> LargePowTwo(const detail::LargeInt<Units>& v, uint32_t e) {
 			detail::LargeInt<Units> out = v;
 
 			/* compute the shift to be applied to the nulls itself and multiply the rest with the remainder */
@@ -368,63 +488,69 @@ namespace str {
 			return out;
 		}
 		template <size_t Units>
-		constexpr detail::LargeInt<Units> LargePow(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
-			detail::LargeInt<Units> out = v;
-			detail::LargeInt<Units> walk = detail::LargeLoad<Units>(b, v.capacity);
+		constexpr detail::LargeInt<Units> LargePowTen(const detail::LargeInt<Units>& v, uint32_t e) {
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(0, v.capacity);
 
-			/* square-multiply algorithm */
-			while (e > 0) {
-				if (e & 0x01)
-					out = detail::LargeMul<Units>(out, walk);
-				if ((e >>= 1) > 0)
-					walk = detail::LargeMul<Units>(walk, walk);
-			}
+			do {
+				/* break up the power-computation (but limit it by the precomputed amount of data, might require multiple iterations for very large exponents) */
+				uint32_t large = std::min<uint32_t>(e / detail::MaxPowerTenSplit, detail::MaxPowerTenEntries - 1), small = (e % detail::MaxPowerTenSplit);
+
+				/* perform the large multiplication */
+				if (large > 0) {
+					const detail::PreComputedEntry& entry = detail::PreComputedPowerTen[large];
+
+					/* populate the intermediate large-int */
+					temp.size = std::min<int32_t>(temp.capacity, entry.size);
+					int32_t skipped = (entry.size - temp.size);
+					temp.nulls = entry.nulls + skipped;
+					std::memcpy(&temp.data[0], &detail::PreComputedPowerTenData[entry.offset + skipped], sizeof(uint32_t) * temp.size);
+
+					/* perform the multiplication */
+					out = detail::LargeMul<Units>(out, temp);
+					e -= large * detail::MaxPowerTenSplit;
+				}
+
+				/* perform the small multiplication */
+				if (small > 0) {
+					/* populate the intermediate large-int */
+					temp.nulls = 0;
+					temp.size = 2;
+					std::memcpy(&temp.data[0], &detail::PreComputedPowerTenSmall[small], sizeof(uint32_t) * temp.size);
+					if (temp.data[1] == 0)
+						--temp.size;
+
+					/* perform the multiplication */
+					out = detail::LargeMul<Units>(out, temp);
+					e -= small;
+				}
+			} while (e > 0);
 			return out;
 		}
+		template <size_t Units>
+		constexpr detail::LargeInt<Units> LargePow(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
+			if (e == 0)
+				return v;
 
-		/* ensure that exponent of this size will not result in any overflows for primitive additions
-		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
-		static constexpr int32_t LargeIntSafeExponentLimit = int32_t(0x01 << 24);
+			/* check if the base is a power of ten */
+			if (b == 10) {
+				if (e < detail::MaxPowerTenExponentDegrade)
+					return detail::LargePowTen<Units>(v, e);
+				return detail::LargePowDef<Units>(v, b, e);
+			}
 
-		static constexpr long double LogBase2[str::MaxRadix + 1] = {
-			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
-			2.0000000000000000, 2.3219280948873620, 2.5849625007211560, 2.8073549220576040,
-			3.0000000000000000, 3.1699250014423126, 3.3219280948873626, 3.4594316186372978,
-			3.5849625007211565, 3.7004397181410920, 3.8073549220576037, 3.9068905956085187,
-			4.0000000000000000, 4.0874628412503400, 4.1699250014423120, 4.2479275134435850,
-			4.3219280948873630, 4.3923174227787610, 4.4594316186372970, 4.5235619560570130,
-			4.5849625007211570, 4.6438561897747240, 4.7004397181410930, 4.7548875021634690,
-			4.8073549220576040, 4.8579809951275730, 4.9068905956085190, 4.9541963103868760,
-			5.0000000000000000, 5.0443941193584530, 5.0874628412503400, 5.1292830169449660,
-			5.1699250014423120
-		};
-		static constexpr uint32_t MagnitudeIn32Bit[str::MaxRadix + 1] = {
-			0x00000000, 0x00000000, 0x80000000, 0xcfd41b91, 0x40000000, 0x48c27395, 0x81bf1000, 0x75db9c97,
-			0x40000000, 0xcfd41b91, 0x3b9aca00, 0x8c8b6d2b, 0x19a10000, 0x309f1021, 0x57f6c100, 0x98c29b81,
-			0x10000000, 0x18754571, 0x247dbc80, 0x3547667b, 0x4c4b4000, 0x6b5a6e1d, 0x94ace180, 0xcaf18367,
-			0x0b640000, 0x0e8d4a51, 0x1269ae40, 0x17179149, 0x1cb91000, 0x23744899, 0x2b73a840, 0x34e63b41,
-			0x40000000, 0x4cfa3cc1, 0x5c13d840, 0x6d91b519, 0x81bf1000
-		};
-		static constexpr uint32_t DigitsIn32Bit[str::MaxRadix + 1] = {
-			 0,  0, 31, 20, 15, 13, 12, 11,
-			10, 10,  9,  9,  8,  8,  8,  8,
-			 7,  7,  7,  7,  7,  7,  7,  7,
-			 6,  6,  6,  6,  6,  6,  6,  6,
-			 6,  6,  6,  6,  6
-		};
-		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
-		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-		static constexpr const size_t MaxDigitMap = 128;
-		static constexpr uint8_t CPDigitMap[detail::MaxDigitMap] = {
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff
-		};
+			/* check if the base is a power of two */
+			if (b == 2)
+				return detail::LargePowTwo<Units>(v, e);
+			if ((b & (b - 1)) == 0)
+				return detail::LargePowTwo<Units>(v, e * (b / 2));
+
+			/* check if the exponent is considered small */
+			if (e <= detail::DigitsIn32Bit[b])
+				return detail::LargePowSmall<Units>(v, b, e);
+
+			/* perform the default square-multiply algorithm */
+			return detail::LargePowDef<Units>(v, b, e);
+		}
 
 		struct PrefixParseOut {
 			size_t radix = 0;
@@ -729,9 +855,9 @@ namespace str {
 				detail::LargeInt<Units> numerator = detail::LargeLoad<Units>(mantissa, 0), denominator = detail::LargeLoad<Units>(1, 0);
 				flExponent += manDigits;
 				if (flExponent > 0)
-					denominator = detail::LargePow2<Units>(denominator, uint32_t(flExponent));
+					denominator = detail::LargePow<Units>(denominator, 2, uint32_t(flExponent));
 				else if (flExponent < 0)
-					numerator = detail::LargePow2<Units>(numerator, uint32_t(-flExponent));
+					numerator = detail::LargePow<Units>(numerator, 2, uint32_t(-flExponent));
 				if (exponent > 0)
 					numerator = detail::LargePow<Units>(numerator, radix, uint32_t(exponent));
 				else if (exponent < 0)
@@ -849,12 +975,20 @@ namespace str {
 		}
 
 		template<class Mode>
-		constexpr void FlushFloatDigits(auto& sink, size_t digit, size_t count, intptr_t& digitsBeforePoint, const char32_t* digitSet) {
-			for (size_t j = 0; j < count; ++j) {
-				if (digitsBeforePoint-- == 0)
-					str::EncodeInto<Mode>(sink, U'.');
-				str::EncodeInto<Mode>(sink, digitSet[digit]);
+		constexpr void FlushFloatDigits(auto& sink, char32_t digit, size_t count, intptr_t& digitsBeforePoint) {
+			/* check if the point will be inserted within this iteration */
+			if (digitsBeforePoint >= 0 && size_t(digitsBeforePoint) < count) {
+				for (size_t i = 0; i < size_t(digitsBeforePoint); ++i)
+					str::EncodeInto<Mode>(sink, digit);
+				str::EncodeInto<Mode>(sink, U'.');
+				for (size_t i = size_t(digitsBeforePoint); i < count; ++i)
+					str::EncodeInto<Mode>(sink, digit);
 			}
+
+			/* insert all digits */
+			else for (size_t i = 0; i < count; ++i)
+				str::EncodeInto<Mode>(sink, digit);
+			digitsBeforePoint -= count;
 		}
 
 		template<class Mode>
@@ -900,15 +1034,15 @@ namespace str {
 				if (digit == 0)
 					++delayed;
 				else {
-					detail::FlushFloatDigits<Mode>(sink, 0, delayed, digitsBeforePoint, digitSet);
-					detail::FlushFloatDigits<Mode>(sink, (digit & 0x0f), 1, digitsBeforePoint, digitSet);
+					detail::FlushFloatDigits<Mode>(sink, U'0', delayed, digitsBeforePoint);
+					detail::FlushFloatDigits<Mode>(sink, digitSet[digit & 0x0f], 1, digitsBeforePoint);
 					delayed = 0;
 				}
 			}
 
 			/* check if remaining nulls need to be written out */
 			if (!clipTrailing)
-				detail::FlushFloatDigits<Mode>(sink, 0, delayed, digitsBeforePoint, digitSet);
+				detail::FlushFloatDigits<Mode>(sink, U'0', delayed, digitsBeforePoint);
 
 			/* write the exponent out */
 			str::EncodeInto<Mode>(sink, upperCase ? U'P' : U'p');
@@ -941,9 +1075,9 @@ namespace str {
 			detail::LargeInt<Units> numerator = detail::LargeLoad<Units>(flMantissa, capacity), denominator = detail::LargeLoad<Units>(1, capacity);
 			rawExponent -= std::numeric_limits<Type>::digits;
 			if (rawExponent > 0)
-				numerator = detail::LargePow2<Units>(numerator, uint32_t(rawExponent));
+				numerator = detail::LargePow<Units>(numerator, 2, uint32_t(rawExponent));
 			else if (rawExponent < 0)
-				denominator = detail::LargePow2<Units>(denominator, uint32_t(-rawExponent));
+				denominator = detail::LargePow<Units>(denominator, 2, uint32_t(-rawExponent));
 			if (flExponent > 0)
 				denominator = detail::LargePow<Units>(denominator, radix, uint32_t(flExponent));
 			else if (flExponent < 0)
@@ -1013,8 +1147,8 @@ namespace str {
 					/* check if a last-digit exists to be flushed and write it out and the chain of max-digits */
 					if (delayed >= 0) {
 						if (i > 0)
-							detail::FlushFloatDigits<Mode>(sink, lastDigit, 1, digitsBeforePoint, digitSet);
-						detail::FlushFloatDigits<Mode>(sink, radix - 1, delayed, digitsBeforePoint, digitSet);
+							detail::FlushFloatDigits<Mode>(sink, digitSet[lastDigit], 1, digitsBeforePoint);
+						detail::FlushFloatDigits<Mode>(sink, digitSet[radix - 1], delayed, digitsBeforePoint);
 						delayed = -1;
 					}
 					else
@@ -1025,7 +1159,7 @@ namespace str {
 				else if (digit >= radix - 1 && (i > 0 || delayed < 0)) {
 					/* check if the last chain was a chain of nulls */
 					if (delayed < 0) {
-						detail::FlushFloatDigits<Mode>(sink, 0, -delayed - 1, digitsBeforePoint, digitSet);
+						detail::FlushFloatDigits<Mode>(sink, U'0', -delayed - 1, digitsBeforePoint);
 						lastDigit = 0;
 						delayed = 1;
 					}
@@ -1036,11 +1170,11 @@ namespace str {
 				/* flush the last digits and keep the current digit as last digit */
 				else {
 					if (delayed < 0)
-						detail::FlushFloatDigits<Mode>(sink, 0, -delayed, digitsBeforePoint, digitSet);
+						detail::FlushFloatDigits<Mode>(sink, U'0', -delayed, digitsBeforePoint);
 					else {
 						if (i > 0)
-							detail::FlushFloatDigits<Mode>(sink, lastDigit, 1, digitsBeforePoint, digitSet);
-						detail::FlushFloatDigits<Mode>(sink, radix - 1, delayed, digitsBeforePoint, digitSet);
+							detail::FlushFloatDigits<Mode>(sink, digitSet[lastDigit], 1, digitsBeforePoint);
+						detail::FlushFloatDigits<Mode>(sink, digitSet[radix - 1], delayed, digitsBeforePoint);
 					}
 					lastDigit = digit;
 					delayed = 0;
@@ -1066,17 +1200,17 @@ namespace str {
 			/* check if the last value was part of a chain of nulls, in which case the last digit is only be affected by the rounding */
 			if (delayed < 0) {
 				if (roundValueUp) {
-					detail::FlushFloatDigits<Mode>(sink, 0, -delayed - 1, digitsBeforePoint, digitSet);
-					detail::FlushFloatDigits<Mode>(sink, 1, 1, digitsBeforePoint, digitSet);
+					detail::FlushFloatDigits<Mode>(sink, U'0', -delayed - 1, digitsBeforePoint);
+					detail::FlushFloatDigits<Mode>(sink, U'1', 1, digitsBeforePoint);
 				}
 				else if (!clipTrailing)
-					detail::FlushFloatDigits<Mode>(sink, 0, -delayed, digitsBeforePoint, digitSet);
+					detail::FlushFloatDigits<Mode>(sink, U'0', -delayed, digitsBeforePoint);
 			}
 
 			/* check if no rounding needs to be performed, in which case all values can just be flushed (cannot end with a null) */
 			else if (!roundValueUp) {
-				detail::FlushFloatDigits<Mode>(sink, lastDigit, 1, digitsBeforePoint, digitSet);
-				detail::FlushFloatDigits<Mode>(sink, radix - 1, delayed, digitsBeforePoint, digitSet);
+				detail::FlushFloatDigits<Mode>(sink, digitSet[lastDigit], 1, digitsBeforePoint);
+				detail::FlushFloatDigits<Mode>(sink, digitSet[radix - 1], delayed, digitsBeforePoint);
 			}
 
 			/* check for the edge-case of all digits being the highest-digit, in which case the rounding will be carried
@@ -1084,22 +1218,22 @@ namespace str {
 			else if (lastDigit == radix - 1) {
 				if (!scientific)
 					++digitsBeforePoint;
-				detail::FlushFloatDigits<Mode>(sink, 1, 1, digitsBeforePoint, digitSet);
+				detail::FlushFloatDigits<Mode>(sink, U'1', 1, digitsBeforePoint);
 				if (!clipTrailing)
-					detail::FlushFloatDigits<Mode>(sink, 0, delayed, digitsBeforePoint, digitSet);
+					detail::FlushFloatDigits<Mode>(sink, U'0', delayed, digitsBeforePoint);
 				++flExponent;
 			}
 
 			/* write the last value out (increased by one) and check if the chain of maximum-values should be written out as nulls as well */
 			else {
-				detail::FlushFloatDigits<Mode>(sink, lastDigit + 1, 1, digitsBeforePoint, digitSet);
+				detail::FlushFloatDigits<Mode>(sink, digitSet[lastDigit + 1], 1, digitsBeforePoint);
 				if (!clipTrailing)
-					detail::FlushFloatDigits<Mode>(sink, 0, delayed, digitsBeforePoint, digitSet);
+					detail::FlushFloatDigits<Mode>(sink, U'0', delayed, digitsBeforePoint);
 			}
 
 			/* check if remaining nulls need to be inserted */
 			if (!scientific && digitsBeforePoint > 0)
-				detail::FlushFloatDigits<Mode>(sink, 0, digitsBeforePoint, digitsBeforePoint, digitSet);
+				detail::FlushFloatDigits<Mode>(sink, U'0', digitsBeforePoint, digitsBeforePoint);
 
 			/* check if the exponent needs to be written out */
 			if (!scientific)
