@@ -49,6 +49,34 @@ namespace str {
 	static constexpr size_t HexFloat = (size_t)-1;
 
 	namespace detail {
+		inline constexpr uint8_t BitsForNumber(uint64_t v) {
+			if (v == 0)
+				return 0;
+
+			/* check if the value is smaller than 32-bit and look for the value to become zeor */
+			if (v <= std::numeric_limits<uint32_t>::max()) {
+				uint8_t bits = 1;
+				while (v >> bits)
+					++bits;
+				return bits;
+			}
+
+			/* find the highest set bit */
+			uint8_t bit = 63;
+			while ((v & (uint64_t(0x01) << bit)) == 0x00)
+				--bit;
+			return (bit + 1);
+		}
+
+		inline constexpr bool RoundToNearestRoundUp(uint64_t lowerMantissa, uint64_t topTail) {
+			bool lowestBit = (lowerMantissa & 0x01) != 0;
+			bool firstTailBit = (topTail >> 63) != 0;
+			bool tailIsZero = (topTail << 1) == 0;
+
+			/* check if the value should be rounded (based on rounding towards nearest) */
+			return firstTailBit && (!tailIsZero || lowestBit);
+		}
+
 		template <size_t Units>
 		static constexpr bool DynamicInt = (Units < 2);
 
@@ -354,553 +382,9 @@ namespace str {
 			return out;
 		}
 
-
-
-		/* remove print and verify exponents */
-		/* remove old large-float and bitstream */
-		/* add proper selection of unit-count */
-
 		/* ensure that exponent of this size will not result in any overflows for primitive additions
 		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
-		static constexpr int32_t LarteIntSafeExponentLimit = int32_t(0x01 << 24);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-		template <std::unsigned_integral Type, size_t Units>
-			requires(Units > 0)
-		class BitStream {
-		public:
-			using BtType = std::make_signed_t<Type>;
-			static constexpr BtType UnitBits = sizeof(Type) * 8;
-			static constexpr BtType TotalBits = Units * UnitBits;
-
-		private:
-			Type pBuffer[Units] = { 0 };
-
-		public:
-			void bset(BtType bt) {
-				if (bt >= 0 && bt < TotalBits)
-					pBuffer[bt / UnitBits] |= (Type(0x1) << (bt % UnitBits));
-			}
-			void bclear(BtType bt) {
-				if (bt >= 0 && bt < TotalBits)
-					pBuffer[bt / UnitBits] &= ~(Type(0x1) << (bt % UnitBits));
-			}
-			bool btest(BtType bt) const {
-				if (bt >= TotalBits || bt < 0)
-					return false;
-				return ((pBuffer[bt / UnitBits] >> (bt % UnitBits)) & 0x01);
-			}
-			template <std::unsigned_integral TType>
-			void set(BtType bt, TType v) {
-				static constexpr BtType TTypeBits = sizeof(TType) * 8;
-				static_assert(TTypeBits <= UnitBits, "setter-type must not be larger than unit-type");
-
-				/* check if the access is out-of-bounds (otherwise full must be a valid index) */
-				if (bt >= TotalBits || bt + TTypeBits <= 0)
-					return;
-
-				/* check if the address is negative set the lower portion accordingly */
-				if (bt < 0) {
-					pBuffer[0] = (pBuffer[0] & (~Type(0) << (TTypeBits + bt))) | Type(v >> -bt);
-					return;
-				}
-				BtType full = (bt / UnitBits), off = (bt % UnitBits);
-
-				/* check if a full group is being set */
-				if (off == 0) {
-					if constexpr (TTypeBits == UnitBits)
-						pBuffer[full] = v;
-					else
-						pBuffer[full] = (pBuffer[full] & (~Type(0) << TTypeBits)) | v;
-					return;
-				}
-
-				/* patch the lower value and the upper value, if not out of bounds */
-				pBuffer[full] = (pBuffer[full] & ~(~Type(0) << off)) | (Type(v) << off);
-				if ((TTypeBits == UnitBits || off + TTypeBits > UnitBits) && ++full < Units)
-					pBuffer[full] = (pBuffer[full] & (~Type(0) << (off + TTypeBits - UnitBits))) | (Type(v) >> (UnitBits - off));
-			}
-			template <std::unsigned_integral TType>
-			TType get(BtType bt) const {
-				static constexpr BtType TTypeBits = sizeof(TType) * 8;
-				static_assert(TTypeBits <= UnitBits, "getter-type must not be larger than unit-type");
-
-				/* check if the access is out-of-bounds (otherwise full must be a valid index) */
-				if (bt >= TotalBits || bt + TTypeBits <= 0)
-					return 0;
-				BtType use = std::max<BtType>(bt, 0);
-
-				/* check if a full group is being fetched (and adjust for negative requests) */
-				BtType full = (use / UnitBits), off = (use % UnitBits);
-				if (off == 0) {
-					if (bt >= 0)
-						return TType(pBuffer[full]);
-					return TType(pBuffer[full] << -bt);
-				}
-
-				/* fetch the two components and construct the requested value (bt must be
-				*	greater or equal to zero, as offset would otherwise have been null) */
-				Type l = pBuffer[full++];
-				Type h = (((TTypeBits == UnitBits || off + TTypeBits > UnitBits) && full < Units) ? pBuffer[full] : 0);
-				return TType((h << (UnitBits - off)) | (l >> off));
-			}
-			BtType upper() const {
-				BtType count = 0, index = Units - 1;
-
-				/* count all full null groups */
-				while (pBuffer[index] == 0) {
-					count += UnitBits;
-					if (index-- == 0)
-						return count;
-				}
-
-				/* count the remaining bits (there must be a non-zero bit) */
-				BtType bit = UnitBits;
-				while (((pBuffer[index] >> --bit) & 0x01) == 0)
-					++count;
-				return count;
-			}
-			BtType lower() const {
-				BtType count = 0, index = 0;
-
-				/* count all full null-groups */
-				while (pBuffer[index] == 0) {
-					count += UnitBits;
-					if (++index == Units)
-						return count;
-				}
-
-				/* count the remaining bits (there must be a non-zero bit) */
-				BtType bit = 0;
-				while (((pBuffer[index] >> bit++) & 0x01) == 0)
-					++count;
-				return count;
-			}
-		};
-
-		/* positive non-null float (exponent type equal to signed l-type) */
-		template <std::unsigned_integral SType, std::unsigned_integral LType, size_t Units>
-			requires(Units > 0)
-		class LargeFloat {
-		public:
-			using ExpType = std::make_signed_t<LType>;
-			static constexpr ExpType SmallBits = sizeof(SType) * 8;
-			static constexpr ExpType LargeBits = sizeof(LType) * 8;
-			static constexpr ExpType TotalBits = LargeBits * Units;
-
-		private:
-			static_assert(SmallBits * 2 == LargeBits, "Small type must exactly be half the size of the large type");
-			using ThisType = detail::LargeFloat<SType, LType, Units>;
-
-		private:
-			detail::BitStream<LType, Units> pMantissa;
-			ExpType pExponent = 0;
-
-		public:
-			LargeFloat() = default;
-			explicit LargeFloat(LType n) {
-				pMantissa.set(0, n);
-			}
-
-		private:
-			ThisType fMul(const ThisType& r) const {
-				static constexpr size_t MaxCarries = Units * 4;
-				detail::BitStream<LType, Units * 2> prod{};
-				SType carry[MaxCarries] = { 0 };
-
-				/* multiply the mantissas together */
-				size_t lCarryIndex = 0;
-				for (ExpType lo = 0; lo < TotalBits; lo += SmallBits) {
-					size_t rCarryIndex = lCarryIndex++;
-
-					/* check if the entire operation can be skipped */
-					LType lVal = LType(pMantissa.get<SType>(lo));
-					if (lVal == 0)
-						continue;
-
-					/* multiply the current value of left with all values from the right and update the carry counts */
-					for (ExpType ro = 0; ro < TotalBits; ro += SmallBits) {
-						size_t carryIndex = rCarryIndex++;
-
-						/* check if the component is null, in which case nothing needs to be done */
-						LType rVal = LType(r.pMantissa.get<SType>(ro));
-						if (rVal == 0)
-							continue;
-
-						/* extract the current value and perform the multiplication */
-						LType old = prod.get<LType>(lo + ro);
-						LType next = old + lVal * rVal;
-
-						/* update the result and check for an overflow (cannot carry out of the last group) */
-						prod.set<LType>(lo + ro, next);
-						if (old > next && carryIndex + 2 < MaxCarries)
-							++carry[carryIndex + 2];
-					}
-				}
-
-				/* apply all carry counts to the result (can trigger carries themselves) */
-				for (size_t i = 0; i < MaxCarries; ++i) {
-					if (carry[i] == 0)
-						continue;
-					SType old = prod.get<SType>(i * SmallBits);
-					SType next = old + carry[i];
-					prod.set<SType>(i * SmallBits, next);
-
-					/* check if another overflow has occurred (cannot leave the last group) */
-					if (old > next)
-						++carry[i + 1];
-				}
-
-				/* count the number of nulls in the result to be skipped (to ensure as much information as
-				*	possible is kept) and round the result depending on the highest bit of the cut part */
-				ExpType nulls = prod.upper();
-				if (prod.btest(TotalBits - nulls - 1)) {
-					for (ExpType i = TotalBits - nulls; i < 2 * TotalBits; i += LargeBits) {
-						LType old = prod.get<LType>(i);
-						prod.set<LType>(i, ++old);
-						if (old != 0)
-							break;
-					}
-				}
-
-				/* initialize the output and copy the product into the mantissa */
-				ThisType out{};
-				out.pExponent = pExponent + r.pExponent + TotalBits - nulls;
-				for (ExpType i = 0; i < TotalBits; i += LargeBits)
-					out.pMantissa.set<LType>(i, prod.get<LType>(TotalBits - nulls + i));
-				return out;
-			}
-			ThisType fDiv(const ThisType& r) const {
-				static constexpr ExpType AdditionalBits = TotalBits + LargeBits;
-				detail::BitStream<LType, Units * 2 + 1> dividend{}, result{};
-				detail::BitStream<LType, Units> divisor{};
-
-				/* setup the dividend mantissa with the upper bits of the dividend and highest bit set */
-				ExpType lOff = pMantissa.upper();
-				for (ExpType i = 0; i < TotalBits; i += LargeBits)
-					dividend.set<LType>(AdditionalBits + i, pMantissa.get<LType>(i - lOff));
-
-				/* setup the divisor with the highest bit set */
-				ExpType rOff = r.pMantissa.upper();
-				for (ExpType i = 0; i < TotalBits; i += LargeBits)
-					divisor.set<LType>(i, r.pMantissa.get<LType>(i - rOff));
-
-				/* check if the lower bits of the divisor are null, in which case the increase by one is not necessary and otherwise
-				*	ensure each partial division uses a divisor increased by one to ensure (dividend >= res * divisor) at all times */
-				LType lowerOffset = (divisor.lower() < (TotalBits - SmallBits) ? 1 : 0);
-
-				/* perform the long division */
-				ExpType nullBits = 0;
-				while (nullBits <= TotalBits + SmallBits) {
-					ExpType btIndex = (TotalBits + AdditionalBits - LargeBits - nullBits);
-
-					/* divide the upper large-number of bits of the dividend by the upper small-number of bits of the divisor */
-					LType res = dividend.get<LType>(btIndex) / LType(divisor.get<SType>(TotalBits - SmallBits) + lowerOffset);
-
-					/* add the result to the output and carry any overflow through (cannot leave the result-mantissa) */
-					LType old = result.get<LType>(btIndex);
-					LType next = old + res;
-					result.set<LType>(btIndex, next);
-					if (old > next) {
-						for (ExpType i = btIndex + LargeBits; i < TotalBits; i += LargeBits) {
-							old = result.get<LType>(i);
-							result.set<LType>(i, ++old);
-							if (old != 0)
-								break;
-						}
-					}
-
-					/* perform the mul-sub on the dividend (borrow cannot carry out, as guaranteed by the lower-offset) */
-					uint8_t borrow = 0;
-					for (ExpType i = 0; i < TotalBits; i += SmallBits) {
-						bool lowBorrow = ((borrow >>= 1) & 0x01);
-						bool highBorrow = (borrow & 0x02);
-						borrow &= ~0x03;
-
-						/* divide the multipication into two steps (as large result but [small]x[small] multiplication) */
-						LType fst = LType(SType(res)) * LType(divisor.get<SType>(i));
-						LType snd = LType(SType(res >> SmallBits)) * LType(divisor.get<SType>(i));
-
-						/* subtract the first value from the dividend */
-						if (fst != 0 || lowBorrow) {
-							LType old = dividend.get<LType>(AdditionalBits - SmallBits - nullBits + i);
-							LType next = old - fst - (lowBorrow ? 1 : 0);
-							dividend.set<LType>(AdditionalBits - SmallBits - nullBits + i, next);
-							borrow |= (next > old ? 0x04 : 0x00);
-						}
-
-						/* subtract the second value from the dividend */
-						if (snd != 0 || highBorrow) {
-							LType old = dividend.get<LType>(AdditionalBits - nullBits + i);
-							LType next = old - snd - (highBorrow ? 1 : 0);
-							dividend.set<LType>(AdditionalBits - nullBits + i, next);
-							borrow |= (next > old ? 0x08 : 0x00);
-						}
-					}
-
-					/* compute the new number of null-bits (will implicitly end if the dividend becomes zero, i.e. perfect division) */
-					nullBits = dividend.upper();
-				}
-
-				/* count the number of leading nulls to keep as much information as possible in the result */
-				ExpType nulls = result.upper();
-
-				/* round the result (in case of the division not being perfect, add one to the result to cleanly stop infinite repeating sequences) */
-				if (nullBits < AdditionalBits + TotalBits) {
-					for (ExpType i = AdditionalBits - nulls; i < AdditionalBits + TotalBits; i += LargeBits) {
-						LType old = result.get<LType>(i);
-						result.set<LType>(i, ++old);
-						if (old != 0)
-							break;
-					}
-				}
-
-				/* initialize the output and copy the result to the mantissa  */
-				ThisType out{};
-				out.pExponent = (pExponent - lOff) - (r.pExponent - rOff) - TotalBits + (SmallBits - nulls);
-				for (ExpType i = 0; i < TotalBits; i += LargeBits)
-					out.pMantissa.set<LType>(i, result.get<LType>(AdditionalBits - nulls + i));
-				return out;
-			}
-			detail::BitStream<LType, Units + 1> fMulSingle(LType r) const {
-				static constexpr size_t MaxCarries = 4;
-				LType l = SType(r), h = SType(r >> SmallBits);
-
-				/* cyclic buffer for the carry counts and the result-product */
-				SType carryCounts[MaxCarries] = { 0 };
-				size_t carryIndex = 0;
-				detail::BitStream<LType, Units + 1> prod;
-
-				/* multiply the values together (cannot carry out of the last group) */
-				for (size_t i = 0; i < TotalBits; i += SmallBits) {
-					LType val = LType(pMantissa.get<SType>(i));
-
-					/* extract the carry count to be added to this value */
-					SType carry = carryCounts[carryIndex % MaxCarries];
-					carryCounts[carryIndex++ % MaxCarries] = 0;
-
-					/* perform the multiplication with the lower value */
-					if (l != 0 && val != 0) {
-						LType old = prod.get<LType>(i);
-						LType next = old + val * l;
-
-						/* update the value and check if an overflow has occurred */
-						prod.set<LType>(i, next);
-						if (old > next)
-							++carryCounts[(carryIndex + 1) % MaxCarries];
-					}
-
-					/* perform the multiplication with the upper value */
-					if (h != 0 && val != 0) {
-						LType old = prod.get<LType>(i + SmallBits);
-						LType next = old + val * h;
-
-						/* update the value and check if an overflow has occurred */
-						prod.set<LType>(i + SmallBits, next);
-						if (old > next)
-							++carryCounts[(carryIndex + 2) % MaxCarries];
-					}
-
-					/* apply the carry */
-					if (carry > 0) {
-						LType old = prod.get<LType>(i);
-						LType next = old + carry;
-
-						/* update the value and check if it itself triggered an overflow */
-						prod.set<LType>(i, next);
-						if (old > next)
-							++carryCounts[(carryIndex + 1) % MaxCarries];
-					}
-				}
-				return prod;
-			}
-
-		public:
-			/* val * 2^exp, overflow */
-			static std::pair<ThisType, bool> MulPow2(const ThisType& val, ExpType exp) {
-				ThisType out{ val };
-				out.pExponent += exp;
-				bool overflow = (exp < 0 ? out.pExponent > val.pExponent : out.pExponent < val.pExponent);
-				return { out, overflow };
-			}
-
-			/* val * base^exp, overflow */
-			static std::pair<ThisType, bool> MulPow(const ThisType& val, const ThisType& base, ExpType exp) {
-				ThisType out{ 1 };
-				ThisType walk{ base };
-
-				/* check for the fast way out */
-				if (exp == 0)
-					return { val, false };
-
-				/* check if a division needs to be performed, in which case the power will first be computed,
-				*	and then divide the value, otherwise the value can be multiplied up immediately */
-				bool div = (exp < 0);
-				if (div)
-					exp = -exp;
-				else
-					out = val;
-
-				/* square-multiply algorithm */
-				while (exp > 0) {
-					if (exp & 0x01) {
-						ThisType next = walk.fMul(out);
-
-						/* check if the exponent has overflown (should at most continuously grow) */
-						if (out.pExponent > TotalBits && next.pExponent < -TotalBits)
-							return { next, true };
-						out = next;
-					}
-					if ((exp >>= 1) > 0)
-						walk = walk.fMul(walk);
-				}
-
-				/* check if the result needs to be divided and perform the division */
-				if (div)
-					out = val.fDiv(out);
-				return { out, false };
-			}
-
-			/* multiply val by f and return everything to left of point as integer and everything to right of the point as large-float (if too small/too large: undefined) */
-			static std::pair<ThisType, LType> IntMulMod(const ThisType& val, LType f) {
-				detail::BitStream<LType, Units + 1> prod = val.fMulSingle(f);
-
-				/* extract the modulo-result (i.e. everything to the left of the fractional point) */
-				LType intVal = prod.get<LType>(-val.pExponent);
-
-				/* write the remaining bits of the product (i.e. everything to the right of the fractional point) to the result */
-				ThisType out{};
-				out.pExponent = -TotalBits;
-				for (size_t i = 0; i < TotalBits; i += LargeBits)
-					out.pMantissa.set<LType>(i, prod.get<LType>(i - TotalBits - val.pExponent));
-				return { out, intVal };
-			}
-
-			/* multiply val by f and add a to it (undefined behavior for f null) */
-			static ThisType MulAdd(const ThisType& val, LType f, LType a) {
-				ThisType out{};
-
-				/* check for the fast way out (i.e. value so small such that multiplied with factor still no effect on addend bits or value is null) */
-				if (val.pExponent <= 2 * -TotalBits - LargeBits || (val.pExponent == 0 && val.pMantissa.upper() == TotalBits)) {
-					out.pMantissa.set<LType>(0, a);
-					return out;
-				}
-
-				/* perform the multiplication */
-				detail::BitStream<LType, Units + 1> prod = val.fMulSingle(f);
-
-				/* setup the exponent of the out-value to hold the most information as possible form the
-				*	multiplication result and check for the fast way out by the addend being null */
-				out.pExponent = val.pExponent + LargeBits - prod.upper();
-				if (a == 0) {
-					for (ExpType i = 0; i < TotalBits; i += LargeBits)
-						out.pMantissa.set<LType>(i, prod.get<LType>(i + out.pExponent));
-					return out;
-				}
-
-				/* compute the magnitude of the addend and update the output exponent to at least
-				*	hold the topmost bit of the addend (a must have at least one non-zero bit) */
-				ExpType aHigh = LargeBits;
-				while (((a >> (aHigh - 1)) & 0x01) == 0)
-					--aHigh;
-				out.pExponent = std::max<ExpType>(out.pExponent, aHigh - TotalBits);
-
-				/* perform the addition and simultaneously copy the data over (carry might overflow the last group) */
-				bool carry = false;
-				for (ExpType i = 0; i < TotalBits; i += LargeBits) {
-					LType old = prod.get<LType>(i + out.pExponent - val.pExponent);
-
-					/* cache the current carry-addition */
-					bool addSingleCarry = carry;
-					carry = false;
-
-					/* extract the part of the addend to be added to the current bits */
-					ExpType off = i + out.pExponent;
-					if (off > -LargeBits && off < LargeBits) {
-						LType next = old + (off < 0 ? (a << -off) : (a >> off));
-						out.pMantissa.set<LType>(i, next);
-
-						/* check if an overflow occurred */
-						if (old > next)
-							carry = true;
-
-						/* check if a carry has to be added or if the upcoming step can be skipped */
-						if (!addSingleCarry)
-							continue;
-						old = next;
-					}
-
-					/* apply the carry and copy the value to the output and check if an overflow occurred (cannot occur
-					*	two at once, as the first carry implies that value has at least space for one increment) */
-					if (addSingleCarry) {
-						out.pMantissa.set<LType>(i, ++old);
-						carry = (old == 0);
-					}
-				}
-
-				/* check if a final carry has occurred (rare in mul-add loops) and apply it by shifting the mantissa to the right and setting the highest bit */
-				if (carry) {
-					for (size_t i = 0; i < TotalBits; i += LargeBits)
-						out.pMantissa.set<LType>(i, out.pMantissa.get<LType>(i + 1));
-					out.pMantissa.bset(TotalBits - 1);
-					++out.pExponent;
-				}
-				return out;
-			}
-
-			/* return closest float describing the correponsing value, overflow/underflow */
-			template <class FlType>
-			static std::pair<FlType, int8_t> ReadFloat(const ThisType& val) {
-				static_assert(LargeBits <= std::numeric_limits<FlType>::max_exponent && std::numeric_limits<FlType>::min_exponent <= 0, "Exponent of FlType must at least be able to hold one LType");
-				FlType out{};
-
-				/* extract the highest (most relevant) bit such that the mantissa can be positioned to hold the highest bit to the right of the fractional-point */
-				ExpType highest = val.pMantissa.upper();
-
-				/* write all bits to the float (cannot overflow, and ignore underflow) */
-				for (ExpType i = TotalBits - highest - LargeBits; i > -LargeBits; i -= LargeBits) {
-					FlType temp = FlType(val.pMantissa.get<LType>(i));
-					if (temp == 0)
-						continue;
-
-					/* scale the temporary value such that the highest bit lies to the right of the fractional-point (this
-					*	ensures that the must significant bits will not trigger an underflow/overflow while writing them and
-					*	std::ldexp will at most trigger an underflow, in which case the result will be rounded towards null) */
-					out += std::ldexp(temp, static_cast<int>(i - TotalBits));
-				}
-
-				/* compute the final exponent to be applied to the result and check if it has overflown */
-				ExpType exponent = val.pExponent + TotalBits - highest;
-				if (exponent < 0 && val.pExponent > 0)
-					return { out, true };
-
-				/* check if the exponent can even fit into an integer */
-				if (exponent < std::numeric_limits<int>::min() || exponent > std::numeric_limits<int>::max())
-					return { FlType{}, (exponent < 0 ? -1 : 1) };
-
-				/* apply the exponent to the result and check for a range-error */
-				out = std::ldexp(out, static_cast<int>(exponent));
-				if (errno != ERANGE)
-					return { out, 0 };
-				return { out, (exponent < 0 ? -1 : 1) };
-			}
-		};
+		static constexpr int32_t LargeIntSafeExponentLimit = int32_t(0x01 << 24);
 
 		static constexpr long double LogBase2[str::MaxRadix + 1] = {
 			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
@@ -914,7 +398,6 @@ namespace str {
 			5.0000000000000000, 5.0443941193584530, 5.0874628412503400, 5.1292830169449660,
 			5.1699250014423120
 		};
-
 		static constexpr uint32_t MagnitudeIn32Bit[str::MaxRadix + 1] = {
 			0x00000000, 0x00000000, 0x80000000, 0xcfd41b91, 0x40000000, 0x48c27395, 0x81bf1000, 0x75db9c97,
 			0x40000000, 0xcfd41b91, 0x3b9aca00, 0x8c8b6d2b, 0x19a10000, 0x309f1021, 0x57f6c100, 0x98c29b81,
@@ -931,7 +414,6 @@ namespace str {
 		};
 		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
 		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-		static constexpr const char32_t* ExponentMap = U"eeeeeeeeeeeeee^^^^^^^^^^^^^^^^^^^^^^";
 		static constexpr const size_t MaxDigitMap = 128;
 		static constexpr uint8_t CPDigitMap[detail::MaxDigitMap] = {
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -1112,10 +594,11 @@ namespace str {
 		struct MantissaOut {
 			size_t consumed = 0;
 			uint64_t mantissa = 0;
-			uint64_t exponent = 0;
 			int64_t dotOffset = 0;
+			uint8_t shift = 0;
 			int8_t range = 0;
 			bool invalid = false;
+			bool trailIsNonNull = false;
 		};
 		template<class ChType, class Mode>
 		constexpr detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::DecodeOut& dec) {
@@ -1161,14 +644,19 @@ namespace str {
 							uint64_t uMantissa = uint64_t(radix) * uint64_t(out.mantissa >> 32) + uint32_t(lMantissa >> 32);
 
 							/* find the number of bits in the upper mantissa and construct the final mantissa value */
-							while (uMantissa >> (out.exponent + 32))
-								++out.exponent;
-							out.mantissa = (uMantissa << (32 - out.exponent)) | (uint64_t(uint32_t(lMantissa)) >> out.exponent);
+							out.shift = detail::BitsForNumber(uMantissa >> 32);
+							out.mantissa = (uMantissa << (32 - out.shift)) | (uint64_t(uint32_t(lMantissa)) >> out.shift);
 
-							/* mark the value as closed as any additional information will not affect the accumulated mantissa */
+							/* mark the value as closed as any additional information will not affect the
+							*	accumulated mantissa and update the trailiing-flag for the discarded bits */
 							valueClosed = true;
+							out.trailIsNonNull = ((lMantissa & ~(~uint64_t(0) << out.shift)) != 0);
 						}
 					}
+
+					/* check if the value is closed and the tail is non-zero (necessary for rounding) */
+					else if (valueClosed && dec.cp != U'0')
+						out.trailIsNonNull = true;
 				}
 
 				/* decode the next character */
@@ -1214,50 +702,82 @@ namespace str {
 			return out;
 		}
 
-		template<class Type>
-		constexpr std::pair<Type, int8_t> ConstructHexFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent) {
-			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
-			if (dotOffset != 0) {
-				int64_t old = exponent;
-				exponent += 4 * dotOffset;
-				if (dotOffset < 0 ? (old <= exponent) : (old >= exponent))
-					return { Type(), (dotOffset < 0 ? -1 : 1) };
+		template<class Type, size_t Units>
+		constexpr std::pair<Type, int8_t> ConstructFloat(uint64_t mantissa, uint8_t manShift, int32_t exponent, uint32_t radix, bool hexFloat, bool trailIsNull) {
+			uint64_t flMantissa = 0;
+			int flExponent = 0;
+			bool roundUp = false;
+
+			/* check if this is a hex-float, in which case the exponent only needs to be corrected by the mantissa-shift
+			*	(exponent is guaranteed to fit into an integer) and otherwise use the large-integers to produce the bits */
+			if (hexFloat) {
+				flExponent = static_cast<int>(exponent + manShift);
+				flMantissa = mantissa;
+
+				/* setup the rounding information */
+				int32_t bits = int32_t(detail::BitsForNumber(flMantissa)) - std::numeric_limits<Type>::digits;
+				if (bits >= 0)
+					roundUp = detail::RoundToNearestRoundUp(flMantissa >> bits, (flMantissa << (64 - bits)) | (trailIsNull ? 0x00 : 0x01));
+			}
+			else {
+				/* compute the binary exponent of the number and the number of bits of the mantissa (exponent is guaranteed to fit into an integer;
+				*	manShift can be ignored, as it cancels out when scaling the mantissa, compared to dividing it by the mantissa-bits) */
+				flExponent = int(std::ceil(exponent * detail::LogBase2[radix]));
+				int32_t manDigits = int32_t(detail::BitsForNumber(mantissa));
+
+				/* construct the numerator and denominator of the large type used to compute the final bits */
+				detail::LargeInt<Units> numerator = detail::LargeLoad<Units>(mantissa, 0), denominator = detail::LargeLoad<Units>(1, 0);
+				flExponent += manDigits;
+				if (flExponent > 0)
+					denominator = detail::LargePow2<Units>(denominator, uint32_t(flExponent));
+				else if (flExponent < 0)
+					numerator = detail::LargePow2<Units>(numerator, uint32_t(-flExponent));
+				if (exponent > 0)
+					numerator = detail::LargePow<Units>(numerator, radix, uint32_t(exponent));
+				else if (exponent < 0)
+					denominator = detail::LargePow<Units>(denominator, radix, uint32_t(-exponent));
+
+				/* loop until the required number of mantissa-bits have been extracted */
+				uint32_t fetchedBits = 0, requiredBits = std::numeric_limits<Type>::digits;
+				do {
+					/* compute the number of bits to extract this iteration and perform the multiply/division */
+					uint32_t numberOfBits = std::min<uint32_t>(requiredBits - fetchedBits, 24);
+					detail::LargeMul<Units>(numerator, uint32_t(0x01) << numberOfBits);
+					uint32_t temp = detail::LargeDiv<Units>(numerator, denominator);
+
+					/* check if this is the initial number, in which case any leading bits need to be corrected for */
+					if (fetchedBits == 0) {
+						uint32_t actual = detail::BitsForNumber(temp);
+						flExponent -= (numberOfBits - actual);
+						numberOfBits = actual;
+					}
+
+					/* update the overall fetched bits and the mantissa with the newly fetched bits */
+					fetchedBits += numberOfBits;
+					flMantissa = (flMantissa << numberOfBits) | temp;
+				} while (fetchedBits < requiredBits);
+				flExponent = flExponent + manShift - std::numeric_limits<Type>::digits;
+
+				/* extract the rounding information */
+				detail::LargeMul<Units>(numerator, 0x02);
+				bool tailBit = (detail::LargeDiv<Units>(numerator, denominator) != 0);
+				roundUp = detail::RoundToNearestRoundUp(flMantissa, (uint64_t(tailBit ? 0x01 : 0x00) << 63) | ((trailIsNull && numerator.size == 0) ? 0x00 : 0x01));
 			}
 
-			/* check if the exponent can even fit into an integer */
-			if (exponent < std::numeric_limits<int>::min() || exponent > std::numeric_limits<int>::max())
-				return { Type(), (exponent < 0 ? -1 : 1) };
-			Type value = Type(mantissa) * Type(uint64_t(0x01) << manExponent);
-			value = std::ldexp(value, static_cast<int>(exponent));
+			/* check if the mantissa needs to be rounded up and update it and the exponent accordingly */
+			if (roundUp) {
+				if (flMantissa == std::numeric_limits<uint64_t>::max()) {
+					flMantissa >>= 1;
+					++flExponent;
+				}
+				++flMantissa;
+			}
 
-			/* check if the exponent was valid */
+			/* construct the final value and check if an overflow/underflow occurred */
+			errno = 0;
+			Type value = std::ldexp(Type(flMantissa), flExponent);
 			if (errno == ERANGE)
 				return { Type(), (exponent < 0 ? -1 : 1) };
-			return { value, 0 };
-		}
-
-		template<class Type>
-		constexpr std::pair<Type, int8_t> ConstructNormalFloat(uint64_t mantissa, uint64_t manExponent, int64_t dotOffset, int64_t exponent, size_t radix) {
-			using FlType = detail::LargeFloat<uint32_t, uint64_t, 1>;
-
-			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
-			if (dotOffset != 0) {
-				int64_t old = exponent;
-				exponent += dotOffset;
-				if (dotOffset < 0 ? (old <= exponent) : (old >= exponent))
-					return { Type(), (dotOffset < 0 ? -1 : 1) };
-			}
-
-			/* construct the large-float with the corresponding shift (mantissa alone cannot overflow) and apply the exponent to it */
-			auto [num, mulPowRangeError] = FlType::MulPow(FlType::MulPow2(FlType(mantissa), manExponent).first, FlType{ radix }, exponent);
-			FlType flVal = num;
-			if (mulPowRangeError)
-				return { Type(), (exponent < 0 ? -1 : 1) };
-
-			/* read the final float value */
-			auto [value, readRangeError] = FlType::ReadFloat<Type>(flVal);
-			if (readRangeError != 0)
-				return { Type(), readRangeError };
 			return { value, 0 };
 		}
 
@@ -1265,14 +785,14 @@ namespace str {
 		constexpr str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
 			static_assert(std::numeric_limits<Type>::digits <= 64, "Type must have mantissa smaller than/equal to 64-bit");
 			static_assert(std::numeric_limits<Type>::radix == 2, "Type must use exponent-base two");
-			static constexpr auto LowerPlay = (std::numeric_limits<Type>::min_exponent - std::numeric_limits<int64_t>::min());
-			static constexpr auto UpperPlay = (std::numeric_limits<int64_t>::max() - std::numeric_limits<Type>::max_exponent);
-			static_assert(LowerPlay >= 0 && UpperPlay >= 0, "Type must have an exponent smaller than/equal to 64-bit");
+			static_assert(std::numeric_limits<Type>::min_exponent >= -detail::LargeIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
+			static_assert(std::numeric_limits<Type>::max_exponent <= detail::LargeIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
+			static_assert(sizeof(int) >= sizeof(int32_t), "Large integer requires the integer type to be at least 32-bit");
 			size_t totalConsumed = 0;
 
-			/* parse the mantissa and check if an error occurred (ignore range errors for now) */
+			/* parse the mantissa and check if an error occurred (ignore range errors for now; radix will already be 16 for hex-floats) */
 			str::DecodeOut dec = str::Decode<Mode>(view, true);
-			detail::MantissaOut mantissa = detail::ParseFloatMantissa<ChType, Mode>(view, (hexFloat ? 16 : radix), dec);
+			detail::MantissaOut mantissa = detail::ParseFloatMantissa<ChType, Mode>(view, radix, dec);
 			totalConsumed += mantissa.consumed;
 			if (mantissa.invalid)
 				return str::NumParseOut<Type>{ (negative ? -Type(0) : Type(0)), totalConsumed, str::NumResult::invalid };
@@ -1294,13 +814,25 @@ namespace str {
 			if (range == 0)
 				range = exponent.range;
 
-			/* construct the hex-float or the normal float */
+			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
+			if (range == 0 && mantissa.dotOffset != 0) {
+				int64_t old = exponent.exponent;
+				exponent.exponent += (hexFloat ? mantissa.dotOffset * 4 : mantissa.dotOffset);
+				if (mantissa.dotOffset < 0 ? (old <= exponent.exponent) : (old >= exponent.exponent))
+					range = (mantissa.dotOffset < 0 ? -1 : 1);
+			}
+
+			/* validate the range of the exponent */
+			if (range == 0 && std::abs(exponent.exponent * detail::LogBase2[radix]) > detail::LargeIntSafeExponentLimit)
+				range = (exponent.exponent < 0 ? -1 : 1);
+
+			/* check if the mantissa is null, in which case any range-errors are ignored */
+			if (mantissa.mantissa == 0)
+				return str::NumParseOut<Type>{ Type(), totalConsumed, str::NumResult::valid};
+
+			/* construct the final float value */
 			if (range == 0) {
-				std::pair<Type, int8_t> result;
-				if (hexFloat)
-					result = detail::ConstructHexFloat<Type>(mantissa.mantissa, mantissa.exponent, mantissa.dotOffset, exponent.exponent);
-				else
-					result = detail::ConstructNormalFloat<Type>(mantissa.mantissa, mantissa.exponent, mantissa.dotOffset, exponent.exponent, radix);
+				std::pair<Type, int8_t> result = detail::ConstructFloat<Type, 6>(mantissa.mantissa, mantissa.shift, int32_t(exponent.exponent), uint32_t(radix), hexFloat, !mantissa.trailIsNonNull);
 
 				/* check if a valid result has been found and return it */
 				if (result.second == 0) {
@@ -1326,27 +858,23 @@ namespace str {
 		}
 
 		template<class Mode>
-		constexpr void PrintHexFloat(auto& sink, intptr_t totalDigits, int32_t flExponent, uint64_t flMantissa, size_t expDigits, bool clipTrailing, bool upperCase) {
+		constexpr void PrintHexFloat(auto& sink, intptr_t totalDigits, int32_t flExponent, uint64_t flMantissa, size_t expDigits, bool roundToNearest, bool clipTrailing, bool upperCase) {
 			/* write out the first implicit 1 and patch the digit count */
 			str::EncodeInto<Mode>(sink, U'1');
 			--totalDigits;
 
-			/* find the topmost bit to be to the left of the point (must exist as the mantissa cannot be null) */
-			int32_t topBit = 63;
-			while (((flMantissa >> topBit) & 0x01) == 0)
-				--topBit;
+			/* find the topmost bit to be to the right of the point (must exist as the mantissa cannot be null) and check if the value should be rounded up */
+			int32_t topBit = detail::BitsForNumber(flMantissa) - 1, dropped = int32_t(topBit - totalDigits * 4);
+			if (roundToNearest && dropped > 0) {
+				/* remove the bits to be dropped */
+				uint64_t droppedBits = (flMantissa << (64 - dropped));
+				flMantissa >>= dropped;
+				flExponent += dropped;
+				topBit -= dropped;
 
-			/* check if the first bit past the digits is set and round the entire mantissa up */
-			if (topBit > totalDigits * 4 + 1) {
-				int32_t dropped = int32_t(topBit - totalDigits * 4 - 1);
-				if ((flMantissa >> (dropped - 1)) & 0x01) {
-					/* remove the bits to be dropped and apply the rounding (cannot overflow out of
-					*	the mantissa, as at least one bit will be dropped from the beginning) */
-					flMantissa = (flMantissa >> dropped) + 1;
-					flExponent += dropped;
-					topBit -= dropped;
-
-					/* check if an overflow occurred and the top bit has changed and update it accordingly */
+				/* check if the value should be rounded up and if the rounding will overflow the topmost bit */
+				if (detail::RoundToNearestRoundUp(flMantissa, droppedBits)) {
+					++flMantissa;
 					if (((flMantissa >> topBit) & 0x01) == 0)
 						++topBit;
 				}
@@ -1362,11 +890,11 @@ namespace str {
 				topBit -= 4;
 
 				/* extract the next hex-digit */
-				size_t digit = 0;
+				uint32_t digit = 0;
 				if (topBit >= 0)
-					digit = (flMantissa >> topBit);
+					digit = uint32_t(flMantissa >> topBit);
 				else if (topBit > -4)
-					digit = (flMantissa << -topBit);
+					digit = uint32_t(flMantissa << -topBit);
 
 				/* check if the digit should be delayed and otherwise write it out */
 				if (digit == 0)
@@ -1400,39 +928,42 @@ namespace str {
 		}
 
 		template<class Type, class Mode, size_t Units>
-		constexpr void PrintNormalFloat(auto& sink, intptr_t totalDigits, int32_t rawExponent, uint64_t flMantissa, str::FloatStyle style, uint32_t radix, size_t expDigits, bool upperCase, uint32_t capacity) {
+		constexpr void PrintNormalFloat(auto& sink, intptr_t totalDigits, int32_t rawExponent, uint64_t flMantissa, str::FloatStyle style, uint32_t radix, size_t expDigits, bool roundToNearest, bool upperCase, uint32_t capacity) {
 			/* compute the exponent, which can be off by one due to it being computed on the largest potential value, based
 			*	on the exponent, but the logarithm might be imprecise (cannot overflow as the value can at most shrink) */
 			int32_t flExponent = int32_t(std::ceil(rawExponent / detail::LogBase2[radix]));
 
-			/* setup the numerator and denominator to be used for the digit generation (one of the exponents will be positive */
-			detail::LargeInt<Units> numerator, denominator;
-			if (rawExponent < 0) {
-				numerator = detail::LargePow<Units>(detail::LargeLoad<Units>(flMantissa, capacity), radix, uint32_t(-flExponent));
-				denominator = detail::LargePow2<Units>(detail::LargeLoad<Units>(1, capacity), uint32_t(std::numeric_limits<Type>::digits - rawExponent));
-			}
-			else if (rawExponent >= std::numeric_limits<Type>::digits) {
-				numerator = detail::LargePow2<Units>(detail::LargeLoad<Units>(flMantissa, capacity), uint32_t(rawExponent - std::numeric_limits<Type>::digits));
-				denominator = detail::LargePow<Units>(detail::LargeLoad<Units>(1, capacity), radix, uint32_t(flExponent));
-			}
-			else {
-				numerator = detail::LargeLoad<Units>(flMantissa, capacity);
-				detail::LargeInt<Units> temp = detail::LargePow2(detail::LargeLoad<Units>(1, capacity), uint32_t(std::numeric_limits<Type>::digits - rawExponent));
-				denominator = detail::LargePow<Units>(temp, radix, uint32_t(flExponent));
-			}
+			/* decrease the exponent already by one, as the upcoming test for the first digits to
+			*	correct the exponent would otherwise have to perform an additional multiplication */
+			--flExponent;
 
-			/* produce the first digits to check if the exponent needs to be corrected (second case of the exponent being
-			*	too small should in practice never occur, as the exponent is always computed from a too-large number) */
-			detail::LargeInt<Units> tempInt = numerator;
-			detail::LargeMul<Units>(tempInt, radix);
-			uint32_t patchResult = detail::LargeDiv<Units>(tempInt, denominator);
-			if (patchResult == 0) {
-				numerator = tempInt;
-				--flExponent;
-			}
-			else if (patchResult >= radix) {
-				detail::LargeMul<Units>(denominator, radix);
-				++flExponent;
+			/* setup the numerator and denominator to be used for the digit generation (one of the exponents will be positive */
+			detail::LargeInt<Units> numerator = detail::LargeLoad<Units>(flMantissa, capacity), denominator = detail::LargeLoad<Units>(1, capacity);
+			rawExponent -= std::numeric_limits<Type>::digits;
+			if (rawExponent > 0)
+				numerator = detail::LargePow2<Units>(numerator, uint32_t(rawExponent));
+			else if (rawExponent < 0)
+				denominator = detail::LargePow2<Units>(denominator, uint32_t(-rawExponent));
+			if (flExponent > 0)
+				denominator = detail::LargePow<Units>(denominator, radix, uint32_t(flExponent));
+			else if (flExponent < 0)
+				numerator = detail::LargePow<Units>(numerator, radix, uint32_t(-flExponent));
+
+			/* digit-state to hold all of the produced digits (already insert the
+			*	intermediate digits, which are produced while correcting the exponent) */
+			uint32_t digits[32] = { 0 };
+			uint32_t next = detail::DigitsIn32Bit[radix];
+
+			/* produce the first digits to check if the exponent needs to be corrected (no need
+			*	for initial multiplication, as the exponent has already been decreased by one) */
+			uint32_t expPatchTest = detail::LargeDiv<Units>(numerator, denominator);
+			if (expPatchTest != 0) {
+				flExponent += (expPatchTest >= radix ? 2 : 1);
+
+				/* extract the already produced digits */
+				digits[--next] = (expPatchTest % radix);
+				if (expPatchTest >= radix)
+					digits[--next] = (expPatchTest / radix);
 			}
 
 			/* check whether or not the scientific mode should be used */
@@ -1447,16 +978,21 @@ namespace str {
 
 			/* produce the given number of digits and keep track of trailing lowest/highest digits, in order to remove trailing nulls/handle
 			*	rounding (initialize the state to consider the initial nulls to be added to the output as already encountered) */
-			uint32_t digits[32] = { 0 };
-			uint32_t lastDigit = 0, next = detail::DigitsIn32Bit[radix];
+			uint32_t lastDigit = 0, roundingDigit = 0;
 			intptr_t delayed = (scientific || flExponent > 0 ? 0 : intptr_t(flExponent - 1));
-			bool roundValueUp = false;
 			for (intptr_t i = 0;; ++i) {
 				/* check if the next digits need to be computed and extract the next digit to be used */
 				if (next >= detail::DigitsIn32Bit[radix]) {
 					/* perform the large multiply-division */
 					detail::LargeMul<Units>(numerator, detail::MagnitudeIn32Bit[radix]);
 					uint32_t intDigits = detail::LargeDiv<Units>(numerator, denominator);
+
+					/* check if the remaining digits are null */
+					if (intDigits == 0 && numerator.size == 0 && delayed < 0) {
+						delayed -= (totalDigits - i);
+						roundingDigit = 0;
+						break;
+					}
 
 					/* extract the digits from the integer */
 					while (next > 0) {
@@ -1466,9 +1002,9 @@ namespace str {
 				}
 				uint32_t digit = digits[next++];
 
-				/* check if this is the last digit and determine if the second to last value should be increased */
+				/* check if this is the last digit in which case it will only be used for rounding */
 				if (i >= totalDigits) {
-					roundValueUp = (digit >= radix / 2);
+					roundingDigit = digit;
 					break;
 				}
 
@@ -1509,6 +1045,22 @@ namespace str {
 					lastDigit = digit;
 					delayed = 0;
 				}
+			}
+
+			/* check if the value should be rounded up or down (trivial if last digit is not exactly 0.5,
+			*	otherwise it will be decided based on the last digit being odd/the remainder being null) */
+			bool roundValueUp = false;
+			if (roundToNearest && 2 * roundingDigit > radix)
+				roundValueUp = true;
+			else if (roundToNearest && 2 * roundingDigit == radix) {
+				/* check if the remainder of the tail is zero */
+				while (next < detail::DigitsIn32Bit[radix] && digits[next] == 0)
+					++next;
+				bool tailIsZero = (numerator.size == 0 && next == detail::DigitsIn32Bit[radix]);
+
+				/* check if the value should be rounded */
+				uint32_t lowerMantissa = (delayed == 0 ? lastDigit : (delayed > 0 ? radix - 1 : 0));
+				roundValueUp = detail::RoundToNearestRoundUp(lowerMantissa, (uint64_t(0x01) << 63) | (tailIsZero ? 0x00 : 0x01));
 			}
 
 			/* check if the last value was part of a chain of nulls, in which case the last digit is only be affected by the rounding */
@@ -1568,12 +1120,12 @@ namespace str {
 		}
 
 		template<class Type, class Mode>
-		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, size_t expDigits, bool upperCase, bool hexFloat) {
+		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, size_t expDigits, bool roundToNearest, bool upperCase, bool hexFloat) {
 			/* validate the float-type is usable (to ensure the exponent cannot trigger any overflow in the power-operations) */
 			static_assert(std::numeric_limits<Type>::digits <= 64, "Type must have mantissa smaller than/equal to 64-bit");
 			static_assert(std::numeric_limits<Type>::radix == 2, "Type must use exponent-base two");
-			static_assert(std::numeric_limits<Type>::min_exponent >= -detail::LarteIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
-			static_assert(std::numeric_limits<Type>::max_exponent <= detail::LarteIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
+			static_assert(std::numeric_limits<Type>::min_exponent >= -detail::LargeIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
+			static_assert(std::numeric_limits<Type>::max_exponent <= detail::LargeIntSafeExponentLimit, "Type must have an exponent safe to be handled by large integers");
 			static_assert(sizeof(int) >= sizeof(int32_t), "Large integer requires the integer type to be at least 32-bit");
 
 			/* check if the value is negative and extract the sign */
@@ -1595,7 +1147,7 @@ namespace str {
 			*	the precision to allow it to not overflow a signed intptr_t multiplied by at least 4 and ensure the exp-digits must at least contain one digit */
 			intptr_t totalDigits = 0;
 			if (precision == 0)
-				totalDigits = std::max<intptr_t>(1, intptr_t(std::floor(std::numeric_limits<Type>::digits / detail::LogBase2[radix])));
+				totalDigits = std::max<intptr_t>(1, intptr_t(std::floor(std::numeric_limits<Type>::digits / detail::LogBase2[radix])) - 1);
 			else
 				totalDigits = intptr_t(std::min<size_t>(precision, (std::numeric_limits<intptr_t>::max() / 16) + 1));
 			if (expDigits == 0)
@@ -1653,28 +1205,35 @@ namespace str {
 
 			/* check if a hex-string should be produced and dispatch the call to the handler */
 			if (hexFloat) {
-				detail::PrintHexFloat<Mode>(sink, totalDigits, flExponent - std::numeric_limits<Type>::digits, flMantissa, expDigits, (style == str::FloatStyle::scientificShort), upperCase);
+				detail::PrintHexFloat<Mode>(sink, totalDigits, flExponent - std::numeric_limits<Type>::digits, flMantissa, expDigits, roundToNearest, (style == str::FloatStyle::scientificShort), upperCase);
 				return;
 			}
 
-			/* select the method with the corresponding precision (any precision greater than 512 bits will result in potentially
-			*	imprecise digits; ensure the bits do not match exactly due to propagating errors in the computations) */
-			if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (2 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 2>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (4 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 4>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (6 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 6>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (8 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 8>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (16 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 16>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (32 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 32>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
-			else if (std::ceil(totalDigits * detail::LogBase2[radix]) <= (128 - 1) * 32)
-				detail::PrintNormalFloat<Type, Mode, 128>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 0);
+			/* select the resolution to be used (add two additional data-packages for scratch-pad and imprecisions/accumulating errors,
+			*	and make it dependent on the digits and rounding-digit, as well as an imprecision-correctuion for larger exponents) */
+			uint32_t expBits = uint32_t(detail::BitsForNumber(std::abs(flExponent))) * 2;
+			uint32_t digitsBits = uint32_t(std::ceil((totalDigits + 1) * detail::LogBase2[radix]));
+			uint32_t dataPackages = ((expBits + digitsBits + 31) / 32) + 2;
+			if (dataPackages <= 4)
+				detail::PrintNormalFloat<Type, Mode, 4>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 6)
+				detail::PrintNormalFloat<Type, Mode, 6>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 8)
+				detail::PrintNormalFloat<Type, Mode, 8>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 12)
+				detail::PrintNormalFloat<Type, Mode, 12>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 16)
+				detail::PrintNormalFloat<Type, Mode, 16>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 32)
+				detail::PrintNormalFloat<Type, Mode, 32>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 64)
+				detail::PrintNormalFloat<Type, Mode, 64>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 96)
+				detail::PrintNormalFloat<Type, Mode, 96>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
+			else if (dataPackages <= 128)
+				detail::PrintNormalFloat<Type, Mode, 128>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, 0);
 			else
-				detail::PrintNormalFloat<Type, Mode, 0>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, upperCase, 128);
+				detail::PrintNormalFloat<Type, Mode, 0>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), expDigits, roundToNearest, upperCase, dataPackages);
 		}
 	}
 
@@ -1808,72 +1367,74 @@ namespace str {
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr auto& FloatInto(str::AnySink auto& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+	constexpr auto& FloatInto(str::AnySink auto& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */
 		bool hexFloat = (radix == str::HexFloat);
-		if (radix < str::MinRadix || radix > str::MaxRadix)
+		if (hexFloat)
+			radix = 16;
+		else if (radix < str::MinRadix || radix > str::MaxRadix)
 			radix = 10;
-		detail::PrintFloat<Type, Mode>(sink, num, style, radix, precision, expDigits, upperCase, hexFloat);
+		detail::PrintFloat<Type, Mode>(sink, num, style, radix, precision, expDigits, roundToNearest, upperCase, hexFloat);
 		return sink;
 	}
 
 	/* print the float to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType, str::IsMode Mode = str::Relaxed>
-	constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+	constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
 		std::basic_string<ChType> out{};
-		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits);
+		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 
 	/* print the float to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType, intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::Small<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
+	constexpr str::Small<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
 		str::Small<ChType, Capacity> out{};
-		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits);
+		return str::FloatInto<Mode>(out, num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 
 	/* convenience for fast float-printing to a std::basic_string */
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr std::string ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr std::string ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr std::wstring WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<wchar_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr std::wstring WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<wchar_t, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr std::u8string U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char8_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr std::u8string U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char8_t, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr std::u16string U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char16_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr std::u16string U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char16_t, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <str::IsMode Mode = str::Relaxed>
-	constexpr std::u32string U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char32_t, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr std::u32string U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char32_t, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 
 	/* convenience for fast float-printing to a str::Small<Capacity> */
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::ChSmall<Capacity> ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr str::ChSmall<Capacity> ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::WdSmall<Capacity> WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<wchar_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr str::WdSmall<Capacity> WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<wchar_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::U8Small<Capacity> U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char8_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr str::U8Small<Capacity> U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char8_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::U16Small<Capacity> U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char16_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr str::U16Small<Capacity> U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char16_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
-	constexpr str::U32Small<Capacity> U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2) {
-		return str::Float<char32_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits);
+	constexpr str::U32Small<Capacity> U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+		return str::Float<char32_t, Capacity, Mode>(num, style, precision, radix, upperCase, expDigits, roundToNearest);
 	}
 }
