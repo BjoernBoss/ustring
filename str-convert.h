@@ -7,13 +7,8 @@
 #include <utility>
 #include <cwchar>
 #include <type_traits>
-#include <tuple>
 
 /*
-*	char8_t/char16_t/char32_t must be their respective unicode-encodings
-*	wchar_t must be a unicode-encoding
-*	char can be multi-byte using the current locale or any unicode-encoding
-*
 *	Decodes characters to codepoints (aka char32_t)
 *	Encodes codepoints (aka char32_t) to any character
 *
@@ -64,82 +59,10 @@ namespace str {
 	static constexpr char CharOnError = '?';
 
 	namespace detail {
-		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
-		constexpr bool IsBufferSame(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (sizeof(ExpType) != sizeof(ActType) || ExpSize != ActSize)
-				return false;
-
-			size_t i = 0;
-			while (i < ExpSize && expected[i] == static_cast<ExpType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
-		}
-		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
-		constexpr bool HoldSameValues(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (ExpSize != ActSize)
-				return false;
-			using LargeType = std::conditional_t<sizeof(ExpType) >= sizeof(ActType), ExpType, ActType>;
-
-			size_t i = 0;
-			while (i < ExpSize && static_cast<LargeType>(expected[i]) == static_cast<LargeType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
-		}
-
-		/* utf8 test-string: \U0000007f\U0000ff00\U00010000 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf8(const Type(&test)[Size]) {
-			constexpr uint8_t expected[] = { 0x7f, 0xef, 0xbc, 0x80, 0xf0, 0x90, 0x80, 0x80, 0x00 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* utf16 test-string: \U00010000\U0000ff00 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf16(const Type(&test)[Size]) {
-			constexpr uint16_t expected[] = { 0xd800, 0xdc00, 0xff00, 0x0000 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* utf32 test-string: \U00010000\U0000ff00 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf32(const Type(&test)[Size]) {
-			constexpr uint32_t expected[] = { 0x10000, 0xff00, 0x0000 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* check assumptions hold */
-		static_assert(detail::IsUtf8(u8"\U0000007f\U0000ff00\U00010000"), "char8_t is expected to be utf-8 encoded");
-		static_assert(detail::IsUtf16(u"\U00010000\U0000ff00"), "char16_t is expected to be utf-16 encoded");
-		static_assert(detail::IsUtf32(U"\U00010000\U0000ff00"), "char32_t is expected to be utf-32 encoded");
-
-		/* [character cannot be represented in current code page] */
-#pragma warning(push)
-#pragma warning(disable : 4566)
-
-		/* type equals char or char8_t/char16_t/char32_t, depending on encoding */
-		using MBEquivalence = std::conditional_t<detail::IsUtf8("\U0000007f\U0000ff00\U00010000"), char8_t,
-			std::conditional_t<detail::IsUtf16("\U00010000\U0000ff00"), char16_t,
-			std::conditional_t<detail::IsUtf32("\U00010000\U0000ff00"), char32_t, char>>>;
-
-		/* type equals wchar_t or char8_t/char16_t/char32_t, depending on encoding */
-		using WideEquivalence = std::conditional_t<detail::IsUtf8(L"\U0000007f\U0000ff00\U00010000"), char8_t,
-			std::conditional_t<detail::IsUtf16(L"\U00010000\U0000ff00"), char16_t,
-			std::conditional_t<detail::IsUtf32(L"\U00010000\U0000ff00"), char32_t, wchar_t>>>;
-		static_assert(!std::is_same_v<detail::WideEquivalence, wchar_t>, "wchar_t is expected to be a unicode encoding");
-#pragma warning(pop)
-
-		static constexpr bool CharHoldsAscii = detail::HoldSameValues(
-			U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
-			U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
-			"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
-			" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177");
-
 		/* extract effective character (char/char8_t/char16_t/char32_t) */
 		template <class Type>
-		using EffectiveChar = std::conditional_t<std::is_same_v<Type, char>, detail::MBEquivalence,
-			std::conditional_t<std::is_same_v<Type, wchar_t>, detail::WideEquivalence, Type>>;
+		using EffChar = std::conditional_t<std::is_same_v<Type, char>, std::conditional_t<str::IsCharUtf8, char8_t, char>,
+			std::conditional_t<std::is_same_v<Type, wchar_t>, std::conditional_t<str::IsWideUtf16, char16_t, char32_t>, Type>>;
 
 		/* utf-8 help lookup maps (of the upper 5 bits) and boundary maps (for length) */
 		static constexpr uint8_t Utf8InitCharLength[32] = {
@@ -216,7 +139,7 @@ namespace str {
 			return { char32_t(cp), 1 };
 		}
 		template <bool SizeOnly>
-		inline constexpr str::CPOut ReadMultiByte(const char* begin, const char* end) {
+		inline str::CPOut ReadMultiByte(const char* begin, const char* end) {
 			/* first decode multi-byte to wide-chars (as the standard libraries functions
 			*	to utf32 only work for utf8 inputs, at least on some msvc versions) */
 			std::mbstate_t state{ 0 };
@@ -268,9 +191,7 @@ namespace str {
 
 			/* check which kind of unicode-encoding needs to be used (consumed can be discarded as it will either be 1 or 0 but an error returned) */
 			char32_t cp = 0;
-			if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>)
-				cp = detail::ReadUtf8(reinterpret_cast<const char8_t*>(&wc), reinterpret_cast<const char8_t*>(&wc) + 1).cp;
-			else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>)
+			if constexpr (str::IsWideUtf16)
 				cp = detail::ReadUtf16(reinterpret_cast<const char16_t*>(&wc), reinterpret_cast<const char16_t*>(&wc) + 1).cp;
 			else
 				cp = detail::ReadUtf32(reinterpret_cast<const char32_t*>(&wc), reinterpret_cast<const char32_t*>(&wc) + 1).cp;
@@ -279,6 +200,32 @@ namespace str {
 			if (!str::IsCPValid(cp))
 				return { str::CPInvalid, len };
 			return { cp, len };
+		}
+
+		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
+		template <class ChType>
+		constexpr str::CPOut ReadCodePoint(const ChType* begin, const ChType* end) {
+			using EffType = detail::EffChar<ChType>;
+			str::CPOut out{};
+
+			/* check for the fast way out by the character being an immediate ascii character */
+			if constexpr (str::IsAscii<ChType>) {
+				if (std::make_unsigned_t<ChType>(*begin) < str::AsciiRange)
+					return { char32_t(*begin), 1 };
+			}
+
+			/* decode the next codepoint */
+			const EffType* effBegin = reinterpret_cast<const EffType*>(begin);
+			const EffType* effEnd = reinterpret_cast<const EffType*>(end);
+			if constexpr (std::is_same_v<EffType, char>)
+				out = detail::ReadMultiByte<false>(effBegin, effEnd);
+			else if constexpr (std::is_same_v<EffType, char8_t>)
+				out = detail::ReadUtf8(effBegin, effEnd);
+			else if constexpr (std::is_same_v<EffType, char16_t>)
+				out = detail::ReadUtf16(effBegin, effEnd);
+			else
+				out = detail::ReadUtf32(effBegin, effEnd);
+			return out;
 		}
 
 		template <class ChType>
@@ -355,11 +302,7 @@ namespace str {
 
 			/* convert the codepoint first to wide-characters and check if it only resulted in one, as a single
 			*	multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
-			if constexpr (std::is_same_v<detail::WideEquivalence, char8_t>) {
-				if (!detail::WriteUtf8<wchar_t>(wc, cp))
-					return false;
-			}
-			else if constexpr (std::is_same_v<detail::WideEquivalence, char16_t>) {
+			if constexpr (str::IsWideUtf16) {
 				if (!detail::WriteUtf16<wchar_t>(wc, cp))
 					return false;
 			}
@@ -388,38 +331,12 @@ namespace str {
 			return true;
 		}
 
-		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
-		template <class ChType>
-		constexpr str::CPOut ReadCodePoint(const ChType* begin, const ChType* end) {
-			using EffType = detail::EffectiveChar<ChType>;
-			str::CPOut out{};
-
-			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
-				if (std::make_unsigned_t<ChType>(*begin) < str::AsciiRange)
-					return { char32_t(*begin), 1 };
-			}
-
-			/* decode the next codepoint */
-			const EffType* effBegin = reinterpret_cast<const EffType*>(begin);
-			const EffType* effEnd = reinterpret_cast<const EffType*>(end);
-			if constexpr (std::is_same_v<EffType, char>)
-				out = detail::ReadMultiByte<false>(effBegin, effEnd);
-			else if constexpr (std::is_same_v<EffType, char8_t>)
-				out = detail::ReadUtf8(effBegin, effEnd);
-			else if constexpr (std::is_same_v<EffType, char16_t>)
-				out = detail::ReadUtf16(effBegin, effEnd);
-			else
-				out = detail::ReadUtf32(effBegin, effEnd);
-			return out;
-		}
-
 		template <class ChType>
 		constexpr bool WriteCodePoint(auto& sink, char32_t cp) {
-			using EffType = detail::EffectiveChar<ChType>;
+			using EffType = detail::EffChar<ChType>;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+			if constexpr (str::IsAscii<ChType>) {
 				if (static_cast<uint32_t>(cp) < str::AsciiRange) {
 					sink.push_back(static_cast<ChType>(cp));
 					return true;
@@ -440,11 +357,11 @@ namespace str {
 		/* estimate the size of the next character by inspecting as few bytes as possible (expects s to contain at least one character) */
 		template <class ChType>
 		constexpr str::CPOut ReadNextSize(const ChType* begin, const ChType* end) {
-			using EffType = detail::EffectiveChar<ChType>;
+			using EffType = detail::EffChar<ChType>;
 			uint32_t len = 0;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+			if constexpr (str::IsAscii<ChType>) {
 				if (static_cast<uint32_t>(*begin) < str::AsciiRange)
 					return { str::CPSuccess, 1 };
 			}
@@ -475,7 +392,7 @@ namespace str {
 		/* if different types, fully decode codepoint, otherwise only estimate the size to copy (expects s to contain at least one character) */
 		template <class SourceType, class SinkType>
 		constexpr str::CPOut TranscodeNext(auto& sink, const SourceType* begin, const SourceType* end) {
-			static constexpr bool EffIdentical = std::is_same_v<detail::EffectiveChar<SourceType>, detail::EffectiveChar<SinkType>>;
+			static constexpr bool EffIdentical = std::is_same_v<detail::EffChar<SourceType>, detail::EffChar<SinkType>>;
 			str::CPOut out{};
 
 			/* check if the source and destination are the same type, in which case the length can be extracted
@@ -500,18 +417,6 @@ namespace str {
 		}
 	}
 
-	/* check if the normal character string uses a given utf-encoding (might not use any utf-encoding, otherwise size is also considered to match) */
-	static constexpr bool IsCharUtf8 = std::is_same_v<detail::MBEquivalence, char8_t>;
-	static constexpr bool IsCharUtf16 = std::is_same_v<detail::MBEquivalence, char16_t>;
-	static constexpr bool IsCharUtf32 = std::is_same_v<detail::MBEquivalence, char32_t>;
-	static constexpr bool IsCharAscii = detail::CharHoldsAscii;
-
-	/* check if the wide character string uses a given utf-encoding (will use exactly one utf-encoding, size will also match) */
-	static constexpr bool IsWideUtf8 = std::is_same_v<detail::WideEquivalence, char8_t>;
-	static constexpr bool IsWideUtf16 = std::is_same_v<detail::WideEquivalence, char16_t>;
-	static constexpr bool IsWideUtf32 = std::is_same_v<detail::WideEquivalence, char32_t>;
-	static constexpr bool IsWideAscii = true;
-
 	/* read a single codepoint from the beginning of the string */
 	constexpr str::CPOut Decode(const str::AnyString auto& source, bool sourceCompleted) {
 		using ChType = str::StringChar<decltype(source)>;
@@ -529,14 +434,13 @@ namespace str {
 	/* check if the next character is an ascii character and return it or return str::CPNotAscii with zero characters consumed */
 	constexpr str::CPOut ReadAscii(const str::AnyString auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
-		using EffType = detail::EffectiveChar<ChType>;
 
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
 			return { str::CPNotAscii, 0 };
 
 		/* check if the raw value itself can be checked for being an ascii character */
-		if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+		if constexpr (str::IsAscii<ChType>) {
 			if (std::make_unsigned_t<ChType>(view[0]) < str::AsciiRange)
 				return { char32_t(view[0]), 1 };
 			return { str::CPNotAscii, 0 };
@@ -654,7 +558,7 @@ namespace str {
 			return sink;
 
 		/* check if a copy can be performed */
-		if constexpr (std::is_same_v<detail::EffectiveChar<SourceType>, detail::EffectiveChar<SinkType>>) {
+		if constexpr (std::is_same_v<detail::EffChar<SourceType>, detail::EffChar<SinkType>>) {
 			sink.append(std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(begin), view.size() });
 			return sink;
 		}
