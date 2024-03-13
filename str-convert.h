@@ -19,12 +19,13 @@
 */
 namespace str {
 	static constexpr char CharOnError = '?';
+	static constexpr char32_t NotAscii = char32_t(-1);
 
 	/* maximum number of characters to potentially be consumed/produced per codepoint */
 	static constexpr size_t MaxEncodeLength = 4;
 
-	/* number of ascii characters */
-	static constexpr size_t AsciiChars = 128;
+	/* number of ascii characters with valid range: [0, 128) */
+	static constexpr size_t AsciiRange = 128;
 
 	/* check if this is a codepoint defined as valid by the unicode standard (does not check internally reserved codes, just overall bounds) */
 	inline constexpr bool ValidCodePoint(char32_t cp) {
@@ -52,6 +53,10 @@ namespace str {
 		char32_t cp = 0;
 		str::DecResult result = str::DecResult::empty;
 	};
+	struct AsciiOut {
+		size_t consumed = 0;
+		char32_t cp = 0;
+	};
 	struct LengthOut {
 		size_t consumed = 0;
 		str::DecResult result = str::DecResult::empty;
@@ -78,17 +83,23 @@ namespace str {
 	*	Operation-Mode
 	*	Strict: ensure every unicode-codepoint is decoded properly and a valid codepoint
 	*	Relaxed: only check encoding, but do not check for invalid codepoints or overlong utf8-encodings
+	*
+	*	Conversion-Mode
+	*	Copy: if the direction allows for it, copy the data without respecting any encoding issues, otherwise perform relaxed operation
 	*/
 	struct Strict {};
 	struct Relaxed {};
+	struct Copy {};
 
-	/* check if the type is a valid operation-mode */
+	/* check if the type is a valid operation-mode or conversion-mode */
 	template <class Type>
 	static constexpr bool IsStrict = std::is_same_v<Type, str::Strict>;
 	template <class Type>
 	static constexpr bool IsRelaxed = std::is_same_v<Type, str::Relaxed>;
 	template <class Type>
 	concept IsMode = (str::IsStrict<Type> || str::IsRelaxed<Type>);
+	template <class Type>
+	concept IsConMode = (str::IsMode<Type> || std::is_same_v<Type, str::Copy>);
 
 	namespace detail {
 		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
@@ -358,13 +369,13 @@ namespace str {
 
 		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
 		template <class ChType, bool Strict>
-		constexpr str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source, bool sourceCompleted) {
+		inline constexpr str::DecodeOut ReadCodePoint(const std::basic_string_view<ChType>& source, bool sourceCompleted) {
 			using EffType = detail::EffectiveChar<ChType>;
 			std::tuple<size_t, uint32_t, str::DecResult> res{};
 
 			/* check for the fast way out by the character being an immediate ascii character */
 			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
-				if (source[0] >= 0 && source[0] < str::AsciiChars)
+				if (source[0] >= 0 && source[0] < str::AsciiRange)
 					return { 1, char32_t(source[0]), str::DecResult::valid };
 			}
 
@@ -418,7 +429,7 @@ namespace str {
 
 			/* check for the fast way out by the character being an immediate ascii character */
 			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
-				if (cp >= 0 && cp < str::AsciiChars) {
+				if (cp >= 0 && cp < str::AsciiRange) {
 					sink.push_back(static_cast<ChType>(cp));
 					return true;
 				}
@@ -448,7 +459,7 @@ namespace str {
 
 			/* check for the fast way out by the character being an immediate ascii character */
 			if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
-				if (source[0] >= 0 && source[0] < str::AsciiChars)
+				if (source[0] >= 0 && source[0] < str::AsciiRange)
 					return { 1, str::DecResult::valid };
 			}
 
@@ -540,15 +551,17 @@ namespace str {
 		}
 	}
 
-	/* check if the normal character string uses a given utf-encoding */
+	/* check if the normal character string uses a given utf-encoding (might not use any utf-encoding) */
 	static constexpr bool IsCharUtf8 = std::is_same_v<detail::MBEquivalence, char8_t>;
 	static constexpr bool IsCharUtf16 = std::is_same_v<detail::MBEquivalence, char16_t>;
 	static constexpr bool IsCharUtf32 = std::is_same_v<detail::MBEquivalence, char32_t>;
+	static constexpr bool IsCharAscii = detail::CharHoldsAscii;
 
-	/* check if the wide character string uses a given utf-encoding */
+	/* check if the wide character string uses a given utf-encoding (will use exactly one utf-encoding) */
 	static constexpr bool IsWideUtf8 = std::is_same_v<detail::WideEquivalence, char8_t>;
 	static constexpr bool IsWideUtf16 = std::is_same_v<detail::WideEquivalence, char16_t>;
 	static constexpr bool IsWideUtf32 = std::is_same_v<detail::WideEquivalence, char32_t>;
+	static constexpr bool IsWideAscii = true;
 
 	/* read a single codepoint from the beginning of the string */
 	template <str::IsMode Mode = str::Relaxed>
@@ -559,6 +572,30 @@ namespace str {
 		if (view.empty())
 			return { 0, 0, str::DecResult::empty };
 		return detail::ReadCodePoint<ChType, str::IsStrict<Mode>>(view, sourceCompleted);
+	}
+
+	/* check if the next character is an ascii character and return it or return str::NotAscii with zero characters consumed */
+	constexpr str::AsciiOut ReadAscii(const str::AnyString auto& source) {
+		using ChType = str::StringChar<decltype(source)>;
+		using EffType = detail::EffectiveChar<ChType>;
+
+		/* check if the string itself is empty */
+		std::basic_string_view<ChType> view{ source };
+		if (view.empty())
+			return { 0, str::NotAscii };
+
+		/* check if the raw value itself can be checked for being an ascii character */
+		if constexpr (!std::is_same_v<EffType, char> || detail::CharHoldsAscii) {
+			if (view[0] >= 0 && view[0] < str::AsciiRange)
+				return { 1, char32_t(view[0]) };
+			return { 0, str::NotAscii };
+		}
+
+		/* decode the codepoint and check if its a valid ascii character */
+		auto [consumed, cp, result] = detail::ReadCodePoint<ChType, false>(view, true);
+		if (result != str::DecResult::valid || cp < 0 || cp >= str::AsciiRange)
+			return { 0, str::NotAscii };
+		return { consumed, cp };
 	}
 
 	/* compute the size of the next character in the source */
@@ -627,16 +664,6 @@ namespace str {
 		str::TranscodeOut res = str::TranscodeInto<Mode>(out, source, sourceCompleted);
 		return { out, res.consumed, res.result, res.valid };
 	}
-
-	/*
-	*	Conversion-Mode (Operation-Mode: Strict/Relaxed)
-	*	Copy: if the direction allows for it, copy the data without respecting any encoding issues, otherwise perform relaxed operation
-	*/
-	struct Copy {};
-
-	/* check if the type is a valid conversion-mode */
-	template <class Type>
-	concept IsConMode = (str::IsMode<Type> || std::is_same_v<Type, str::Copy>);
 
 	/* convert the source-string of any type and append it to the sink-string (insert error char, if a character could not be transcoded and the error-char is not null) */
 	template <str::IsConMode Mode = str::Copy>
