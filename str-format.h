@@ -100,9 +100,7 @@ namespace str {
 			bool openStarted = false, closeStarted = false;
 			while (!fmt.empty()) {
 				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
-				auto [len, cp, result] = str::Decode(fmt, true);
-				if (result != str::DecResult::valid)
-					cp = 0;
+				auto [cp, len] = str::Decode(fmt, true);
 
 				/* check if an open-bracket has been encountered, which could either be part of an escape
 				*	sequence or mark the start of an argument (discard any unescaped closing-brackets) */
@@ -120,7 +118,7 @@ namespace str {
 					closeStarted = !closeStarted;
 
 				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
-				if (!openStarted && !closeStarted && result == str::DecResult::valid) {
+				if (!openStarted && !closeStarted && str::IsCPValid(cp)) {
 					if constexpr (std::is_same_v<FmtType, SinkType>)
 						sink.append(fmt.substr(0, len));
 					else
@@ -164,8 +162,8 @@ namespace str {
 			ArgState state = ArgState::preDigit;
 			while (!view.empty()) {
 				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
-				auto [len, cp, result] = str::Decode(view, true);
-				bool valid = (result == str::DecResult::valid);
+				auto [cp, len] = str::Decode(view, true);
+				bool valid = str::IsCPValid(cp);
 
 				/* check if the current index needs to be updated */
 				if (state != ArgState::inArgFmt) {

@@ -234,6 +234,18 @@ namespace str {
 				--aSize;
 			}
 
+#pragma warning(push)
+
+			/* [Reading invalid data from 'a.data']:
+			*	aOff + (aSize - 1) cannot become larger than a.capacity, as aSize = a.size - aOff (aSize + aOff = a.size)
+			*	and further if a skip occurs, aOff is increased, but aSize is decreased again */
+#pragma warning(disable : 6385)
+
+			/* [Buffer overrun while writing to 'a.data']:
+			*	Cannot overrun as aSize can at most be (a.capacity - 1), as aSize = a.capacity
+			*	would trigger a skip, which would again reduce aSize by one */
+#pragma warning(disable : 6386)
+
 			/* iterate over the elements of a and perform the mulitplication */
 			for (int32_t i = 0; i < aSize; ++i) {
 				uint64_t value = uint64_t(b) * uint64_t(a.data[aOff + i]) + uint64_t(carry);
@@ -245,6 +257,7 @@ namespace str {
 
 			/* write the remainder of the carry to the output */
 			a.data[aSize] = carry;
+#pragma warning(pop)
 
 			/* clip any trailing nulls in the output (cannot underflow as value cannot be null) */
 			while (a.data[a.size - 1] == 0)
@@ -570,7 +583,7 @@ namespace str {
 			while (true) {
 				/* decode the next character */
 				auto [consumed, cp] = str::ReadAscii(view.substr(out.signConsumed + prefixConsumed));
-				if (cp == str::NotAscii)
+				if (cp == str::CPNotAscii)
 					return out;
 
 				/* check if a sign has been encountered */
@@ -613,7 +626,7 @@ namespace str {
 		}
 
 		template<class Type, class ChType>
-		constexpr std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::AsciiOut& dec, bool negative) {
+		constexpr std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec, bool negative) {
 			size_t totalConsumed = 0;
 			bool overflow = false;
 
@@ -629,7 +642,7 @@ namespace str {
 
 			/* iterate over the digits and parse them */
 			UType value = 0;
-			while (dec.cp != str::NotAscii) {
+			while (dec.cp != str::CPNotAscii) {
 				/* check if the codepoint is a valid digit */
 				size_t digit = detail::AsciiDigitMap[dec.cp];
 				if (digit >= radix)
@@ -656,7 +669,7 @@ namespace str {
 		template<class Type, class ChType>
 		constexpr str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
-			str::AsciiOut dec = str::ReadAscii(view);
+			str::CPOut dec = str::ReadAscii(view);
 			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<Type, ChType>(view, radix, dec, negative);
 
 			/* check if an overflow occurred and setup the overflow value */
@@ -726,7 +739,7 @@ namespace str {
 			bool trailIsNonNull = false;
 		};
 		template<class ChType>
-		constexpr detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::AsciiOut& dec) {
+		constexpr detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec) {
 			detail::MantissaOut out;
 
 			/* setup the number of digits to be processed (maximum plus one, where the last digit is used to fill remaining bits) */
@@ -735,7 +748,7 @@ namespace str {
 
 			/* parse the entire mantissa (integer component and fractional part) */
 			bool inFraction = false, hasValue = false, valueClosed = false;
-			while (dec.cp != str::NotAscii) {
+			while (dec.cp != str::CPNotAscii) {
 				size_t digit = 0;
 
 				/* extract the digit or check if its the dot */
@@ -802,7 +815,7 @@ namespace str {
 			bool invalid = false;
 		};
 		template<class ChType>
-		constexpr detail::ExponentOut ParseFloatExponent(const std::basic_string_view<ChType>& view, size_t radix, str::AsciiOut& dec) {
+		constexpr detail::ExponentOut ParseFloatExponent(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec) {
 			detail::ExponentOut out;
 
 			/* extract a potential sign of the exponent */
@@ -916,7 +929,7 @@ namespace str {
 			size_t totalConsumed = 0;
 
 			/* parse the mantissa and check if an error occurred (ignore range errors for now; radix will already be 16 for hex-floats) */
-			str::AsciiOut dec = str::ReadAscii(view);
+			str::CPOut dec = str::ReadAscii(view);
 			detail::MantissaOut mantissa = detail::ParseFloatMantissa<ChType>(view, radix, dec);
 			totalConsumed += mantissa.consumed;
 			if (mantissa.invalid)
