@@ -708,12 +708,12 @@ namespace str {
 
 			/* write the sign out */
 			if (negative)
-				str::EncodeInto<str::Relaxed>(sink, U'-');
+				str::EncodeInto(sink, U'-');
 
 			/* write the digits out */
 			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
 			while (next != digits)
-				str::EncodeInto<str::Relaxed>(sink, digitSet[*(--next)]);
+				str::EncodeInto(sink, digitSet[*(--next)]);
 		}
 
 		struct MantissaOut {
@@ -977,21 +977,21 @@ namespace str {
 			/* check if the point will be inserted within this iteration */
 			if (digitsBeforePoint >= 0 && size_t(digitsBeforePoint) < count) {
 				for (size_t i = 0; i < size_t(digitsBeforePoint); ++i)
-					str::EncodeInto<str::Relaxed>(sink, digit);
-				str::EncodeInto<str::Relaxed>(sink, U'.');
+					str::EncodeInto(sink, digit);
+				str::EncodeInto(sink, U'.');
 				for (size_t i = size_t(digitsBeforePoint); i < count; ++i)
-					str::EncodeInto<str::Relaxed>(sink, digit);
+					str::EncodeInto(sink, digit);
 			}
 
 			/* insert all digits */
 			else for (size_t i = 0; i < count; ++i)
-				str::EncodeInto<str::Relaxed>(sink, digit);
+				str::EncodeInto(sink, digit);
 			digitsBeforePoint -= count;
 		}
 
 		constexpr void PrintHexFloat(auto& sink, intptr_t totalDigits, int32_t flExponent, uint64_t flMantissa, size_t expDigits, bool roundToNearest, bool clipTrailing, bool upperCase) {
 			/* write out the first implicit 1 and patch the digit count */
-			str::EncodeInto<str::Relaxed>(sink, U'1');
+			str::EncodeInto(sink, U'1');
 			--totalDigits;
 
 			/* find the topmost bit to be to the right of the point (must exist as the mantissa cannot be null) and check if the value should be rounded up */
@@ -1042,8 +1042,8 @@ namespace str {
 				detail::FlushFloatDigits(sink, U'0', delayed, digitsBeforePoint);
 
 			/* write the exponent out */
-			str::EncodeInto<str::Relaxed>(sink, upperCase ? U'P' : U'p');
-			str::EncodeInto<str::Relaxed>(sink, flExponent < 0 ? U'-' : U'+');
+			str::EncodeInto(sink, upperCase ? U'P' : U'p');
+			str::EncodeInto(sink, flExponent < 0 ? U'-' : U'+');
 			if (flExponent < 0)
 				flExponent = -flExponent;
 
@@ -1053,9 +1053,9 @@ namespace str {
 
 			/* insert the required padding-nulls and the exponent-number */
 			for (size_t i = buffer.size(); i < expDigits; ++i)
-				str::EncodeInto<str::Relaxed>(sink, U'0');
+				str::EncodeInto(sink, U'0');
 			for (size_t i = 0; i < buffer.size(); ++i)
-				str::EncodeInto<str::Relaxed>(sink, buffer[i]);
+				str::EncodeInto(sink, buffer[i]);
 		}
 
 		template<class Type, size_t Units>
@@ -1235,8 +1235,8 @@ namespace str {
 			/* check if the exponent needs to be written out */
 			if (!scientific)
 				return;
-			str::EncodeInto<str::Relaxed>(sink, U"eE^^"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00)]);
-			str::EncodeInto<str::Relaxed>(sink, --flExponent < 0 ? U'-' : U'+');
+			str::EncodeInto(sink, U"eE^^"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00)]);
+			str::EncodeInto(sink, --flExponent < 0 ? U'-' : U'+');
 			flExponent = (flExponent < 0 ? -flExponent : flExponent);
 
 			/* write the exponent to a temporary buffer (cannot overflow the string-buffer) */
@@ -1245,9 +1245,9 @@ namespace str {
 
 			/* insert the required padding-nulls and the exponent-number */
 			for (size_t i = buffer.size(); i < expDigits; ++i)
-				str::EncodeInto<str::Relaxed>(sink, U'0');
+				str::EncodeInto(sink, U'0');
 			for (size_t i = 0; i < buffer.size(); ++i)
-				str::EncodeInto<str::Relaxed>(sink, buffer[i]);
+				str::EncodeInto(sink, buffer[i]);
 		}
 
 		template<class Type>
@@ -1261,16 +1261,16 @@ namespace str {
 
 			/* check if the value is negative and extract the sign */
 			if (num < 0) {
-				str::EncodeInto<str::Relaxed>(sink, U'-');
+				str::EncodeInto(sink, U'-');
 				num = -num;
 			}
 
 			/* check if the value is a special value */
 			if (!std::isfinite(num)) {
 				if (std::isinf(num))
-					str::ConvertInto<str::Relaxed>(sink, upperCase ? U"INF" : U"inf", 0);
+					str::ConvertInto(sink, upperCase ? U"INF" : U"inf", 0);
 				else
-					str::ConvertInto<str::Relaxed>(sink, upperCase ? U"NAN" : U"nan", 0);
+					str::ConvertInto(sink, upperCase ? U"NAN" : U"nan", 0);
 				return;
 			}
 
@@ -1313,23 +1313,23 @@ namespace str {
 			/* check if the value is null and print the null-representation as fast way out */
 			if (flMantissa == 0) {
 				/* produce the null-string */
-				str::EncodeInto<str::Relaxed>(sink, U'0');
+				str::EncodeInto(sink, U'0');
 				if (style == str::FloatStyle::general || style == str::FloatStyle::fixedShort)
 					return;
 
 				/* generate the chain of nulls */
 				if (style != str::FloatStyle::scientificShort && totalDigits > 1) {
-					str::EncodeInto<str::Relaxed>(sink, U'.');
+					str::EncodeInto(sink, U'.');
 					for (intptr_t i = 1; i < totalDigits; ++i)
-						str::EncodeInto<str::Relaxed>(sink, U'0');
+						str::EncodeInto(sink, U'0');
 				}
 
 				/* check if an exponent needs to be added */
 				if (style == str::FloatStyle::scientific || style == str::FloatStyle::scientificShort) {
-					str::EncodeInto<str::Relaxed>(sink, U"eE^^pPpP"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00) + (hexFloat ? 0x04 : 0x00)]);
-					str::EncodeInto<str::Relaxed>(sink, U'+');
+					str::EncodeInto(sink, U"eE^^pPpP"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00) + (hexFloat ? 0x04 : 0x00)]);
+					str::EncodeInto(sink, U'+');
 					for (size_t i = 0; i < expDigits; ++i)
-						str::EncodeInto<str::Relaxed>(sink, U'0');
+						str::EncodeInto(sink, U'0');
 				}
 				return;
 			}

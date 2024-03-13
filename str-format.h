@@ -94,59 +94,15 @@ namespace str {
 				str::Formatter<Arg>{}(arg, sink, fmt);
 		}
 
-		template <class ChType>
-		constexpr bool FastFormattingPossible() {
-			/* check if the type is a unicode-variation, in which case fast formatting is possible */
-			if constexpr (!std::is_same_v<ChType, char>)
-				return true;
-
-			/* check if the single char is a unicode-variation, in which case the fast formatting is possible */
-			if constexpr (!std::is_same_v<detail::MBEquivalence, char>)
-				return true;
-
-			/* check that char encodes the argument-bracket characters as the ascii brackets */
-			char test[] = { "{}" };
-			char32_t expected[] = { U"{}" };
-
-			constexpr size_t expCount = (sizeof(expected) / sizeof(char32_t));
-			if (sizeof(test) / sizeof(char) != expCount)
-				return false;
-
-			size_t i = 0;
-			while (i < expCount && static_cast<uint8_t>(test[i]) == static_cast<uint32_t>(expected[i]))
-				++i;
-
-			return (i == expCount);
-		}
-
-		template <class FmtType, class SinkType, bool Strict>
+		template <class FmtType, class SinkType>
 		constexpr bool FormatPrintUntilArg(auto& sink, std::basic_string_view<FmtType>& fmt) {
-			/* fast formatting relies on the '{' and '}' characters being single char-values using the ascii representations (true for all unicode-encodings) */
-			constexpr bool fastMode = (std::is_same_v<FmtType, SinkType> && !Strict && detail::FastFormattingPossible<FmtType>());
-
 			/* iterate until the entire format-string has been processed or until an argument has been encountered */
 			bool openStarted = false, closeStarted = false;
 			while (!fmt.empty()) {
-				char32_t cp = 0;
-				size_t len = 1;
-				bool valid = false;
-
-				/* check if this is fast-mode, in which case the next character can just be
-				*	fetched from the source and upcasted (only if the next character has size 1) */
-				if constexpr (fastMode) {
-					auto [_len, result] = str::LengthNext<str::Relaxed>(fmt, true);
-					valid = (result == str::DecResult::valid);
-					if (valid && _len == 1)
-						cp = static_cast<char32_t>(static_cast<uint32_t>(std::make_unsigned_t<FmtType>(fmt[0])));
-					len = _len;
-				}
-				else {
-					/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
-					auto [_len, _cp, result] = str::Decode<std::conditional_t<Strict, str::Strict, str::Relaxed>>(fmt, true);
-					if (valid = (result == str::DecResult::valid))
-						cp = _cp;
-					len = _len;
-				}
+				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
+				auto [len, cp, result] = str::Decode(fmt, true);
+				if (result != str::DecResult::valid)
+					cp = 0;
 
 				/* check if an open-bracket has been encountered, which could either be part of an escape
 				*	sequence or mark the start of an argument (discard any unescaped closing-brackets) */
@@ -164,11 +120,11 @@ namespace str {
 					closeStarted = !closeStarted;
 
 				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
-				if (!openStarted && !closeStarted && valid) {
+				if (!openStarted && !closeStarted && result == str::DecResult::valid) {
 					if constexpr (std::is_same_v<FmtType, SinkType>)
 						sink.append(fmt.substr(0, len));
 					else
-						str::EncodeInto<str::Relaxed>(sink, cp);
+						str::EncodeInto(sink, cp);
 				}
 				fmt = fmt.substr(len);
 			}
@@ -184,7 +140,6 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr auto& FormatInto(str::AnySink auto& sink, const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StringChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
@@ -201,7 +156,7 @@ namespace str {
 		std::basic_string_view<FmtType> view{ fmt };
 
 		/* print all characters from the format string until the next argument starts */
-		while (detail::FormatPrintUntilArg<FmtType, SinkType, str::IsStrict<Mode>>(sink, view)) {
+		while (detail::FormatPrintUntilArg<FmtType, SinkType>(sink, view)) {
 			size_t argIndex = 0, argFormatLen = 0;
 
 			/* parse the next argument description */
@@ -209,7 +164,7 @@ namespace str {
 			ArgState state = ArgState::preDigit;
 			while (!view.empty()) {
 				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
-				auto [len, cp, result] = str::Decode<Mode>(view, true);
+				auto [len, cp, result] = str::Decode(view, true);
 				bool valid = (result == str::DecResult::valid);
 
 				/* check if the current index needs to be updated */
@@ -273,17 +228,17 @@ namespace str {
 	}
 
 	/* format the arguments to a string of the destination character-type (returning std::basic_string) */
-	template <str::IsChar ChType, str::IsMode Mode = str::Relaxed>
+	template <str::IsChar ChType>
 	constexpr std::basic_string<ChType> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		std::basic_string<ChType> out{};
-		return str::FormatInto<Mode>(out, fmt, args...);
+		return str::FormatInto(out, fmt, args...);
 	}
 
 	/* format the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
-	template <str::IsChar ChType, intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <str::IsChar ChType, intptr_t Capacity>
 	constexpr str::Small<ChType, Capacity> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
-		return str::FormatInto<Mode>(out, fmt, args...);
+		return str::FormatInto(out, fmt, args...);
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
@@ -308,47 +263,42 @@ namespace str {
 	}
 
 	/* convenience for fast formatting to a std::basic_string */
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr std::string ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char, Mode>(fmt, args...);
+		return str::Format<char>(fmt, args...);
 	}
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr std::wstring WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<wchar_t, Mode>(fmt, args...);
+		return str::Format<wchar_t>(fmt, args...);
 	}
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr std::u8string U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char8_t, Mode>(fmt, args...);
+		return str::Format<char8_t>(fmt, args...);
 	}
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr std::u16string U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char16_t, Mode>(fmt, args...);
+		return str::Format<char16_t>(fmt, args...);
 	}
-	template <str::IsMode Mode = str::Relaxed>
 	constexpr std::u32string U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char32_t, Mode>(fmt, args...);
+		return str::Format<char32_t>(fmt, args...);
 	}
 
 	/* convenience for fast formatting to a str::Small<Capacity> */
-	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char, Capacity, Mode>(fmt, args...);
+		return str::Format<char, Capacity>(fmt, args...);
 	}
-	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<wchar_t, Capacity, Mode>(fmt, args...);
+		return str::Format<wchar_t, Capacity>(fmt, args...);
 	}
-	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char8_t, Capacity, Mode>(fmt, args...);
+		return str::Format<char8_t, Capacity>(fmt, args...);
 	}
-	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char16_t, Capacity, Mode>(fmt, args...);
+		return str::Format<char16_t, Capacity>(fmt, args...);
 	}
-	template <intptr_t Capacity, str::IsMode Mode = str::Relaxed>
+	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char32_t, Capacity, Mode>(fmt, args...);
+		return str::Format<char32_t, Capacity>(fmt, args...);
 	}
 
 	/* convenience for fast building to a std::basic_string */
@@ -409,8 +359,8 @@ namespace str {
 	*		chars[n] = option[n][...] or 0, if not found
 	*		chars[sizeof(options)] is padding-character
 	*
-	*	strict: (!|\?)? if contains any of them, should perform any char-formatting as strict
-	*	[0]: If group == '?', use '?' as replacement character for invalid encodings, else no replacement
+	*	error: (\?)? if found, use '?' as replacement character for invalid encodings, else no replacement
+	*		=> only relevant for strings of different types being written to the sink
 	*/
 	enum class PaddingSide : uint8_t {
 		leading,
@@ -425,7 +375,6 @@ namespace str {
 		size_t maximum = std::numeric_limits<size_t>::max();
 		size_t precision = 0;
 		str::PaddingSide side = str::PaddingSide::leading;
-		bool strict = false;
 		bool replace = false;
 	};
 	template <size_t OptCount>
@@ -509,10 +458,9 @@ namespace str {
 				continue;
 			}
 
-			/* check if the character is the strict/strict-with-replacement option */
-			if (!out.strict && (fmt[i] == U'!' || fmt[i] == U'?')) {
-				out.strict = true;
-				out.replace = (fmt[i] == U'?');
+			/* check if the character is the error-replacement option */
+			if (fmt[i] == U'?') {
+				out.replace = true;
 				continue;
 			}
 
@@ -552,10 +500,7 @@ namespace str {
 		}
 
 		/* write the string itself */
-		if (parsed.strict)
-			str::ConvertInto<str::Strict>(sink, limited, parsed.replace ? '?' : 0);
-		else
-			str::ConvertInto<str::Copy>(sink, limited, 0);
+		str::ConvertInto(sink, limited, parsed.replace ? '?' : 0);
 
 		/* write the trailing-padding characters */
 		if constexpr (Format) {
@@ -658,52 +603,36 @@ namespace str {
 	};
 
 	/*
-	*	[!] to enfore strict transcoding rules
 	*	[?] to use '?' as replacement character if character cannot be encoded
 	*/
 	template <> struct Formatter<char> {
 		constexpr void operator()(char t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
-			if (fmt.find(U'!') != std::u32string_view::npos)
-				str::ConvertInto<str::Strict>(sink, std::basic_string_view{ &t, 1 }, rep);
-			else
-				str::ConvertInto<str::Copy>(sink, std::basic_string_view{ &t, 1 }, rep);
+			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<wchar_t> {
 		constexpr void operator()(wchar_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
-			if (fmt.find(U'!') != std::u32string_view::npos)
-				str::ConvertInto<str::Strict>(sink, std::basic_string_view{ &t, 1 }, rep);
-			else
-				str::ConvertInto<str::Copy>(sink, std::basic_string_view{ &t, 1 }, rep);
+			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char8_t> {
 		constexpr void operator()(char8_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
-			if (fmt.find(U'!') != std::u32string_view::npos)
-				str::ConvertInto<str::Strict>(sink, std::basic_string_view{ &t, 1 }, rep);
-			else
-				str::ConvertInto<str::Copy>(sink, std::basic_string_view{ &t, 1 }, rep);
+			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char16_t> {
 		constexpr void operator()(char16_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
-			if (fmt.find(U'!') != std::u32string_view::npos)
-				str::ConvertInto<str::Strict>(sink, std::basic_string_view{ &t, 1 }, rep);
-			else
-				str::ConvertInto<str::Copy>(sink, std::basic_string_view{ &t, 1 }, rep);
+			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char32_t> {
 		constexpr void operator()(char32_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
-			if (fmt.find(U'!') != std::u32string_view::npos)
-				str::ConvertInto<str::Strict>(sink, std::basic_string_view{ &t, 1 }, rep);
-			else
-				str::ConvertInto<str::Copy>(sink, std::basic_string_view{ &t, 1 }, rep);
+			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 
