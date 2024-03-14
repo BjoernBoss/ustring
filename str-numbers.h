@@ -694,7 +694,7 @@ namespace str {
 		}
 
 		template<class Type>
-		constexpr void PrintInteger(auto& sink, Type num, size_t radix, bool upperCase) {
+		constexpr void PrintInteger(auto& sink, Type num, size_t radix, size_t digitCount, bool upperCase) {
 			static_assert(sizeof(Type) <= 8, "Type must be smaller than/equal to 64-bit");
 
 			/* digit map to contain all digits */
@@ -722,6 +722,10 @@ namespace str {
 			/* write the sign out */
 			if (negative)
 				str::EncodeInto(sink, U'-');
+
+			/* write the additional null-digits out */
+			for (size_t i = size_t(next - digits); i < digitCount; ++i)
+				str::EncodeInto(sink, U'0');
 
 			/* write the digits out */
 			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
@@ -1060,15 +1064,8 @@ namespace str {
 			if (flExponent < 0)
 				flExponent = -flExponent;
 
-			/* write the exponent to a temporary buffer (cannot overflow the string-buffer) */
-			str::U32Small<64> buffer;
-			detail::PrintInteger<uint32_t>(buffer, static_cast<uint32_t>(flExponent), 10, upperCase);
-
-			/* insert the required padding-nulls and the exponent-number */
-			for (size_t i = buffer.size(); i < expDigits; ++i)
-				str::EncodeInto(sink, U'0');
-			for (size_t i = 0; i < buffer.size(); ++i)
-				str::EncodeInto(sink, buffer[i]);
+			/* write the exponent to the sink */
+			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), 10, expDigits, upperCase);
 		}
 
 		template<class Type, size_t Units>
@@ -1252,15 +1249,8 @@ namespace str {
 			str::EncodeInto(sink, --flExponent < 0 ? U'-' : U'+');
 			flExponent = (flExponent < 0 ? -flExponent : flExponent);
 
-			/* write the exponent to a temporary buffer (cannot overflow the string-buffer) */
-			str::U32Small<64> buffer;
-			detail::PrintInteger<uint32_t>(buffer, static_cast<uint32_t>(flExponent), radix, upperCase);
-
-			/* insert the required padding-nulls and the exponent-number */
-			for (size_t i = buffer.size(); i < expDigits; ++i)
-				str::EncodeInto(sink, U'0');
-			for (size_t i = 0; i < buffer.size(); ++i)
-				str::EncodeInto(sink, buffer[i]);
+			/* write the exponent to the sink */
+			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), radix, expDigits, upperCase);
 		}
 
 		template<class Type>
@@ -1440,13 +1430,13 @@ namespace str {
 	}
 
 	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
-	constexpr auto& IntInto(str::AnySink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+	constexpr auto& IntInto(str::AnySink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, size_t digits = 0, bool upperCase = false) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
 		/* ensure the radix is valid and print the integer */
 		if (radix < str::MinRadix || radix > str::MaxRadix)
 			radix = 10;
-		detail::PrintInteger<Type>(sink, num, radix, upperCase);
+		detail::PrintInteger<Type>(sink, num, radix, digits, upperCase);
 		return sink;
 	}
 

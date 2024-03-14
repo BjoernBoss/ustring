@@ -59,11 +59,6 @@ namespace str {
 	static constexpr char CharOnError = '?';
 
 	namespace detail {
-		/* extract effective character (char/char8_t/char16_t/char32_t) */
-		template <class Type>
-		using EffChar = std::conditional_t<std::is_same_v<Type, char>, std::conditional_t<str::IsCharUtf8, char8_t, char>,
-			std::conditional_t<std::is_same_v<Type, wchar_t>, std::conditional_t<str::IsWideUtf16, char16_t, char32_t>, Type>>;
-
 		/* utf-8 help lookup maps (of the upper 5 bits) and boundary maps (for length) */
 		static constexpr uint8_t Utf8InitCharLength[32] = {
 			1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -209,7 +204,7 @@ namespace str {
 		/* expect s to contain at least one character (will only return consumed:0 on incomplete chars) */
 		template <class ChType>
 		constexpr str::CPOut ReadCodePoint(const ChType* begin, const ChType* end) {
-			using EffType = detail::EffChar<ChType>;
+			using EffType = str::EffChar<ChType>;
 			str::CPOut out{};
 
 			/* check for the fast way out by the character being an immediate ascii character */
@@ -337,7 +332,7 @@ namespace str {
 
 		template <class ChType>
 		constexpr bool WriteCodePoint(auto& sink, char32_t cp) {
-			using EffType = detail::EffChar<ChType>;
+			using EffType = str::EffChar<ChType>;
 
 			/* check for the fast way out by the character being an immediate ascii character */
 			if constexpr (str::IsAscii<ChType>) {
@@ -361,7 +356,7 @@ namespace str {
 		/* estimate the size of the next character by inspecting as few bytes as possible (expects s to contain at least one character) */
 		template <class ChType>
 		constexpr str::CPOut ReadNextSize(const ChType* begin, const ChType* end) {
-			using EffType = detail::EffChar<ChType>;
+			using EffType = str::EffChar<ChType>;
 			uint32_t len = 0;
 
 			/* check for the fast way out by the character being an immediate ascii character */
@@ -396,12 +391,11 @@ namespace str {
 		/* if different types, fully decode codepoint, otherwise only estimate the size to copy (expects s to contain at least one character) */
 		template <class SourceType, class SinkType>
 		constexpr str::CPOut TranscodeNext(auto& sink, const SourceType* begin, const SourceType* end) {
-			static constexpr bool EffIdentical = std::is_same_v<detail::EffChar<SourceType>, detail::EffChar<SinkType>>;
 			str::CPOut out{};
 
 			/* check if the source and destination are the same type, in which case the length can be extracted
 			*	and copied over to the source (codepoint can be set to null, as it will not be used) */
-			if constexpr (EffIdentical)
+			if constexpr (str::EffSame<SourceType, SinkType>)
 				out = detail::ReadNextSize<SourceType>(begin, end);
 			else
 				out = detail::ReadCodePoint<SourceType>(begin, end);
@@ -411,7 +405,7 @@ namespace str {
 				return out;
 
 			/* check if the source and destination are of the same type, in which case the characters can just be copied */
-			if constexpr (EffIdentical)
+			if constexpr (str::EffSame<SourceType, SinkType>)
 				str::WriteSink<SinkType>(sink, reinterpret_cast<const SinkType*>(begin), out.consumed);
 
 			/* try to write the codepoint to the destination and otherwise return the consumed number of token */
@@ -558,7 +552,7 @@ namespace str {
 			return sink;
 
 		/* check if a copy can be performed */
-		if constexpr (std::is_same_v<detail::EffChar<SourceType>, detail::EffChar<SinkType>>) {
+		if constexpr (str::EffSame<SourceType, SinkType>) {
 			str::WriteSink<SinkType>(sink, reinterpret_cast<const SinkType*>(begin), end - begin);
 			return sink;
 		}
@@ -630,17 +624,5 @@ namespace str {
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> ToUtf32(const str::AnyString auto& source, char charOnError = str::CharOnError) {
 		return str::Convert<char32_t, Capacity>(source, charOnError);
-	}
-
-
-
-
-	/* return a string containing the byte-order-mark encoded in the corresponding type (empty if not utf8/utf16/utf32) */
-	template <str::IsChar ChType>
-	constexpr str::Small<ChType, str::MaxEncodeLength> BOM() {
-		str::Small<ChType, str::MaxEncodeLength> out{};
-		if constexpr (str::IsUnicode<ChType>)
-			detail::WriteCodePoint<ChType>(out, 0xfeff);
-		return out;
 	}
 }

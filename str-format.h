@@ -2,13 +2,12 @@
 
 #include "str-common.h"
 #include "str-convert.h"
+#include "str-numbers.h"
 
 #include <string>
 #include <type_traits>
-#include <charconv>
 #include <utility>
 #include <vector>
-#include <limits>
 
 namespace str {
 
@@ -68,30 +67,35 @@ namespace str {
 
 
 
+	/* formattable interface which requires:
+	*	operator() to take a sink of any type, a value of the type, a utf32 string-view with formatting-string */
 	template <class Type>
 	struct Formatter;
-
-	/* does type specialize buildable struct for given character or for all characters */
 	template <class Type>
-	concept IsFormattable = requires(const Type & t, const std::u32string_view & fmt, str::ChSmall<1> cs, str::WdSmall<1> ws, str::U8Small<1> u8s, str::U16Small<1> u16s, str::U32Small<1> u32s) {
-		typename str::Formatter<Type>;
-		{ str::Formatter<Type>{}(t, cs, fmt) };
-		{ str::Formatter<Type>{}(t, ws, fmt) };
-		{ str::Formatter<Type>{}(t, u8s, fmt) };
-		{ str::Formatter<Type>{}(t, u16s, fmt) };
-		{ str::Formatter<Type>{}(t, u32s, fmt) };
+	concept IsFormattable = requires(const Type & val, const std::u32string_view & fmt, str::ChSmall<1> cs, str::WdSmall<1> ws, str::U8Small<1> u8s, str::U16Small<1> u16s, str::U32Small<1> u32s) {
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(cs, val, fmt) };
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(ws, val, fmt) };
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u8s, val, fmt) };
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u16s, val, fmt) };
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u32s, val, fmt) };
 	};
 
-	namespace detail {
-		template <class _Unused>
-		constexpr void Format(auto& sink, size_t index, const std::u32string_view& fmt) {}
+	/* wrapper to format into sink */
+	template <class ChType>
+	constexpr void FormatSingle(str::IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
+		str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
+	}
 
-		template <class _Unused, class Arg, class... Args>
-		constexpr void Format(auto& sink, size_t index, const std::u32string_view& fmt, const Arg& arg, const Args&... args) {
+	namespace detail {
+		template <class ChType>
+		constexpr void FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt) {}
+
+		template <class ChType, class Arg, class... Args>
+		constexpr void FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt, const Arg& arg, const Args&... args) {
 			if (index > 0)
-				detail::Format<_Unused, Args...>(sink, index - 1, fmt, args...);
+				detail::FormatIndex<ChType, Args...>(sink, index - 1, fmt, args...);
 			else
-				str::Formatter<Arg>{}(arg, sink, fmt);
+				str::FormatSingle<ChType>(sink, arg, fmt);
 		}
 
 		template <class FmtType, class SinkType>
@@ -119,8 +123,12 @@ namespace str {
 
 				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
 				if (!openStarted && !closeStarted && str::IsCPValid(cp)) {
-					if constexpr (std::is_same_v<FmtType, SinkType>)
-						sink.append(fmt.substr(0, len));
+					if constexpr (str::EffSame<FmtType, SinkType>) {
+						if (len == 1)
+							str::WriteSink<SinkType>(sink, static_cast<SinkType>(fmt[0]));
+						else
+							str::WriteSink<SinkType>(sink, reinterpret_cast<const SinkType*>(fmt.data()), len);
+					}
 					else
 						str::EncodeInto(sink, cp);
 				}
@@ -129,11 +137,11 @@ namespace str {
 			return false;
 		}
 
-		template <class Arg, class... Args>
+		template <class ChType, class Arg, class... Args>
 		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
-			str::Formatter<Arg>{}(arg, sink, std::u32string_view{});
+			str::FormatSingle<ChType>(sink, arg, U"");
 			if constexpr (sizeof...(args) > 0)
-				detail::Append<Args...>(sink, args...);
+				detail::Append<ChType, Args...>(sink, args...);
 		}
 	}
 
@@ -151,7 +159,7 @@ namespace str {
 		/* buffer the format-string until the entire format has been consumed */
 		size_t nextArgument = 0, argFormatLen = 0;
 		std::u32string argFormatBuffer;
-		std::basic_string_view<FmtType> view{ fmt };
+		std::basic_string_view<FmtType> view = str::StringView<FmtType>(fmt);
 
 		/* print all characters from the format string until the next argument starts */
 		while (detail::FormatPrintUntilArg<FmtType, SinkType>(sink, view)) {
@@ -220,7 +228,7 @@ namespace str {
 
 			/* check if a valid argument has been found and the index is valid, in which case the argument and be printed */
 			if (state == ArgState::done && argIndex < sizeof...(args))
-				detail::Format<void>(sink, argIndex, std::u32string_view{ argFormatBuffer.data(), argFormatLen }, args...);
+				detail::FormatIndex<SinkType>(sink, argIndex, std::u32string_view{ argFormatBuffer.data(), argFormatLen }, args...);
 		}
 		return sink;
 	}
@@ -237,27 +245,6 @@ namespace str {
 	constexpr str::Small<ChType, Capacity> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
 		return str::FormatInto(out, fmt, args...);
-	}
-
-	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
-	constexpr auto& BuildInto(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
-		if constexpr (sizeof...(args) > 0)
-			detail::Append(sink, args...);
-		return sink;
-	}
-
-	/* build the arguments to a string of the destination character-type (returning std::basic_string) */
-	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
-		std::basic_string<ChType> out{};
-		return str::BuildInto(out, args...);
-	}
-
-	/* build the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
-	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Build(const str::IsFormattable auto&... args) {
-		str::Small<ChType, Capacity> out{};
-		return str::BuildInto(out, args...);
 	}
 
 	/* convenience for fast formatting to a std::basic_string */
@@ -299,6 +286,28 @@ namespace str {
 		return str::Format<char32_t, Capacity>(fmt, args...);
 	}
 
+	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
+	constexpr auto& BuildInto(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
+		using ChType = str::SinkChar<decltype(sink)>;
+		if constexpr (sizeof...(args) > 0)
+			detail::Append<ChType>(sink, args...);
+		return sink;
+	}
+
+	/* build the arguments to a string of the destination character-type (returning std::basic_string) */
+	template <str::IsChar ChType>
+	constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
+		std::basic_string<ChType> out{};
+		return str::BuildInto(out, args...);
+	}
+
+	/* build the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
+	template <str::IsChar ChType, intptr_t Capacity>
+	constexpr str::Small<ChType, Capacity> Build(const str::IsFormattable auto&... args) {
+		str::Small<ChType, Capacity> out{};
+		return str::BuildInto(out, args...);
+	}
+
 	/* convenience for fast building to a std::basic_string */
 	constexpr std::string ChBuild(const str::IsFormattable auto&... args) {
 		return str::Build<char>(args...);
@@ -338,188 +347,178 @@ namespace str {
 		return str::Build<char32_t, Capacity>(args...);
 	}
 
-	/*
-	*	parse standard formatting-string
-	*
-	*	padding: (.)?(<|^|>)?(\d+)(\.\d+)?(,\d+)
-	*	[0]: fill-character (optional; default: ' ')
-	*	[1]: fill-side (optional; leading,center,trailing; default: '<')
-	*	[2]: min-size (if not found, no padding used; cannot be zero; default: 0)
-	*	[3]: precision (optional; if type allows for it; default: 0)
-	*	[4]: max-size (optional; will be increased if smaller than min-size; default: max-size)
-	*	numbers might overwrite padding-side if padding-character is '0'
-	*
-	*	nested: (.*)(|(.*))?
-	*	[0]: normal formatting considered (must exist)
-	*	[1]: optional nested formatting (optional; if type allows for it; default: '')
-	*
-	*	options: additional options passed in, of which the first occurrence counts
-	*		chars[n] = option[n][...] or 0, if not found
-	*		chars[sizeof(options)] is padding-character
-	*
-	*	error: (\?)? if found, use '?' as replacement character for invalid encodings, else no replacement
-	*		=> only relevant for strings of different types being written to the sink
-	*/
-	enum class PaddingSide : uint8_t {
-		leading,
-		trailing,
-		center
-	};
-	template <size_t OptCount>
-	struct FormatParseOut {
-		std::u32string_view nested;
-		char32_t chars[OptCount + 1] = { 0 };
-		size_t length = 0;
-		size_t maximum = std::numeric_limits<size_t>::max();
-		size_t precision = 0;
-		str::PaddingSide side = str::PaddingSide::leading;
-		bool replace = false;
-	};
-	template <size_t OptCount>
-	str::FormatParseOut<OptCount> ParseFormatting(const std::u32string_view& fmt, bool precision, bool nested, const std::u32string_view(&options)[OptCount]) {
-		str::FormatParseOut<OptCount> out{};
-		size_t size = 0;
+	namespace fmt {
+		/*
+		*	parse standard formatting-string
+		*
+		*	padding: (.)?(<|^|>)?(\d+)(\.\d+)?(,\d+)
+		*	[0]: fill-character (optional; default: ' ')
+		*	[1]: fill-side (optional; leading,center,trailing; default: '<')
+		*	[2]: min-size (if not found, no padding used; cannot be zero; default: 0)
+		*	[3]: precision (optional; if type allows for it; default: 0)
+		*	[4]: max-size (optional; will be increased if smaller than min-size; default: max-size)
+		*	numbers might overwrite padding-side if padding-character is '0'
+		*
+		*	nested: (.*)(|(.*))?
+		*	[0]: normal formatting considered (must exist)
+		*	[1]: optional nested formatting (optional; if type allows for it; default: '')
+		*
+		*	options: additional options passed in, of which the first occurrence counts
+		*		chars[n] = option[n][...] or 0, if not found
+		*		chars[sizeof(options)] is padding-character
+		*
+		*	error: (\?)? if found, use '?' as replacement character for invalid encodings, else no replacement
+		*		=> only relevant for strings of different types being written to the sink
+		*/
+		enum class PaddingSide : uint8_t {
+			leading,
+			trailing,
+			center
+		};
+		template <size_t OptCount>
+		struct FormatParseOut {
+			std::u32string_view nested;
+			char32_t chars[OptCount + 1] = { 0 };
+			size_t length = 0;
+			size_t maximum = std::numeric_limits<size_t>::max();
+			size_t precision = 0;
+			fmt::PaddingSide side = fmt::PaddingSide::leading;
+			bool replace = false;
+		};
+		template <size_t OptCount>
+		fmt::FormatParseOut<OptCount> ParseFormatting(const std::u32string_view& fmt, bool precision, bool nested, const std::u32string_view(&options)[OptCount]) {
+			fmt::FormatParseOut<OptCount> out{};
+			size_t size = 0;
 
-		/* check if the formatting may contain a nested formatting-string and look it up */
-		if (nested) {
-			while (size < fmt.size() && fmt[size] != U'|')
-				++size;
-			out.nested = fmt.substr(size + 1);
-		}
-		else
-			size = fmt.size();
+			/* check if the formatting may contain a nested formatting-string and look it up */
+			if (nested) {
+				while (size < fmt.size() && fmt[size] != U'|')
+					++size;
+				out.nested = fmt.substr(size + 1);
+			}
+			else
+				size = fmt.size();
 
-		/* look for the start of the padding (first digit greater than 0) */
-		size_t start = 0;
-		for (; start < size; ++start) {
-			if (fmt[start] >= U'1' && fmt[start] <= U'9')
-				break;
-		}
-		size_t end = start;
+			/* look for the start of the padding (first digit greater than 0) */
+			size_t start = 0;
+			for (; start < size; ++start) {
+				if (fmt[start] >= U'1' && fmt[start] <= U'9')
+					break;
+			}
+			size_t end = start;
 
-		/* check if a number has been found and parse the numbers */
-		if (start < size) {
-			/* parse the length of the padding as well as the precision and maximum length */
-			for (size_t i = 0; i < 3; ++i) {
-				/* check if another number should be parsed */
-				bool nextPrecision = false;
-				if (i > 0) {
-					if (end + 1 >= size || fmt[end + 1] < U'1' || fmt[end + 1] > U'9')
+			/* check if a number has been found and parse the numbers */
+			if (start < size) {
+				/* parse the length of the padding as well as the precision and maximum length */
+				for (size_t i = 0; i < 3; ++i) {
+					/* check if another number should be parsed */
+					bool nextPrecision = false;
+					if (i > 0) {
+						if (end + 1 >= size || fmt[end + 1] < U'1' || fmt[end + 1] > U'9')
+							break;
+						if (fmt[end] == U'.' && i == 1 && precision)
+							nextPrecision = true;
+						else if (fmt[end] != U',')
+							break;
+						++end;
+					}
+
+					/* parse the next number */
+					size_t number = 0;
+					for (; end < size; ++end) {
+						if (fmt[end] < U'0' || fmt[end] > U'9')
+							break;
+						number = number * 10 + static_cast<size_t>(fmt[end] - U'0');
+					}
+
+					/* assign the number to the right property */
+					if (i == 0)
+						out.length = number;
+					else if (nextPrecision)
+						out.precision = number;
+					else {
+						out.maximum = std::max<size_t>(out.length, number);
 						break;
-					if (fmt[end] == U'.' && i == 1 && precision)
-						nextPrecision = true;
-					else if (fmt[end] != U',')
-						break;
-					++end;
+					}
 				}
 
-				/* parse the next number */
-				size_t number = 0;
-				for (; end < size; ++end) {
-					if (fmt[end] < U'0' || fmt[end] > U'9')
-						break;
-					number = number * 10 + static_cast<size_t>(fmt[end] - U'0');
+				/* check if the padding side has been overwritten */
+				if (start > 0 && (fmt[start - 1] == U'<' || fmt[start - 1] == U'^' || fmt[start - 1] == U'>')) {
+					--start;
+					if (fmt[start] == U'<')
+						out.side = fmt::PaddingSide::leading;
+					else if (fmt[start] == U'^')
+						out.side = fmt::PaddingSide::center;
+					else
+						out.side = fmt::PaddingSide::trailing;
 				}
 
-				/* assign the number to the right property */
-				if (i == 0)
-					out.length = number;
-				else if (nextPrecision)
-					out.precision = number;
-				else {
-					out.maximum = std::max<size_t>(out.length, number);
+				/* check if the padding character has been overwritten */
+				if (start > 0)
+					out.chars[OptCount] = fmt[--start];
+			}
+
+			/* iterate over the remaining characters and check if they pick any of the options */
+			for (size_t i = 0; i < size; ++i) {
+				/* check if the current index lies within the padding-string */
+				if (i >= start && i < end) {
+					i = end - 1;
+					continue;
+				}
+
+				/* check if the character is the error-replacement option */
+				if (fmt[i] == U'?') {
+					out.replace = true;
+					continue;
+				}
+
+				/* check if the character is one of the options */
+				for (size_t j = 0; j < OptCount; ++j) {
+					if (out.chars[j] != 0 || options[j].find(fmt[i]) == std::u32string_view::npos)
+						continue;
+					out.chars[j] = fmt[i];
 					break;
 				}
 			}
-
-			/* check if the padding side has been overwritten */
-			if (start > 0 && (fmt[start - 1] == U'<' || fmt[start - 1] == U'^' || fmt[start - 1] == U'>')) {
-				--start;
-				if (fmt[start] == U'<')
-					out.side = str::PaddingSide::leading;
-				else if (fmt[start] == U'^')
-					out.side = str::PaddingSide::center;
-				else
-					out.side = str::PaddingSide::trailing;
-			}
-
-			/* check if the padding character has been overwritten */
-			if (start > 0)
-				out.chars[OptCount] = fmt[--start];
+			return out;
 		}
 
-		/* iterate over the remaining characters and check if they pick any of the options */
-		for (size_t i = 0; i < size; ++i) {
-			/* check if the current index lies within the padding-string */
-			if (i >= start && i < end) {
-				i = end - 1;
-				continue;
+		/* write the string and optionally enforce the limitations and perform the padding */
+		template <bool Format, str::IsChar ChType, size_t OptCount>
+		void WriteFormattedString(const fmt::FormatParseOut<OptCount>& parsed, str::AnySink auto& sink, const std::basic_string_view<ChType>& str) {
+			/* limit the string to the boundary */
+			std::basic_string_view<ChType> limited = str.substr(0, Format ? parsed.maximum : str.size());
+
+			/* compute the padding characters to be written */
+			size_t leading = 0, trailing = 0;
+			if (Format && limited.size() < parsed.length) {
+				size_t left = parsed.length - limited.size();
+
+				if (parsed.side == fmt::PaddingSide::leading)
+					leading = left;
+				else if (parsed.side == fmt::PaddingSide::center)
+					leading = (left / 2);
+				trailing = left - leading;
 			}
 
-			/* check if the character is the error-replacement option */
-			if (fmt[i] == U'?') {
-				out.replace = true;
-				continue;
+			/* write the leading-padding characters */
+			if constexpr (Format) {
+				for (size_t i = 0; i < leading; ++i)
+					fmt::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
 			}
 
-			/* check if the character is one of the options */
-			for (size_t j = 0; j < OptCount; ++j) {
-				if (out.chars[j] != 0 || options[j].find(fmt[i]) == std::u32string_view::npos)
-					continue;
-				out.chars[j] = fmt[i];
-				break;
+			/* write the string itself */
+			str::ConvertInto(sink, limited, parsed.replace ? '?' : 0);
+
+			/* write the trailing-padding characters */
+			if constexpr (Format) {
+				for (size_t i = 0; i < trailing; ++i)
+					fmt::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
 			}
-		}
-		return out;
-	}
-
-	/* write the string and optionally enforce the limitations and perform the padding */
-	template <bool Format, str::IsChar ChType, size_t OptCount>
-	void WriteFormattedString(const str::FormatParseOut<OptCount>& parsed, str::AnySink auto& sink, const std::basic_string_view<ChType>& str) {
-		/* limit the string to the boundary */
-		std::basic_string_view<ChType> limited = str.substr(0, Format ? parsed.maximum : str.size());
-
-		/* compute the padding characters to be written */
-		size_t leading = 0, trailing = 0;
-		if (Format && limited.size() < parsed.length) {
-			size_t left = parsed.length - limited.size();
-
-			if (parsed.side == str::PaddingSide::leading)
-				leading = left;
-			else if (parsed.side == str::PaddingSide::center)
-				leading = (left / 2);
-			trailing = left - leading;
-		}
-
-		/* write the leading-padding characters */
-		if constexpr (Format) {
-			for (size_t i = 0; i < leading; ++i)
-				str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
-		}
-
-		/* write the string itself */
-		str::ConvertInto(sink, limited, parsed.replace ? '?' : 0);
-
-		/* write the trailing-padding characters */
-		if constexpr (Format) {
-			for (size_t i = 0; i < trailing; ++i)
-				str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ &parsed.chars[OptCount], 1 });
 		}
 	}
 
 
-
-
-	template <str::AnyString Type>
-	struct Formatter<Type> {
-		constexpr void operator()(const Type& t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
-			str::ConvertInto(sink, L"{fmt: \"");
-			str::ConvertInto(sink, fmt);
-			str::ConvertInto(sink, L"\"; payload: \"");
-			str::ConvertInto(sink, t);
-			str::ConvertInto(sink, L"\"}");
-		}
-	};
 
 	/*
 	*	padding-formatting rules for numbers
@@ -528,107 +527,137 @@ namespace str {
 	*	[ +] for replacement character if number is not signed
 	*/
 	template <std::integral Type> struct Formatter<Type> {
-		constexpr void operator()(Type t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
-			char buffer[64] = { 0 };
+		constexpr void operator()(str::AnySink auto& sink, Type val, const std::u32string_view& fmt) const {
+			/* large enough for any number of any base including sign and prefix */
+			str::Small<char32_t, -intptr_t(4 + sizeof(val) * 8)> buffer;
 
 			/* parse the formatting string */
-			str::FormatParseOut<3> parsed = str::ParseFormatting(fmt, false, false, { U"bBqQoOdDxX", U"#", U"+ " });
+			fmt::FormatParseOut<3> parsed = fmt::ParseFormatting(fmt, false, false, { U"bBqQoOdDxX", U"#", U"+ " });
 
 			/* extract the base to be used */
-			int base = 10;
+			size_t base = 10;
+			bool baseUppercase = false;
 			switch (parsed.chars[0]) {
-			case U'b':
 			case U'B':
+				baseUppercase = true;
+			case U'b':
 				base = 2;
 				break;
-			case U'q':
 			case U'Q':
+				baseUppercase = true;
+			case U'q':
 				base = 4;
 				break;
-			case U'o':
 			case U'O':
+				baseUppercase = true;
+			case U'o':
 				base = 8;
 				break;
-			case U'd':
 			case U'D':
+				baseUppercase = true;
+			case U'd':
 				base = 10;
 				break;
-			case U'x':
 			case U'X':
+				baseUppercase = true;
+			case U'x':
 				base = 16;
 				break;
 			};
-			bool baseUppercase = (parsed.chars[0] == U'X');
+
+			/* check if a sign and prefix need to be added */
+			bool sign = (val < 0);
+			if (sign)
+				buffer.push_back(U'-');
+			else if (parsed.chars[2] != 0)
+				buffer.push_back(parsed.chars[2]);
+
+
+
+			if constexpr (std::is_signed_v<Type>)
+				val = (sign ? -val : val);
+
+
 
 			/* remove the sign of the number (as it might have to be inserted before the padding) */
-			bool sign = (t < 0);
-			if constexpr (std::is_signed_v<Type>) {
-				if (sign)
-					t = -t;
-			}
-
-			/* print the number to the string (buffer large enough for any size of number) */
-			char* start = std::end(buffer);
-			do {
-				*(--start) = (baseUppercase ? "0123456789ABCDEF" : "0123456789abcdef")[t % base];
-				t /= base;
-			} while (t != 0);
-
-			/* write the sign and prefix to the buffer (no matter if the '0'-padding needs to be inserted inbetween) */
-			char* prefix = start;
-			if (parsed.chars[1] == U'#') {
-				*(--prefix) = "__b_q___o_d_____x"[base];
-				*(--prefix) = '0';
-			}
-			if (sign)
-				*(--prefix) = '-';
-			else if (parsed.chars[2] != 0)
-				*(--prefix) = (parsed.chars[2] == U'+' ? '+' : ' ');
-			size_t total = (std::end(buffer) - prefix);
-
-			/* check if this is the special case of the 0 padding, in which case the prefix has to be written first */
-			if (parsed.chars[3] == U'0' && total < parsed.maximum) {
-				str::WriteFormattedString<false>(parsed, sink, std::string_view{ prefix, start });
-				for (size_t i = total; i < parsed.length; ++i)
-					str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ U"0" });
-				str::WriteFormattedString<false>(parsed, sink, std::string_view{ start, std::end(buffer) });
-			}
-
-			/* write the entire formatted string out */
-			else
-				str::WriteFormattedString<true>(parsed, sink, std::string_view{ prefix, total });
+			//if constexpr (std::is_signed_v<Type>) {
+			//	if (sign)
+			//		t = -t;
+			//}
+			//
+			///* check if the prefix needs to be added */
+			//
+			///* write the number to the string */
+			//str::IntInto(buffer, val, base, baseUppercase);
+			//
+			///* write the sign and prefix to the buffer (no matter if the '0'-padding needs to be inserted inbetween) */
+			//char* prefix = start;
+			//if (parsed.chars[1] == U'#') {
+			//	*(--prefix) = "__b_q___o_d_____x"[base];
+			//	*(--prefix) = '0';
+			//}
+			//if (sign)
+			//	*(--prefix) = '-';
+			//else if (parsed.chars[2] != 0)
+			//	*(--prefix) = (parsed.chars[2] == U'+' ? '+' : ' ');
+			//size_t total = (std::end(buffer) - prefix);
+			//
+			///* check if this is the special case of the 0 padding, in which case the prefix has to be written first */
+			//if (parsed.chars[3] == U'0' && total < parsed.maximum) {
+			//	str::WriteFormattedString<false>(parsed, sink, std::string_view{ prefix, start });
+			//	for (size_t i = total; i < parsed.length; ++i)
+			//		str::WriteFormattedString<false>(parsed, sink, std::u32string_view{ U"0" });
+			//	str::WriteFormattedString<false>(parsed, sink, std::string_view{ start, std::end(buffer) });
+			//}
+			//
+			///* write the entire formatted string out */
+			//else
+			//	str::WriteFormattedString<true>(parsed, sink, std::string_view{ prefix, total });
 		}
 	};
+
+
+	template <str::AnyString Type>
+	struct Formatter<Type> {
+		constexpr void operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
+			str::ConvertInto(sink, L"{fmt: \"");
+			str::ConvertInto(sink, fmt);
+			str::ConvertInto(sink, L"\"; payload: \"");
+			str::ConvertInto(sink, t);
+			str::ConvertInto(sink, L"\"}");
+		}
+	};
+
 
 	/*
 	*	[?] to use '?' as replacement character if character cannot be encoded
 	*/
 	template <> struct Formatter<char> {
-		constexpr void operator()(char t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, char t, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
 			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<wchar_t> {
-		constexpr void operator()(wchar_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, wchar_t t, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
 			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char8_t> {
-		constexpr void operator()(char8_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, char8_t t, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
 			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char16_t> {
-		constexpr void operator()(char16_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, char16_t t, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
 			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
 	};
 	template <> struct Formatter<char32_t> {
-		constexpr void operator()(char32_t t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, char32_t t, const std::u32string_view& fmt) const {
 			char rep = (fmt.find(U'?') != std::u32string_view::npos ? '?' : 0);
 			str::ConvertInto(sink, std::basic_string_view{ &t, 1 }, rep);
 		}
@@ -639,7 +668,7 @@ namespace str {
 	*	[sS] to print [true] and [false] instead of [0] and [1] and casing
 	*/
 	template <> struct Formatter<bool> {
-		constexpr void operator()(bool t, str::AnySink auto& sink, const std::u32string_view& fmt) const {
+		constexpr void operator()(str::AnySink auto& sink, bool t, const std::u32string_view& fmt) const {
 			/* extract the string to be used */
 			size_t len = 1;
 			const char* str = (t ? "1" : "0");

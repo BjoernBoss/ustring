@@ -130,6 +130,16 @@ namespace str {
 	template <class Type>
 	concept IsAscii = (str::IsChar<Type> || !std::is_same_v<Type, char> || detail::MBHoldsAscii);
 
+	/* return the effective character type equivalent to the encoding (i.e. if wchar_t uses
+	*	utf-16, will result in char16_t; will only result in char, char8_t, char16_t, char32_t) */
+	template <str::IsChar Type>
+	using EffChar = std::conditional_t<std::is_same_v<Type, char>, std::conditional_t<str::IsCharUtf8, char8_t, char>,
+		std::conditional_t<std::is_same_v<Type, wchar_t>, std::conditional_t<str::IsWideUtf16, char16_t, char32_t>, Type>>;
+
+	/* check if the two character-types are effectively using the same encoding */
+	template <class ChTypeA, class ChTypeB>
+	concept EffSame = std::is_same_v<str::EffChar<ChTypeA>, str::EffChar<ChTypeB>>;
+
 	/* character sink interface which requires:
 	*	operator() to take the sink object and a character
 	*	operator() to take the sink object and a pointer and a size */
@@ -137,7 +147,7 @@ namespace str {
 	struct CharSink;
 	template <class Type, class ChType>
 	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
-		requires(std::remove_cvref_t<Type>&t, ChType chr, const ChType * str, size_t sz) {
+		requires(Type & t, ChType chr, const ChType * str, size_t sz) {
 		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, chr);
 		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, str, sz);
 	};
@@ -159,8 +169,8 @@ namespace str {
 
 	/* wrapper to write to a sink */
 	template <class ChType>
-	constexpr void WriteSink(str::IsSink<ChType> auto&& sink, ChType str) {
-		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, str);
+	constexpr void WriteSink(str::IsSink<ChType> auto&& sink, ChType chr) {
+		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, chr);
 	}
 	template <class ChType>
 	constexpr void WriteSink(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
@@ -172,7 +182,7 @@ namespace str {
 	template <class Type, class ChType>
 	struct CharString;
 	template <class Type, class ChType>
-	concept IsString = requires(const Type t) {
+	concept IsString = requires(const Type& t) {
 		{ str::CharString<std::remove_cvref_t<Type>, ChType>{}(t) } -> std::same_as<std::pair<const ChType*, size_t>>;
 	};
 
@@ -196,6 +206,11 @@ namespace str {
 	constexpr std::pair<const ChType*, const ChType*> StringIterators(const str::IsString<ChType> auto& string) {
 		auto [str, size] = str::CharString<std::remove_cvref_t<decltype(string)>, ChType>{}(string);
 		return { str, str + size };
+	}
+	template <class ChType>
+	constexpr std::basic_string_view<ChType> StringView(const str::IsString<ChType> auto& string) {
+		auto [str, size] = str::CharString<std::remove_cvref_t<decltype(string)>, ChType>{}(string);
+		return std::basic_string_view<ChType>{ str, size };
 	}
 
 	/* string-buffer overflow/underflow exception */
