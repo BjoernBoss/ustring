@@ -1440,7 +1440,7 @@ namespace str {
 	}
 
 	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
-	constexpr auto& IntInto(str::AnySink auto& sink, const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+	constexpr auto& IntInto(str::AnySink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
 		/* ensure the radix is valid and print the integer */
@@ -1504,7 +1504,7 @@ namespace str {
 	}
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
-	constexpr auto& FloatInto(str::AnySink auto& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
+	constexpr auto& FloatInto(str::AnySink auto&& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false, size_t expDigits = 2, bool roundToNearest = true) {
 		using Type = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */

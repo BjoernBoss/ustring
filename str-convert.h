@@ -155,21 +155,25 @@ namespace str {
 			}
 			uint32_t len = res;
 
-			/* check if the decoded character is not a valid character or the null-character, in which case
-			*	the length is not returned and has to be figured out by creeping up to the previous response */
-			if (res == static_cast<size_t>(-1) || res == 0) {
+			/* check if the decoded character is the null-character, which has a length of 1 */
+			if (res == 0)
+				len = 1;
+
+			/* check if the decoded character is not a valid character, in which case the length is not
+			*	returned and has to be figured out by creeping up to the previous response */
+			else if (res == static_cast<size_t>(-1)) {
 				len = 1;
 
 				/* try to find the length by creeping up to the previous response (as we dont know the length of the error/null-byte) */
 				while (true) {
 					/* always use a clean state to ensure the previous try does not polute this result */
 					state = { 0 };
-					size_t temp = std::mbrtowc(0, begin, len, &state);
+					res = std::mbrtowc(0, begin, len, &state);
 
 					/* check if the given result has been reached, or the character is still incomplete */
-					if (temp == res)
+					if (res == static_cast<size_t>(-1))
 						break;
-					if (temp == static_cast<size_t>(-2) && len < (end - begin)) {
+					if (res == static_cast<size_t>(-2) && len < (end - begin)) {
 						++len;
 						continue;
 					}
@@ -232,7 +236,7 @@ namespace str {
 		constexpr bool WriteUtf8(auto& sink, uint32_t cp) {
 			/* check if its a single character, which can just be pushed */
 			if (cp <= 0x7f) {
-				sink.push_back(static_cast<ChType>(cp));
+				str::WriteSink<ChType>(sink, static_cast<ChType>(cp));
 				return true;
 			}
 
@@ -264,7 +268,7 @@ namespace str {
 			} while (cont > 0);
 
 			/* write the data to the sink */
-			sink.append(std::basic_string_view<ChType>{ out, len });
+			str::WriteSink<ChType>(sink, out, len);
 			return true;
 		}
 		template <class ChType>
@@ -273,7 +277,7 @@ namespace str {
 			if (cp < 0x10000) {
 				if (cp >= detail::Utf16LowerSurrogate && cp <= detail::Utf16UpperSurrogate)
 					return false;
-				sink.push_back(static_cast<ChType>(cp));
+				str::WriteSink<ChType>(sink, static_cast<ChType>(cp));
 				return true;
 			}
 			if (cp >= str::UnicodeRange)
@@ -286,7 +290,7 @@ namespace str {
 			out[1] = static_cast<ChType>(detail::Utf16UpperSurrogate + (cp & 0x03ff));
 
 			/* write the data to the sink */
-			sink.append(std::basic_string_view<ChType>{ out, 2 });
+			str::WriteSink<ChType>(sink, out, 2);
 			return true;
 		}
 		template <class ChType>
@@ -294,7 +298,7 @@ namespace str {
 			/* validate the codepoint and write it to the sink */
 			if (cp >= str::UnicodeRange || (cp >= detail::Utf16LowerSurrogate && cp <= detail::Utf16UpperSurrogate))
 				return false;
-			sink.push_back(static_cast<ChType>(cp));
+			str::WriteSink<ChType>(sink, static_cast<ChType>(cp));
 			return true;
 		}
 		constexpr bool WriteMultiByte(auto& sink, uint32_t cp) {
@@ -326,8 +330,8 @@ namespace str {
 			if (res == static_cast<size_t>(-1) || res > str::MaxEncodeLength)
 				return false;
 
-			/* write the characters to the sink */
-			sink.append(std::string_view{ buf.c_str(), res });
+			/* write the characters to the sink (res should never be zero) */
+			str::WriteSink<char>(sink, buf.c_str(), res);
 			return true;
 		}
 
@@ -338,7 +342,7 @@ namespace str {
 			/* check for the fast way out by the character being an immediate ascii character */
 			if constexpr (str::IsAscii<ChType>) {
 				if (static_cast<uint32_t>(cp) < str::AsciiRange) {
-					sink.push_back(static_cast<ChType>(cp));
+					str::WriteSink<ChType>(sink, static_cast<ChType>(cp));
 					return true;
 				}
 			}
@@ -408,7 +412,7 @@ namespace str {
 
 			/* check if the source and destination are of the same type, in which case the characters can just be copied */
 			if constexpr (EffIdentical)
-				sink.append(std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(begin), out.consumed });
+				str::WriteSink<SinkType>(sink, reinterpret_cast<const SinkType*>(begin), out.consumed);
 
 			/* try to write the codepoint to the destination and otherwise return the consumed number of token */
 			else if (!detail::WriteCodePoint<SinkType>(sink, out.cp))
@@ -421,33 +425,33 @@ namespace str {
 	constexpr str::CPOut Decode(const str::AnyString auto& source, bool sourceCompleted) {
 		using ChType = str::StringChar<decltype(source)>;
 
-		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
+		auto [begin, end] = str::StringIterators<ChType>(source);
+		if (begin == end)
 			return { str::CPEmpty, 0 };
 
-		str::CPOut out = detail::ReadCodePoint<ChType>(view.data(), view.data() + view.size());
+		str::CPOut out = detail::ReadCodePoint<ChType>(begin, end);
 		if (!sourceCompleted || out.cp != str::CPIncomplete)
 			return out;
-		return { str::CPInvalid, uint32_t(view.size()) };
+		return { str::CPInvalid, uint32_t(end - begin) };
 	}
 
 	/* check if the next character is an ascii character and return it or return str::CPNotAscii with zero characters consumed */
 	constexpr str::CPOut ReadAscii(const str::AnyString auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 
-		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
+		auto [begin, end] = str::StringIterators<ChType>(source);
+		if (begin == end)
 			return { str::CPNotAscii, 0 };
 
 		/* check if the raw value itself can be checked for being an ascii character */
 		if constexpr (str::IsAscii<ChType>) {
-			if (std::make_unsigned_t<ChType>(view[0]) < str::AsciiRange)
-				return { char32_t(view[0]), 1 };
+			if (std::make_unsigned_t<ChType>(*begin) < str::AsciiRange)
+				return { char32_t(*begin), 1 };
 			return { str::CPNotAscii, 0 };
 		}
 
 		/* decode the codepoint and check if its a valid ascii character */
-		str::CPOut out = detail::ReadCodePoint<ChType>(view.data(), view.data() + view.size());
+		str::CPOut out = detail::ReadCodePoint<ChType>(begin, end);
 		if (str::IsCPValid(out.cp) && uint32_t(out.cp) < str::AsciiRange)
 			return out;
 		return { str::CPNotAscii, 0 };
@@ -457,14 +461,14 @@ namespace str {
 	constexpr str::CPOut LengthNext(const str::AnyString auto& source, bool sourceCompleted) {
 		using ChType = str::StringChar<decltype(source)>;
 
-		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
+		auto [begin, end] = str::StringIterators<ChType>(source);
+		if (begin == end)
 			return { str::CPEmpty, 0 };
 
-		str::CPOut out = detail::ReadNextSize<ChType>(view.data(), view.data() + view.size());
+		str::CPOut out = detail::ReadNextSize<ChType>(begin, end);
 		if (!sourceCompleted || out.cp != str::CPIncomplete)
 			return out;
-		return { str::CPInvalid, uint32_t(view.size()) };
+		return { str::CPInvalid, uint32_t(end - begin) };
 	}
 
 	/* measure the entire length of the source while testing as few as characters as possible */
@@ -475,11 +479,10 @@ namespace str {
 	constexpr str::MeasureOut Measure(const str::AnyString auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		str::MeasureOut out{};
-		std::basic_string_view<ChType> view{ source };
+
+		auto [begin, end] = str::StringIterators<ChType>(source);
 
 		/* iterate over the string and measure all characters */
-		const ChType* begin = view.data();
-		const ChType* end = view.data() + view.size();
 		while (begin != end) {
 			str::CPOut res = detail::ReadNextSize<ChType>(begin, end);
 
@@ -497,7 +500,7 @@ namespace str {
 
 	/* write the single codepoint encoded in the corresponding type as a single call to the sink
 	*	(returns false and does not modify the sink if the charset cannot hold the character) */
-	constexpr bool EncodeInto(str::AnySink auto& sink, char32_t cp) {
+	constexpr bool EncodeInto(str::AnySink auto&& sink, char32_t cp) {
 		using ChType = str::SinkChar<decltype(sink)>;
 		return detail::WriteCodePoint<ChType>(sink, cp);
 	}
@@ -513,18 +516,18 @@ namespace str {
 	/* read a single codepoint from the source and transcode it to the sink as a single call and leave the sink untouched if
 	*	the codepoint is not considered valid (only estimate the size for the copy if the source and destination type are the
 	*	same and therefore no encoding validation will be performed; returns str::CPSuccess on success) */
-	constexpr str::CPOut TranscodeInto(str::AnySink auto& sink, const str::AnyString auto& source, bool sourceCompleted) {
+	constexpr str::CPOut TranscodeInto(str::AnySink auto&& sink, const str::AnyString auto& source, bool sourceCompleted) {
 		using SourceType = str::StringChar<decltype(source)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 
-		std::basic_string_view<SourceType> view{ source };
-		if (view.empty())
+		auto [begin, end] = str::StringIterators<SourceType>(source);
+		if (begin == end)
 			return { str::CPEmpty, 0 };
 
-		str::CPOut out = detail::TranscodeNext<SourceType, SinkType>(sink, view.data(), view.data() + view.size());
+		str::CPOut out = detail::TranscodeNext<SourceType, SinkType>(sink, begin, end);
 		if (!sourceCompleted || out.cp != str::CPIncomplete)
 			return out;
-		return { str::CPInvalid, uint32_t(view.size()) };
+		return { str::CPInvalid, uint32_t(end - begin) };
 	}
 
 	/* transcodes a single codepoint into small string using str::TranscodeInto and returns it */
@@ -546,20 +549,17 @@ namespace str {
 
 	/* convert the source-string of any type and append it to the sink-string and only copy it without transcoding if the
 	*	source and target type match (insert error char, if a character could not be transcoded and the error-char is not null) */
-	constexpr auto& ConvertInto(str::AnySink auto& sink, const str::AnyString auto& source, char charOnError = str::CharOnError) {
+	constexpr auto& ConvertInto(str::AnySink auto&& sink, const str::AnyString auto& source, char charOnError = str::CharOnError) {
 		using SourceType = str::StringChar<decltype(source)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 
-		/* extract the iterators and return immediately if the source is empty */
-		std::basic_string_view<SourceType> view{ source };
-		const SourceType* begin = view.data();
-		const SourceType* end = view.data() + view.size();
+		auto [begin, end] = str::StringIterators<SourceType>(source);
 		if (begin == end)
 			return sink;
 
 		/* check if a copy can be performed */
 		if constexpr (std::is_same_v<detail::EffChar<SourceType>, detail::EffChar<SinkType>>) {
-			sink.append(std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(begin), view.size() });
+			str::WriteSink<SinkType>(sink, reinterpret_cast<const SinkType*>(begin), end - begin);
 			return sink;
 		}
 

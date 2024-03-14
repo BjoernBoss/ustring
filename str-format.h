@@ -138,7 +138,7 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	constexpr auto& FormatInto(str::AnySink auto& sink, const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr auto& FormatInto(str::AnySink auto&& sink, const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StringChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgState : uint8_t {
@@ -240,7 +240,7 @@ namespace str {
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
-	constexpr auto& BuildInto(str::AnySink auto& sink, const str::IsFormattable auto&... args) {
+	constexpr auto& BuildInto(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
 		if constexpr (sizeof...(args) > 0)
 			detail::Append(sink, args...);
 		return sink;
