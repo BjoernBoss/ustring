@@ -50,8 +50,7 @@ namespace str {
 	static constexpr size_t MaxEncodeLength = 4;
 
 	/* default error character */
-	static constexpr char CharOnError = '?';
-	static constexpr char CharOnErrorCP = U'?';
+	static constexpr char32_t DefCPOnError = U'?';
 
 	namespace detail {
 		/* utf-8 help lookup maps (of the upper 5 bits) and boundary maps (for length) */
@@ -539,7 +538,7 @@ namespace str {
 
 	/* convert the source-character of any type and append it to the sink-string and copy it without transcoding if the
 	*	source and target type match (insert error char, if the character could not be transcoded and error-char is not null) */
-	constexpr auto& AppChars(str::AnySink auto&& sink, str::IsChar auto chr, size_t count = 1, char charOnError = str::CharOnError) {
+	constexpr auto& AppChars(str::AnySink auto&& sink, str::IsChar auto chr, size_t count = 1, char32_t cpOnError = str::DefCPOnError) {
 		using SourceType = decltype(chr);
 		using SinkType = str::SinkCharType<decltype(sink)>;
 
@@ -556,8 +555,8 @@ namespace str {
 
 			/* write the character and write the error char if an error occurred */
 			else if (detail::TranscodeNext<SourceType, SinkType>(sink, &chr, &chr + 1).cp != str::CPSuccess) {
-				if (charOnError != 0)
-					detail::TranscodeNext<char, SinkType>(sink, &charOnError, &charOnError + 1);
+				if (cpOnError != 0)
+					detail::TranscodeNext<char32_t, SinkType>(sink, &cpOnError, &cpOnError + 1);
 			}
 			return sink;
 		}
@@ -567,7 +566,7 @@ namespace str {
 		/* transcode the character to a temporary buffer and write the error char if an error occurred and otherwise return as nothing can be done */
 		str::Small<SinkType, str::MaxEncodeLength> temp;
 		if (detail::TranscodeNext<SourceType, SinkType>(temp, &chr, &chr + 1).cp != str::CPSuccess) {
-			if (charOnError == 0 || detail::TranscodeNext<char, SinkType>(temp, &charOnError, &charOnError + 1).cp != str::CPSuccess)
+			if (cpOnError == 0 || detail::TranscodeNext<char32_t, SinkType>(temp, &cpOnError, &cpOnError + 1).cp != str::CPSuccess)
 				return sink;
 		}
 
@@ -581,7 +580,7 @@ namespace str {
 
 	/* convert the source-string of any type and append it to the sink-string and copy it without transcoding if the
 	*	source and target type match (insert error char, if a character could not be transcoded and error-char is not null) */
-	constexpr auto& Append(str::AnySink auto&& sink, const str::AnyString auto& source, char charOnError = str::CharOnError) {
+	constexpr auto& Append(str::AnySink auto&& sink, const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		using SourceType = str::StringCharType<decltype(source)>;
 		using SinkType = str::SinkCharType<decltype(sink)>;
 
@@ -603,70 +602,69 @@ namespace str {
 			else
 				begin += consumed;
 
-			/* check if an error occurred and the error character should be inserted instead and write the error character
-			*	to the sink (this should be rare, therefore it can be decoded and encoded properly; ignore any kind of failures) */
-			if (cp != str::CPSuccess && charOnError != 0)
-				detail::TranscodeNext<char, SinkType>(sink, &charOnError, &charOnError + 1);
+			/* check if an error occurred and the error character should be inserted instead and write the error character to the sink */
+			if (cp != str::CPSuccess && cpOnError != 0)
+				detail::TranscodeNext<char32_t, SinkType>(sink, &cpOnError, &cpOnError + 1);
 		}
 		return sink;
 	}
 
 	/* wraps str::Append to keep style of Convert/ConvertInto */
-	constexpr auto& ConvertInto(str::AnySink auto&& sink, const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		str::Append(sink, source, charOnError);
+	constexpr auto& ConvertInto(str::AnySink auto&& sink, const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		str::Append(sink, source, cpOnError);
 		return sink;
 	}
 
 	/* convert any object to the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Convert(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+	constexpr std::basic_string<ChType> Convert(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		std::basic_string<ChType> out{};
-		return str::ConvertInto(out, source, charOnError);
+		return str::ConvertInto(out, source, cpOnError);
 	}
 
 	/* convert any object to the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Convert(const str::AnyString auto& source, char charOnError = str::CharOnError) {
+	constexpr str::Small<ChType, Capacity> Convert(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		str::Small<ChType, Capacity> out{};
-		return str::ConvertInto(out, source, charOnError);
+		return str::ConvertInto(out, source, cpOnError);
 	}
 
 	/* convenience for fast conversion to a std::basic_string */
-	constexpr std::string ToChar(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char>(source, charOnError);
+	constexpr std::string ToChar(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char>(source, cpOnError);
 	}
-	constexpr std::wstring ToWide(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<wchar_t>(source, charOnError);
+	constexpr std::wstring ToWide(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<wchar_t>(source, cpOnError);
 	}
-	constexpr std::u8string ToUtf8(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char8_t>(source, charOnError);
+	constexpr std::u8string ToUtf8(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char8_t>(source, cpOnError);
 	}
-	constexpr std::u16string ToUtf16(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char16_t>(source, charOnError);
+	constexpr std::u16string ToUtf16(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char16_t>(source, cpOnError);
 	}
-	constexpr std::u32string ToUtf32(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char32_t>(source, charOnError);
+	constexpr std::u32string ToUtf32(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char32_t>(source, cpOnError);
 	}
 
 	/* convenience for fast conversion to a str::Small<Capacity> */
 	template <intptr_t Capacity>
-	constexpr str::ChSmall<Capacity> ToChar(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char, Capacity>(source, charOnError);
+	constexpr str::ChSmall<Capacity> ToChar(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
-	constexpr str::WdSmall<Capacity> ToWide(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<wchar_t, Capacity>(source, charOnError);
+	constexpr str::WdSmall<Capacity> ToWide(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<wchar_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
-	constexpr str::U8Small<Capacity> ToUtf8(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char8_t, Capacity>(source, charOnError);
+	constexpr str::U8Small<Capacity> ToUtf8(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char8_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
-	constexpr str::U16Small<Capacity> ToUtf16(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char16_t, Capacity>(source, charOnError);
+	constexpr str::U16Small<Capacity> ToUtf16(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char16_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
-	constexpr str::U32Small<Capacity> ToUtf32(const str::AnyString auto& source, char charOnError = str::CharOnError) {
-		return str::Convert<char32_t, Capacity>(source, charOnError);
+	constexpr str::U32Small<Capacity> ToUtf32(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+		return str::Convert<char32_t, Capacity>(source, cpOnError);
 	}
 }

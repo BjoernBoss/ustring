@@ -343,7 +343,7 @@ namespace str {
 			size_t maximum = 0;
 			char32_t padChar = U' ';
 			fmt::Alignment align = fmt::Alignment::standard;
-			bool charOnError = false;
+			bool replaceError = false;
 			bool ellipsisClipping = false;
 		};
 		inline constexpr size_t ParsePaddingAlignment(const std::u32string_view& fmt, fmt::Padding& out) {
@@ -362,7 +362,7 @@ namespace str {
 
 			/* parse the error-char */
 			if (consumed < fmt.size() && fmt[consumed] == U'?') {
-				out.charOnError = true;
+				out.replaceError = true;
 				++consumed;
 			}
 			return consumed;
@@ -410,7 +410,7 @@ namespace str {
 
 		/* write the padded string out and apply the corresponding padding */
 		constexpr void WritePadded(str::AnySink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
-			char charOnError = (padding.charOnError ? str::CharOnError : 0);
+			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
 
 			/* check if the string is smaller than the minimum and add the padding */
 			if (str.size() < padding.minimum) {
@@ -418,32 +418,32 @@ namespace str {
 
 				/* add the leading padding */
 				if (padding.align == fmt::Alignment::trailing || padding.align == fmt::Alignment::standard)
-					str::AppChars(sink, padding.padChar, diff);
+					str::AppChars(sink, padding.padChar, diff, cpError);
 				else if (padding.align == fmt::Alignment::center)
-					str::AppChars(sink, padding.padChar, diff / 2);
+					str::AppChars(sink, padding.padChar, diff / 2, cpError);
 
 				/* add the string itself */
-				str::Append(sink, str, charOnError);
+				str::Append(sink, str, cpError);
 
 				/* add the trailing padding */
 				if (padding.align == fmt::Alignment::leading)
-					str::AppChars(sink, padding.padChar, diff);
+					str::AppChars(sink, padding.padChar, diff, cpError);
 				else if (padding.align == fmt::Alignment::center)
-					str::AppChars(sink, padding.padChar, diff - (diff / 2));
+					str::AppChars(sink, padding.padChar, diff - (diff / 2), cpError);
 				return;
 			}
 
 			/* check if the string needs to be clipped or can just be written out */
 			if (padding.maximum == 0 || str.size() <= padding.maximum)
-				str::Append(sink, str, charOnError);
+				str::Append(sink, str, cpError);
 			else if (!padding.ellipsisClipping)
-				str::Append(sink, str.substr(0, padding.maximum), charOnError);
+				str::Append(sink, str.substr(0, padding.maximum), cpError);
 			else if (padding.maximum > 3) {
-				str::Append(sink, str.substr(0, padding.maximum - 3), charOnError);
-				str::Append(sink, U"...", charOnError);
+				str::Append(sink, str.substr(0, padding.maximum - 3), cpError);
+				str::Append(sink, U"...", cpError);
 			}
 			else
-				str::Append(sink, std::u32string_view(U"...", padding.maximum), charOnError);
+				str::Append(sink, std::u32string_view(U"...", padding.maximum), cpError);
 		}
 	}
 
@@ -601,7 +601,7 @@ namespace str {
 		constexpr bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
 			/* parse the padding format */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
-			char charOnError = (padding.charOnError ? str::CharOnError : 0);
+			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
 
 			/* parse the count */
 			auto [count, _consumed] = fmt::ParseIndicatedNumber(rest, U'@', 1);
@@ -618,16 +618,16 @@ namespace str {
 
 			/* check if the character can just be added */
 			if (!escape && padding.minimum <= count && padding.maximum == 0) {
-				str::AppChars(sink, val, count, charOnError);
+				str::AppChars(sink, val, count, cpError);
 				return true;
 			}
 
 			/* decode the character to a codepoint */
 			auto [cp, _] = str::Decode(std::basic_string_view<Type>{ &val, 1 }, true);
 			if (str::CPFailed(cp)) {
-				if (!padding.charOnError)
+				if (!padding.replaceError)
 					return true;
-				cp = str::CharOnErrorCP;
+				cp = str::DefCPOnError;
 			}
 
 			/* create the temporary buffer containing the single codepoint */
@@ -640,14 +640,14 @@ namespace str {
 			/* check if the codepoints themselves need to be written out */
 			if (padding.minimum <= buffer.size() * count && (padding.maximum == 0 || padding.maximum >= buffer.size() * count)) {
 				for (size_t i = 0; i < count; ++i)
-					str::Append(sink, buffer, charOnError);
+					str::Append(sink, buffer, cpError);
 				return true;
 			}
 
 			/* create the temporary buffer and let the writer handle it */
 			std::u32string bufTotal;
 			for (size_t i = 0; i < count; ++i)
-				str::Append(bufTotal, buffer, charOnError);
+				str::Append(bufTotal, buffer, cpError);
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
@@ -854,6 +854,7 @@ namespace str {
 	template <str::AnyString Type> struct Formatter<Type> {
 		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
+			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
 
 			/* parse the string-formatting */
 			auto [ascii, escape] = detail::ParseStrFormatting(rest);
@@ -866,7 +867,7 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (!escape && padding.minimum <= 1 && padding.maximum == 0) {
-				str::Append(sink, t);
+				str::Append(sink, t, cpError);
 				return true;
 			}
 
@@ -884,12 +885,12 @@ namespace str {
 					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
 					if (!str::CPFailed(cp))
 						detail::EscapeInto(buffer, cp, ascii);
-					else if (padding.charOnError)
-						buffer.push_back(str::CharOnErrorCP);
+					else if (padding.replaceError)
+						buffer.push_back(str::DefCPOnError);
 				}
 			}
 			else
-				str::Append(buffer, t, (padding.charOnError ? str::CharOnError : 0));
+				str::Append(buffer, t, cpError);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -916,6 +917,8 @@ namespace str {
 
 			/* construct the output-string */
 			str::U32Small<sizeof(void*) * 2> buffer;
+			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
+				buffer.push_back(U'0');
 			str::IntInto(buffer, uintptr_t(val), 16, upperCase);
 
 			/* write the padded string to the sink */
