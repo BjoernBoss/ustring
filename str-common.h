@@ -118,6 +118,12 @@ namespace str {
 	static constexpr bool IsWideUtf16 = detail::WdIsUtf16;
 	static constexpr bool IsWideUtf32 = detail::WdIsUtf32;
 
+	/* number of ascii characters with valid range: [0, 127] */
+	static constexpr size_t AsciiRange = 128;
+
+	/* number of unicode characters lie within range: [0, 0x10ffff] */
+	static constexpr size_t UnicodeRange = 0x110000;
+
 	/* is type a supported character (not convertible, but exact type!) */
 	template <class Type>
 	concept IsUnicode = !std::is_void_v<typename detail::GetCharUnicode<Type>::type>;
@@ -141,14 +147,14 @@ namespace str {
 	concept EffSame = std::is_same_v<str::EffChar<ChTypeA>, str::EffChar<ChTypeB>>;
 
 	/* character sink interface which requires:
-	*	operator() to take the sink object and a character
+	*	operator() to take the sink object and a character and a count (can be zero)
 	*	operator() to take the sink object and a pointer and a size */
 	template <class Type, class ChType>
 	struct CharSink;
 	template <class Type, class ChType>
 	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
 		requires(Type & t, ChType chr, const ChType * str, size_t sz) {
-		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, chr);
+		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, chr, sz);
 		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, str, sz);
 	};
 
@@ -165,15 +171,15 @@ namespace str {
 	template <class Type>
 	concept AnySink = !std::is_void_v<typename detail::GetCharSink<Type>::type>;
 	template <class Type>
-	using SinkChar = typename detail::GetCharSink<Type>::type;
+	using SinkCharType = typename detail::GetCharSink<Type>::type;
 
 	/* wrapper to write to a sink */
 	template <class ChType>
-	constexpr void WriteSink(str::IsSink<ChType> auto&& sink, ChType chr) {
-		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, chr);
+	constexpr void SinkChars(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
+		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, chr, count);
 	}
 	template <class ChType>
-	constexpr void WriteSink(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
+	constexpr void SinkString(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
 		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, str, sz);
 	}
 
@@ -182,7 +188,7 @@ namespace str {
 	template <class Type, class ChType>
 	struct CharString;
 	template <class Type, class ChType>
-	concept IsString = requires(const Type& t) {
+	concept IsString = requires(const Type & t) {
 		{ str::CharString<std::remove_cvref_t<Type>, ChType>{}(t) } -> std::same_as<std::pair<const ChType*, size_t>>;
 	};
 
@@ -199,7 +205,7 @@ namespace str {
 	template <class Type>
 	concept AnyString = !std::is_void_v<typename detail::GetCharString<Type>::type>;
 	template <class Type>
-	using StringChar = typename detail::GetCharString<Type>::type;
+	using StringCharType = typename detail::GetCharString<Type>::type;
 
 	/* wrapper to get string iterators */
 	template <class ChType>
@@ -265,9 +271,18 @@ namespace str {
 			fAppend(s);
 			return *this;
 		}
+		constexpr ThisType& operator+=(ChType c) {
+			fAppend(&c, &c + 1);
+			return *this;
+		}
 		constexpr ThisType& operator=(const str::IsString<ChType> auto& s) {
 			pSize = 0;
 			fAppend(s);
+			return *this;
+		}
+		constexpr ThisType& operator=(ChType c) {
+			pSize = 0;
+			fAppend(&c, &c + 1);
 			return *this;
 		}
 		constexpr const ChType& operator[](size_t index) const {
@@ -384,8 +399,11 @@ namespace str {
 	/* specializations for char-sinks */
 	template <class ChType>
 	struct CharSink<std::basic_string<ChType>, ChType> {
-		constexpr void operator()(std::basic_string<ChType>& sink, ChType chr) const {
-			sink.push_back(chr);
+		constexpr void operator()(std::basic_string<ChType>& sink, ChType chr, size_t count) const {
+			if (count == 1)
+				sink.push_back(chr);
+			else if (count > 0)
+				sink.append(count, chr);
 		}
 		constexpr void operator()(std::basic_string<ChType>& sink, const ChType* str, size_t size) const {
 			sink.append(str, size);
@@ -393,8 +411,9 @@ namespace str {
 	};
 	template <class ChType, intptr_t Capacity>
 	struct CharSink<str::Small<ChType, Capacity>, ChType> {
-		constexpr void operator()(str::Small<ChType, Capacity>& sink, ChType chr) const {
-			sink.push_back(chr);
+		constexpr void operator()(str::Small<ChType, Capacity>& sink, ChType chr, size_t count) const {
+			for (size_t i = 0; i < count; ++i)
+				sink.push_back(chr);
 		}
 		constexpr void operator()(str::Small<ChType, Capacity>& sink, const ChType* str, size_t size) const {
 			sink.append(str, size);
@@ -402,8 +421,9 @@ namespace str {
 	};
 	template <class ChType>
 	struct CharSink<std::basic_ostream<ChType>, ChType> {
-		constexpr void operator()(std::basic_ostream<ChType>& sink, ChType chr) const {
-			sink.put(chr);
+		constexpr void operator()(std::basic_ostream<ChType>& sink, ChType chr, size_t count) const {
+			for (size_t i = 0; i < count; ++i)
+				sink.put(chr);
 		}
 		constexpr void operator()(std::basic_ostream<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
@@ -411,8 +431,9 @@ namespace str {
 	};
 	template <class ChType>
 	struct CharSink<str::PtrSink<ChType>, ChType> {
-		constexpr void operator()(str::PtrSink<ChType>& sink, ChType chr) const {
-			sink.put(chr);
+		constexpr void operator()(str::PtrSink<ChType>& sink, ChType chr, size_t count) const {
+			for (size_t i = 0; i < count; ++i)
+				sink.put(chr);
 		}
 		constexpr void operator()(str::PtrSink<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
@@ -468,4 +489,10 @@ namespace str {
 			return { str.data(), str.size() };
 		}
 	};
+
+	/* check if the codepoint is valid (within unicode-range and not a surrograte-pair */
+	inline constexpr bool ValidCP(char32_t cp) {
+		/* char32_t is guaranteed to be unsigned */
+		return (cp < str::UnicodeRange && (cp < 0xd800 || cp > 0xdfff));
+	}
 }
