@@ -24,7 +24,6 @@ namespace str {
 	};
 
 	/* wrapper to format into sink */
-	/* wrapper to format into sink */
 	template <class ChType>
 	constexpr bool FormatSingle(str::IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
 		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
@@ -44,31 +43,31 @@ namespace str {
 				return (str::FormatSingle<ChType>(sink, arg, fmt) ? 1 : 0);
 		}
 
+		template <class ChType, class Arg, class... Args>
+		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
+			str::FormatSingle<ChType>(sink, arg, U"");
+			if constexpr (sizeof...(args) > 0)
+				detail::Append<ChType, Args...>(sink, args...);
+		}
+
 		template <class FmtType, class SinkType>
 		constexpr bool FormatPrintUntilArg(auto& sink, std::basic_string_view<FmtType>& fmt) {
 			/* iterate until the entire format-string has been processed or until an argument has been encountered */
-			bool openStarted = false, closeStarted = false;
+			bool openStarted = false;
 			while (!fmt.empty()) {
 				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
 				auto [cp, len] = str::Decode(fmt, true);
 
-				/* check if an open-bracket has been encountered, which could either be part of an escape
-				*	sequence or mark the start of an argument (discard any unescaped closing-brackets) */
-				if (cp == U'{') {
-					closeStarted = false;
+				/* check if an open-bracket has been encountered, which could either be part of an escape sequence or mark the start of an argument */
+				if (cp == U'{')
 					openStarted = !openStarted;
-				}
 
 				/* check if an opening bracket was the last token, in which case this must have been a valid argument start */
 				else if (openStarted)
 					return true;
 
-				/* check if a closing-bracket is being escaped */
-				else if (cp == U'}')
-					closeStarted = !closeStarted;
-
 				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
-				if (!openStarted && !closeStarted && !str::CPFailed(cp)) {
+				if (!openStarted && !str::CPFailed(cp)) {
 					if constexpr (str::EffSame<FmtType, SinkType>) {
 						if (len == 1)
 							str::SinkChars<SinkType>(sink, static_cast<SinkType>(fmt[0]));
@@ -83,11 +82,39 @@ namespace str {
 			return false;
 		}
 
-		template <class ChType, class Arg, class... Args>
-		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
-			str::FormatSingle<ChType>(sink, arg, U"");
-			if constexpr (sizeof...(args) > 0)
-				detail::Append<ChType, Args...>(sink, args...);
+		struct NestedIndex {
+			size_t index = 0;
+			bool valid = false;
+		};
+		template <class FmtType>
+		constexpr detail::NestedIndex FormatParseNestedIndex(size_t& argSequence, std::basic_string_view<FmtType>& fmt) {
+			detail::NestedIndex out{};
+
+			/* try to parse any leading numbers (ignore range errors as they will just result in the largest possible value) */
+			auto [value, consumed, result] = str::ParseNum<size_t>(fmt);
+			if (result == str::NumResult::valid || result == str::NumResult::range) {
+				fmt = fmt.substr(consumed);
+				out.index = value;
+			}
+			else
+				out.index = argSequence++;
+
+			/* parse the optional separator and closing bracket */
+			for (size_t i = 0; i < 2; ++i) {
+				auto [cp, len] = str::ReadAscii(fmt);
+				fmt = fmt.substr(len);
+				if (cp == U':' && i == 0)
+					continue;
+				if (cp != U'}')
+					break;
+
+				/* mark the index as valid and return it */
+				out.valid = true;
+				return out;
+			}
+
+			/* return the invalid result */
+			return out;
 		}
 	}
 
@@ -95,93 +122,94 @@ namespace str {
 	constexpr auto& FormatInto(str::AnySink auto&& sink, const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StringCharType<decltype(fmt)>;
 		using SinkType = str::SinkCharType<decltype(sink)>;
-		enum class ArgState : uint8_t {
-			preDigit,
-			inDigit,
-			inArgFmt,
-			done
+		enum class ArgValid : uint8_t {
+			valid,
+			malformed,
+			index,
+			format
 		};
 
 		/* buffer the format-string until the entire format has been consumed */
-		size_t nextArgument = 0, argFormatLen = 0;
+		size_t argSequence = 0;
 		std::u32string argFormatBuffer;
 		std::basic_string_view<FmtType> view = str::StringView<FmtType>(fmt);
 
 		/* print all characters from the format string until the next argument starts */
 		while (detail::FormatPrintUntilArg<FmtType, SinkType>(sink, view)) {
-			size_t argIndex = 0, argFormatLen = 0;
+			argFormatBuffer.clear();
 
-			/* parse the next argument description */
-			bool openStarted = false, closeStarted = false;
-			ArgState state = ArgState::preDigit;
-			while (!view.empty()) {
-				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
+			/* parse the argument-index (ignore range errors as they will just result in the largest possible value) */
+			auto [argIndex, consumed, result] = str::ParseNum<size_t>(view);
+			if (result == str::NumResult::valid || result == str::NumResult::range)
+				view = view.substr(consumed);
+			else
+				argIndex = argSequence++;
+
+			/* iterate over the remaining characters until the end of the argument has been reached */
+			bool hasSeparator = false;
+			ArgValid fmtState = ArgValid::valid;
+			while (true) {
 				auto [cp, len] = str::Decode(view, true);
-				bool valid = !str::CPFailed(cp);
+				if (str::CPFailed(cp)) {
+					fmtState = ArgValid::malformed;
+					break;
+				}
+				view = view.substr(len);
 
-				/* check if the current index needs to be updated */
-				if (state != ArgState::inArgFmt) {
-					/* check if an end has been found and either mark all previous characters as consumed or fetch the next index in order */
-					if (cp < U'0' || cp > U'9') {
-						if (state == ArgState::preDigit || cp != U':')
-							argIndex = nextArgument++;
-						else {
-							argFormatLen = 0;
-							valid = false;
-						}
-						state = ArgState::inArgFmt;
-					}
+				/* check if the end has been reached */
+				if (cp == U'}')
+					break;
 
-					/* update the currently computed index (but still add the characters to the buffer as the index might not be formatted properly) */
-					else {
-						argIndex = argIndex * 10 + static_cast<size_t>(cp - U'0');
-						state = ArgState::inDigit;
+				/* check if the separator has been encountered */
+				else if (!hasSeparator) {
+					if (cp != U':') {
+						fmtState = ArgValid::malformed;
+						break;
 					}
+					hasSeparator = true;
 				}
 
-				/* check if the character is part of the argument string and update the bracket-escape counting */
-				if (state == ArgState::inArgFmt) {
-					/* check if a closing bracket has started (discard any single opening brackets) */
-					if (cp == U'}') {
-						openStarted = false;
-						closeStarted = !closeStarted;
-					}
+				/* check if its any character which can just be written to the format-buffer */
+				else if (cp != U'{')
+					argFormatBuffer.push_back(cp);
 
-					/* check if a closing bracket was the last token, in which case this is the first token after
-					*	the closing bracket and does not need to be consumed or processed further for this argument */
-					else if (closeStarted) {
-						state = ArgState::done;
+				/* expand the nested argument into the format-buffer */
+				else {
+					auto [nestIndex, nValid] = detail::FormatParseNestedIndex<FmtType>(argSequence, view);
+					if (!nValid) {
+						fmtState = ArgValid::malformed;
 						break;
 					}
 
-					/* check if an opening-bracket is being escaped */
-					else if (cp == U'{')
-						openStarted = !openStarted;
-				}
+					/* check if the argument should be skipped as the current format-string already resulted in an issue */
+					if (fmtState != ArgValid::valid)
+						continue;
 
-				/* remove the string from the view and check if it shoould be added to the argument string */
-				view = view.substr(len);
-				if (openStarted || closeStarted || !valid)
-					continue;
-				if (argFormatLen >= argFormatBuffer.size())
-					argFormatBuffer.resize(argFormatLen + 1);
-				argFormatBuffer[argFormatLen++] = cp;
+					/* try to write the index to the temporary argument buffer */
+					int8_t res = detail::FormatIndex<char32_t>(argFormatBuffer, nestIndex, U"", args...);
+					if (res != 1)
+						fmtState = (res < 0 ? ArgValid::index : ArgValid::format);
+				}
 			}
 
-			/* check if the last token was a closing bracket, in which case this must have been a valid argument just at the end of the format string */
-			if (closeStarted)
-				state = ArgState::done;
+			/* check if a well-formed argument has been found and print it */
+			if (fmtState == ArgValid::valid) {
+				int8_t res = detail::FormatIndex<SinkType>(sink, argIndex, argFormatBuffer, args...);
+				if (res != 1)
+					fmtState = (res < 0 ? ArgValid::index : ArgValid::format);
+			}
 
-			/* check if a valid argument has been found and the index is valid, in which case the argument and be printed */
-			int8_t fmtState = 0;
-			if (state == ArgState::done)
-				fmtState = detail::FormatIndex<SinkType>(sink, argIndex, std::u32string_view{ argFormatBuffer.data(), argFormatLen }, args...);
-
-			/* check if the format was invalid */
-			if (fmtState == 0)
-				str::Append(sink, U"#fmt");
-			else if (fmtState < 0)
+			/* check if a format-string issue was encountered */
+			if (fmtState == ArgValid::index)
 				str::Append(sink, U"#index");
+			else if (fmtState == ArgValid::format)
+				str::Append(sink, U"#fmt");
+
+			/* check if the entire format-string was malformed, in which case further arguments will not be processed */
+			else if (fmtState == ArgValid::malformed) {
+				str::Append(sink, U"#malformed");
+				break;
+			}
 		}
 		return sink;
 	}
