@@ -617,54 +617,54 @@ namespace str {
 
 	/* convert any object to the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Convert(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+	constexpr std::basic_string<ChType> ConvertTo(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		std::basic_string<ChType> out{};
 		return str::ConvertInto(out, source, cpOnError);
 	}
 
 	/* convert any object to the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Convert(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
+	constexpr str::Small<ChType, Capacity> ConvertTo(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		str::Small<ChType, Capacity> out{};
 		return str::ConvertInto(out, source, cpOnError);
 	}
 
 	/* convenience for fast conversion to a std::basic_string */
 	constexpr std::string ToChar(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char>(source, cpOnError);
+		return str::ConvertTo<char>(source, cpOnError);
 	}
 	constexpr std::wstring ToWide(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<wchar_t>(source, cpOnError);
+		return str::ConvertTo<wchar_t>(source, cpOnError);
 	}
 	constexpr std::u8string ToUtf8(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char8_t>(source, cpOnError);
+		return str::ConvertTo<char8_t>(source, cpOnError);
 	}
 	constexpr std::u16string ToUtf16(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char16_t>(source, cpOnError);
+		return str::ConvertTo<char16_t>(source, cpOnError);
 	}
 	constexpr std::u32string ToUtf32(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char32_t>(source, cpOnError);
+		return str::ConvertTo<char32_t>(source, cpOnError);
 	}
 
 	/* convenience for fast conversion to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ToChar(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char, Capacity>(source, cpOnError);
+		return str::ConvertTo<char, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> ToWide(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<wchar_t, Capacity>(source, cpOnError);
+		return str::ConvertTo<wchar_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> ToUtf8(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char8_t, Capacity>(source, cpOnError);
+		return str::ConvertTo<char8_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> ToUtf16(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char16_t, Capacity>(source, cpOnError);
+		return str::ConvertTo<char16_t, Capacity>(source, cpOnError);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> ToUtf32(const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
-		return str::Convert<char32_t, Capacity>(source, cpOnError);
+		return str::ConvertTo<char32_t, Capacity>(source, cpOnError);
 	}
 }

@@ -1485,55 +1485,55 @@ namespace str {
 
 	/* print the integer to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+	constexpr std::basic_string<ChType> IntTo(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
 		std::basic_string<ChType> out{};
 		return str::IntInto(out, num, radix, upperCase);
 	}
 
 	/* print the integer to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
+	constexpr str::Small<ChType, Capacity> IntTo(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
 		str::Small<ChType, Capacity> out{};
 		return str::IntInto(out, num, radix, upperCase);
 	}
 
 	/* convenience for fast integer-printing to a std::basic_string */
 	constexpr std::string ChInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char>(num, radix, upperCase);
+		return str::IntTo<char>(num, radix, upperCase);
 	}
 	constexpr std::wstring WdInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<wchar_t>(num, radix, upperCase);
+		return str::IntTo<wchar_t>(num, radix, upperCase);
 	}
 	constexpr std::u8string U8Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char8_t>(num, radix, upperCase);
+		return str::IntTo<char8_t>(num, radix, upperCase);
 	}
 	constexpr std::u16string U16Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char16_t>(num, radix, upperCase);
+		return str::IntTo<char16_t>(num, radix, upperCase);
 	}
 	constexpr std::u32string U32Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char32_t>(num, radix, upperCase);
+		return str::IntTo<char32_t>(num, radix, upperCase);
 	}
 
 	/* convenience for fast integer-printing to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char, Capacity>(num, radix, upperCase);
+		return str::IntTo<char, Capacity>(num, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> WdInt(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<wchar_t, Capacity>(num, radix, upperCase);
+		return str::IntTo<wchar_t, Capacity>(num, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> U8Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char8_t, Capacity>(num, radix, upperCase);
+		return str::IntTo<char8_t, Capacity>(num, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> U16Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char16_t, Capacity>(num, radix, upperCase);
+		return str::IntTo<char16_t, Capacity>(num, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> U32Int(const str::IsInteger auto& num, size_t radix = 10, bool upperCase = false) {
-		return str::Int<char32_t, Capacity>(num, radix, upperCase);
+		return str::IntTo<char32_t, Capacity>(num, radix, upperCase);
 	}
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
@@ -1552,54 +1552,54 @@ namespace str {
 
 	/* print the float to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
+	constexpr std::basic_string<ChType> FloatTo(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
 		std::basic_string<ChType> out{};
 		return str::FloatInto(out, num, style, precision, radix, upperCase);
 	}
 
 	/* print the float to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
+	constexpr str::Small<ChType, Capacity> FloatTo(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
 		str::Small<ChType, Capacity> out{};
 		return str::FloatInto(out, num, style, precision, radix, upperCase);
 	}
 
 	/* convenience for fast float-printing to a std::basic_string */
 	constexpr std::string ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char>(num, style, precision, radix, upperCase);
 	}
 	constexpr std::wstring WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<wchar_t>(num, style, precision, radix, upperCase);
+		return str::FloatTo<wchar_t>(num, style, precision, radix, upperCase);
 	}
 	constexpr std::u8string U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char8_t>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char8_t>(num, style, precision, radix, upperCase);
 	}
 	constexpr std::u16string U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char16_t>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char16_t>(num, style, precision, radix, upperCase);
 	}
 	constexpr std::u32string U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char32_t>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char32_t>(num, style, precision, radix, upperCase);
 	}
 
 	/* convenience for fast float-printing to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char, Capacity>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char, Capacity>(num, style, precision, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> WdFloat(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<wchar_t, Capacity>(num, style, precision, radix, upperCase);
+		return str::FloatTo<wchar_t, Capacity>(num, style, precision, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> U8Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char8_t, Capacity>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char8_t, Capacity>(num, style, precision, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> U16Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char16_t, Capacity>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char16_t, Capacity>(num, style, precision, radix, upperCase);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> U32Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, bool upperCase = false) {
-		return str::Float<char32_t, Capacity>(num, style, precision, radix, upperCase);
+		return str::FloatTo<char32_t, Capacity>(num, style, precision, radix, upperCase);
 	}
 }

@@ -20,7 +20,7 @@ namespace str {
 		static_assert(sizeof(char32_t) == sizeof(uint32_t), "char32_t is expected to be 32bit");
 		static_assert(sizeof(char16_t) == sizeof(uint16_t), "char16_t is expected to be 16bit");
 		static_assert(sizeof(char8_t) == sizeof(uint8_t), "char8_t is expected to be 8bit");
-		static_assert(sizeof(wchar_t) >= sizeof(uint16_t) && sizeof(wchar_t) < sizeof(uint32_t), "wchar_t is expected to be at least 16bit and at most 32bit");
+		static_assert(sizeof(wchar_t) == sizeof(uint16_t) || sizeof(wchar_t) == sizeof(uint32_t), "wchar_t is expected to be at least 16bit and at most 32bit");
 		static_assert(sizeof(char) == sizeof(uint8_t), "char is expected to be 8bit");
 
 		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>

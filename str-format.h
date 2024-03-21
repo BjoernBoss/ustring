@@ -7,6 +7,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <iostream>
 
 namespace str {
 	/* formattable interface which requires:
@@ -216,55 +217,55 @@ namespace str {
 
 	/* format the arguments to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr std::basic_string<ChType> FormatTo(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		std::basic_string<ChType> out{};
 		return str::FormatInto(out, fmt, args...);
 	}
 
 	/* format the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr str::Small<ChType, Capacity> FormatTo(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
 		return str::FormatInto(out, fmt, args...);
 	}
 
 	/* convenience for fast formatting to a std::basic_string */
 	constexpr std::string ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char>(fmt, args...);
+		return str::FormatTo<char>(fmt, args...);
 	}
 	constexpr std::wstring WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<wchar_t>(fmt, args...);
+		return str::FormatTo<wchar_t>(fmt, args...);
 	}
 	constexpr std::u8string U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char8_t>(fmt, args...);
+		return str::FormatTo<char8_t>(fmt, args...);
 	}
 	constexpr std::u16string U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char16_t>(fmt, args...);
+		return str::FormatTo<char16_t>(fmt, args...);
 	}
 	constexpr std::u32string U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char32_t>(fmt, args...);
+		return str::FormatTo<char32_t>(fmt, args...);
 	}
 
 	/* convenience for fast formatting to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char, Capacity>(fmt, args...);
+		return str::FormatTo<char, Capacity>(fmt, args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<wchar_t, Capacity>(fmt, args...);
+		return str::FormatTo<wchar_t, Capacity>(fmt, args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char8_t, Capacity>(fmt, args...);
+		return str::FormatTo<char8_t, Capacity>(fmt, args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char16_t, Capacity>(fmt, args...);
+		return str::FormatTo<char16_t, Capacity>(fmt, args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::Format<char32_t, Capacity>(fmt, args...);
+		return str::FormatTo<char32_t, Capacity>(fmt, args...);
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
@@ -277,55 +278,75 @@ namespace str {
 
 	/* build the arguments to a string of the destination character-type (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
+	constexpr std::basic_string<ChType> BuildTo(const str::IsFormattable auto&... args) {
 		std::basic_string<ChType> out{};
 		return str::BuildInto(out, args...);
 	}
 
 	/* build the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> Build(const str::IsFormattable auto&... args) {
+	constexpr str::Small<ChType, Capacity> BuildTo(const str::IsFormattable auto&... args) {
 		str::Small<ChType, Capacity> out{};
 		return str::BuildInto(out, args...);
 	}
 
 	/* convenience for fast building to a std::basic_string */
 	constexpr std::string ChBuild(const str::IsFormattable auto&... args) {
-		return str::Build<char>(args...);
+		return str::BuildTo<char>(args...);
 	}
 	constexpr std::wstring WdBuild(const str::IsFormattable auto&... args) {
-		return str::Build<wchar_t>(args...);
+		return str::BuildTo<wchar_t>(args...);
 	}
 	constexpr std::u8string U8Build(const str::IsFormattable auto&... args) {
-		return str::Build<char8_t>(args...);
+		return str::BuildTo<char8_t>(args...);
 	}
 	constexpr std::u16string U16Build(const str::IsFormattable auto&... args) {
-		return str::Build<char16_t>(args...);
+		return str::BuildTo<char16_t>(args...);
 	}
 	constexpr std::u32string U32Build(const str::IsFormattable auto&... args) {
-		return str::Build<char32_t>(args...);
+		return str::BuildTo<char32_t>(args...);
 	}
 
 	/* convenience for fast formatting to a str::Small<Capacity> */
 	template <intptr_t Capacity>
 	constexpr str::ChSmall<Capacity> ChBuild(const str::IsFormattable auto&... args) {
-		return str::Build<char, Capacity>(args...);
+		return str::BuildTo<char, Capacity>(args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::WdSmall<Capacity> WdBuild(const str::IsFormattable auto&... args) {
-		return str::Build<wchar_t, Capacity>(args...);
+		return str::BuildTo<wchar_t, Capacity>(args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U8Small<Capacity> U8Build(const str::IsFormattable auto&... args) {
-		return str::Build<char8_t, Capacity>(args...);
+		return str::BuildTo<char8_t, Capacity>(args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U16Small<Capacity> U16Build(const str::IsFormattable auto&... args) {
-		return str::Build<char16_t, Capacity>(args...);
+		return str::BuildTo<char16_t, Capacity>(args...);
 	}
 	template <intptr_t Capacity>
 	constexpr str::U32Small<Capacity> U32Build(const str::IsFormattable auto&... args) {
-		return str::Build<char32_t, Capacity>(args...);
+		return str::BuildTo<char32_t, Capacity>(args...);
+	}
+
+	/* convenience for fast formatting to std::cout */
+	constexpr void Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatInto(std::cout, fmt, args...);
+	}
+
+	/* convenience for fast formatting to std::wcout */
+	constexpr void WFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatInto(std::wcout, fmt, args...);
+	}
+
+	/* convenience for fast building to std::cout */
+	constexpr void Out(const str::IsFormattable auto&... args) {
+		str::BuildInto(std::cout, args...);
+	}
+
+	/* convenience for fast building to std::wcout */
+	constexpr void WOut(const str::IsFormattable auto&... args) {
+		str::BuildInto(std::wcout, args...);
 	}
 
 	/*	Normal padding: in Order; all optional
