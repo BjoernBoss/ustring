@@ -333,20 +333,36 @@ namespace str {
 	constexpr void Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatInto(std::cout, fmt, args...);
 	}
+	constexpr void FormatLn(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatInto(std::cout, fmt, args...);
+		std::cout << '\n';
+	}
 
 	/* convenience for fast formatting to std::wcout */
 	constexpr void WFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatInto(std::wcout, fmt, args...);
+	}
+	constexpr void WFormatLn(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatInto(std::wcout, fmt, args...);
+		std::wcout << L'\n';
 	}
 
 	/* convenience for fast building to std::cout */
 	constexpr void Out(const str::IsFormattable auto&... args) {
 		str::BuildInto(std::cout, args...);
 	}
+	constexpr void OutLn(const str::IsFormattable auto&... args) {
+		str::BuildInto(std::cout, args...);
+		std::cout << '\n';
+	}
 
 	/* convenience for fast building to std::wcout */
 	constexpr void WOut(const str::IsFormattable auto&... args) {
 		str::BuildInto(std::wcout, args...);
+	}
+	constexpr void WOutLn(const str::IsFormattable auto&... args) {
+		str::BuildInto(std::wcout, args...);
+		std::wcout << L'\n';
 	}
 
 	/*	Normal padding: in Order; all optional
@@ -736,7 +752,7 @@ namespace str {
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
-				str::IntInto(sink, val, radix, upperCase);
+				str::IntInto(sink, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
@@ -757,7 +773,7 @@ namespace str {
 
 				/* write the integer to an intermediate buffer to estimate its size */
 				std::u32string buffer;
-				str::IntInto(buffer, val, radix, upperCase);
+				str::IntInto(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
@@ -777,7 +793,7 @@ namespace str {
 			/* write the number to an intermediate buffer */
 			std::u32string buffer;
 			detail::NumPreambleInto<Type>(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::IntInto(buffer, val, radix, upperCase);
+			str::IntInto(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -848,7 +864,7 @@ namespace str {
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
-				str::FloatInto(sink, val, style, precision, radix, upperCase);
+				str::FloatInto(sink, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
@@ -869,7 +885,7 @@ namespace str {
 
 				/* write the float to an intermediate buffer to estimate its size */
 				std::u32string buffer;
-				str::FloatInto(buffer, val, style, precision, radix, upperCase);
+				str::FloatInto(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
@@ -889,7 +905,7 @@ namespace str {
 			/* write the number to an intermediate buffer */
 			std::u32string buffer;
 			detail::NumPreambleInto(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::FloatInto(buffer, val, style, precision, radix, upperCase);
+			str::FloatInto(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -968,7 +984,7 @@ namespace str {
 			str::U32Small<sizeof(void*) * 2> buffer;
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
-			str::IntInto(buffer, uintptr_t(val), 16, upperCase);
+			str::IntInto(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
