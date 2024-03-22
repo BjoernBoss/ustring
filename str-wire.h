@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <vector>
 #include <iostream>
+#include <type_traits>
 
 namespace str {
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)} */
@@ -112,6 +113,22 @@ namespace str {
 		static constexpr uint8_t Utf16beBOM[detail::Utf16BOMSize] = { 0xfe, 0xff };
 		static constexpr uint8_t Utf32leBOM[detail::Utf32BOMSize] = { 0xff, 0xfe, 0x00, 0x00 };
 		static constexpr uint8_t Utf32beBOM[detail::Utf32BOMSize] = { 0x00, 0x00, 0xfe, 0xff };
+	}
+
+	/* byte sink interface which requires:
+	*	operator() to take the wire object and a pointer and a size */
+	template <class Type>
+	struct ByteSink;
+	template <class Type>
+	concept IsWire = !std::is_const_v<std::remove_reference_t<Type>> &&
+		requires(Type & t, const uint8_t * ptr, size_t sz) {
+		str::ByteSink<std::remove_cvref_t<Type>>{}(t, ptr, sz);
+	};
+
+	/* wrapper to write to a byte-sink */
+	constexpr auto& SinkBytes(str::IsWire auto&& sink, const uint8_t* ptr, size_t sz) {
+		str::ByteSink<std::remove_cvref_t<decltype(sink)>>{}(sink, ptr, sz);
+		return sink;
 	}
 
 	/* read a string from raw bytes and dynamically detect the encoding based on a BOM or use the given encoding (will at all times consume all passed in bytes) */
@@ -466,22 +483,6 @@ namespace str {
 		}
 	};
 
-	/* byte sink interface which requires:
-	*	operator() to take the wire object and a pointer and a size */
-	template <class Type>
-	struct ByteSink;
-	template <class Type>
-	concept IsWire = !std::is_const_v<std::remove_reference_t<Type>> &&
-		requires(Type & t, const uint8_t * ptr, size_t sz) {
-		str::ByteSink<std::remove_cvref_t<Type>>{}(t, ptr, sz);
-	};
-
-	/* wrapper to write to a byte-sink */
-	constexpr auto& SinkBytes(str::IsWire auto&& sink, const uint8_t* ptr, size_t sz) {
-		str::ByteSink<std::remove_cvref_t<decltype(sink)>>{}(sink, ptr, sz);
-		return sink;
-	}
-
 	/* write a string of any type to a byte-sink and encode it using the defined wire-encoding */
 	class ToWire {
 	private:
@@ -551,7 +552,7 @@ namespace str {
 			char8_t buffer[detail::MaxAsciiEscape] = { 0 };
 
 			/* write the characters to the buffer (cannot overflow the buffer as ascii maps one-to-one to utf8 and all this function is only called with valid codepoints) */
-			size_t size = str::EscapeAsciiInto(str::PtrSink(buffer), cp).size();
+			size_t size = str::EscapeAsciiInto(str::Chars(buffer), cp).size();
 
 			/* write the ascii characters to the sink */
 			str::SinkBytes(sink, reinterpret_cast<const uint8_t*>(buffer), size);
@@ -601,7 +602,7 @@ namespace str {
 	};
 
 	/* wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available */
-	class BufBytes {
+	class Bytes {
 	private:
 		uint8_t* pPtr = 0;
 		size_t pSize = 0;
@@ -609,11 +610,11 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr BufBytes(uint8_t(&buf)[N]) {
+		constexpr Bytes(uint8_t(&buf)[N]) {
 			pPtr = buf;
 			pSize = N;
 		}
-		constexpr BufBytes(uint8_t* buf, size_t capacity) {
+		constexpr Bytes(uint8_t* buf, size_t capacity) {
 			pPtr = buf;
 			pSize = capacity;
 		}
@@ -644,8 +645,8 @@ namespace str {
 		}
 	};
 	template <>
-	struct ByteSink<str::BufBytes> {
-		void operator()(str::BufBytes& sink, const uint8_t* ptr, size_t size) const {
+	struct ByteSink<str::Bytes> {
+		void operator()(str::Bytes& sink, const uint8_t* ptr, size_t size) const {
 			sink.write(ptr, size);
 		}
 	};

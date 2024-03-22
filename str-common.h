@@ -204,13 +204,10 @@ namespace str {
 		return sink;
 	}
 
-	/* character string interface which requires:
-	*	operator() to take the string object and return a constant pointer and size */
-	template <class Type, class ChType>
-	struct CharString;
+	/* string is anything convertible to a string-view */
 	template <class Type, class ChType>
 	concept IsString = requires(const Type & t) {
-		{ str::CharString<std::remove_cvref_t<Type>, ChType>{}(t) } -> std::same_as<std::pair<const ChType*, size_t>>;
+		{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
 	};
 
 	namespace detail {
@@ -231,13 +228,12 @@ namespace str {
 	/* wrapper to get string iterators */
 	template <class ChType>
 	constexpr std::pair<const ChType*, const ChType*> StringIterators(const str::IsString<ChType> auto& string) {
-		auto [str, size] = str::CharString<std::remove_cvref_t<decltype(string)>, ChType>{}(string);
-		return { str, str + size };
+		std::basic_string_view<ChType> view{ string };
+		return { view.data(), view.data() + view.size() };
 	}
 	template <class ChType>
 	constexpr std::basic_string_view<ChType> StringView(const str::IsString<ChType> auto& string) {
-		auto [str, size] = str::CharString<std::remove_cvref_t<decltype(string)>, ChType>{}(string);
-		return std::basic_string_view<ChType>{ str, size };
+		return std::basic_string_view<ChType>{ string };
 	}
 
 	/* string-buffer overflow/underflow exception */
@@ -378,21 +374,21 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
 	template <class ChType>
-	class NullPtrSink {
+	class NullChars {
 	private:
 		ChType* pBegin = 0;
 		ChType* pEnd = 0;
 
 	public:
 		template <size_t N>
-		constexpr NullPtrSink(ChType(&buf)[N]) {
+		constexpr NullChars(ChType(&buf)[N]) {
 			if constexpr (N == 0)
 				return;
 			buf[0] = 0;
 			pBegin = buf;
 			pEnd = buf + (N - 1);
 		}
-		constexpr NullPtrSink(ChType* buf, size_t capacity) {
+		constexpr NullChars(ChType* buf, size_t capacity) {
 			if (capacity == 0)
 				return;
 			buf[0] = 0;
@@ -417,7 +413,7 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
 	template <class ChType>
-	class PtrSink {
+	class Chars {
 	private:
 		ChType* pPtr = 0;
 		size_t pSize = 0;
@@ -425,11 +421,11 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr PtrSink(ChType(&buf)[N]) {
+		constexpr Chars(ChType(&buf)[N]) {
 			pPtr = buf;
 			pSize = N;
 		}
-		constexpr PtrSink(ChType* buf, size_t capacity) {
+		constexpr Chars(ChType* buf, size_t capacity) {
 			pPtr = buf;
 			pSize = capacity;
 		}
@@ -484,73 +480,23 @@ namespace str {
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::NullPtrSink<ChType>, ChType> {
-		constexpr void operator()(str::NullPtrSink<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::NullChars<ChType>, ChType> {
+		constexpr void operator()(str::NullChars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::NullPtrSink<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::NullChars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::PtrSink<ChType>, ChType> {
-		constexpr void operator()(str::PtrSink<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::Chars<ChType>, ChType> {
+		constexpr void operator()(str::Chars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::PtrSink<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
-		}
-	};
-
-	/* specializations for char-strings */
-	template <class ChType>
-	struct CharString<const ChType*, ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const ChType* str) const {
-			size_t len = 0;
-			while (str[len])
-				++len;
-			return { str, len };
-		}
-	};
-	template <class ChType>
-	struct CharString<ChType*, ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const ChType* str) const {
-			return str::CharString<const ChType*, ChType>{}(str);
-		}
-	};
-	template <class ChType, size_t N>
-	struct CharString<const ChType[N], ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const ChType* str) const {
-			size_t len = 0;
-			while (str[len] && len < N)
-				++len;
-			return { str, len };
-		}
-	};
-	template <class ChType, size_t N>
-	struct CharString<ChType[N], ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const ChType* str) const {
-			return str::CharString<const ChType[N], ChType>{}(str);
-		}
-	};
-	template <class ChType>
-	struct CharString<std::basic_string_view<ChType>, ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const std::basic_string_view<ChType>& view) const {
-			return { view.data(), view.size() };
-		}
-	};
-	template <class ChType>
-	struct CharString<std::basic_string<ChType>, ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const std::basic_string<ChType>& str) const {
-			return { str.data(), str.size() };
-		}
-	};
-	template <class ChType, intptr_t Capacity>
-	struct CharString<str::Small<ChType, Capacity>, ChType> {
-		constexpr std::pair<const ChType*, size_t> operator()(const str::Small<ChType, Capacity>& str) const {
-			return { str.data(), str.size() };
 		}
 	};
 }
