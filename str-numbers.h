@@ -146,7 +146,8 @@ namespace str {
 		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 		static constexpr const char32_t* PrefixLower = U"__b_q___o_d_____x___________________";
 		static constexpr const char32_t* PrefixUpper = U"__B_Q___O_D_____X___________________";
-		static constexpr uint8_t AsciiDigitMap[str::AsciiRange] = {
+		static constexpr uint8_t NotAnAsciiDigit = 0xff;
+		static constexpr uint8_t AsciiDigitMap[cp::AsciiRange] = {
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -1475,6 +1476,21 @@ namespace str {
 			else
 				detail::PrintNormalFloat<Type, 0>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, dataPackages);
 		}
+	}
+
+	/* map ascii characters (0-9; a-z; A-Z) to values between 0-35 or return str::NotAsciiDigit (guaranteed to be larger than any valid digit, i.e. if larger than expected radix, invalid) */
+	static constexpr size_t NotAsciiDigit = detail::NotAnAsciiDigit;
+	inline constexpr size_t AsciiDigit(char32_t cp) {
+		if (!cp::Ascii(cp))
+			return str::NotAsciiDigit;
+		return detail::AsciiDigitMap[cp];
+	}
+
+	/* return ascii character codepoint or str::CPInvalid */
+	inline constexpr char32_t DigitChar(size_t digit, bool upperCase = false) {
+		if (digit >= str::MaxRadix)
+			return str::CPInvalid;
+		return (upperCase ? detail::DigitUpper : detail::DigitLower)[digit];
 	}
 
 	/*

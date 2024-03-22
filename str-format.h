@@ -514,8 +514,6 @@ namespace str {
 
 	namespace detail {
 		constexpr void EscapeInto(auto& sink, char32_t cp, bool asciiOnly) {
-			constexpr const char32_t* CharSet = U"0123456789abcdef";
-
 			/* check if the character is an escape sequence */
 			if (cp == U'\t')
 				sink.append(U"\\t");
@@ -533,14 +531,14 @@ namespace str {
 				sink.append(U"\\\\");
 
 			/* check if the character can be added in all cases */
-			else if (cp >= 0x20 && cp != 0x7f && (!asciiOnly || cp < str::AsciiRange))
-				sink.push_back(static_cast<char32_t>(cp));
+			else if (cp >= 0x20 && cp != 0x7f && (!asciiOnly || cp::Ascii(cp)))
+				sink.push_back(cp);
 
 			/* check if the codepoint can be added as short-version */
 			else if (cp <= 0xff) {
 				sink.append(U"\\x");
-				sink.push_back(CharSet[cp >> 4]);
-				sink.push_back(CharSet[cp & 0x0f]);
+				sink.push_back(str::DigitChar(cp >> 4));
+				sink.push_back(str::DigitChar(cp & 0x0f));
 			}
 
 			/* add the codepoint as the unicode-codepoint */
@@ -551,7 +549,7 @@ namespace str {
 					digit -= 4;
 
 				while (digit >= 0) {
-					sink.push_back(CharSet[(cp >> digit) & 0x0f]);
+					sink.push_back(str::DigitChar((cp >> digit) & 0x0f));
 					digit -= 4;
 				}
 

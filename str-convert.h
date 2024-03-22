@@ -46,13 +46,17 @@ namespace str {
 		uint32_t consumed = 0;
 	};
 
-	/* maximum number of characters to potentially be consumed/produced per codepoint */
-	static constexpr size_t MaxEncodeLength = 4;
-
 	/* default error character */
 	static constexpr char32_t DefCPOnError = U'?';
 
 	namespace detail {
+		template <class ChType> struct MaxEncodingSize;
+		template <> struct MaxEncodingSize<char> { static constexpr size_t value = 4; };
+		template <> struct MaxEncodingSize<char8_t> { static constexpr size_t value = 4; };
+		template <> struct MaxEncodingSize<char16_t> { static constexpr size_t value = 2; };
+		template <> struct MaxEncodingSize<char32_t> { static constexpr size_t value = 1; };
+		template <> struct MaxEncodingSize<wchar_t> { static constexpr size_t value = (str::IsWideUtf16 ? 2 : 1); };
+
 		/* utf-8 help lookup maps (of the upper 5 bits) and boundary maps (for length) */
 		static constexpr uint8_t Utf8InitCharLength[32] = {
 			1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -62,11 +66,6 @@ namespace str {
 			0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x1f, 0x1f, 0x0f, 0x0f, 0x07, 0x00
 		};
-
-		/* utf-16 help variables */
-		static constexpr uint16_t Utf16LowerSurrogate = 0xd800;
-		static constexpr uint16_t Utf16UpperSurrogate = 0xdc00;
-		static constexpr uint16_t Utf16LastSurrogate = 0xdfff;
 
 		inline constexpr str::CPOut ReadUtf8(const char8_t* begin, const char8_t* end) {
 			uint8_t c8 = static_cast<uint8_t>(*begin);
@@ -94,7 +93,7 @@ namespace str {
 			}
 
 			/* check if its an invalid codepoint */
-			if (!str::ValidCP(char32_t(cp)))
+			if (!str::cp::Unicode(char32_t(cp)))
 				return { str::CPInvalid, len };
 			return { char32_t(cp), len };
 		}
@@ -102,18 +101,18 @@ namespace str {
 			uint32_t cp = static_cast<uint16_t>(*begin);
 
 			/* check if its a valid single-token codepoint */
-			if (cp < detail::Utf16LowerSurrogate || cp > detail::Utf16LastSurrogate)
+			if (cp < cp::SurrogateFirst || cp > cp::SurrogateLast)
 				return { cp, 1 };
 
 			/* ensure there are enough characters for a surrogate-pair and that the first value is valid */
-			if (cp >= detail::Utf16UpperSurrogate)
+			if (cp >= cp::SurrogateUpper)
 				return { str::CPInvalid, 1 };
 			if (end - begin < 2)
 				return { str::CPIncomplete, 0 };
 
 			/* extract and validate the second token */
 			uint32_t next = static_cast<uint16_t>(begin[1]);
-			if (next < detail::Utf16UpperSurrogate || next > detail::Utf16LastSurrogate)
+			if (next < cp::SurrogateUpper || next > cp::SurrogateLast)
 				return { str::CPInvalid, 2 };
 
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
@@ -123,7 +122,7 @@ namespace str {
 			uint32_t cp = static_cast<uint32_t>(*begin);
 
 			/* validate the codepoint */
-			if (!str::ValidCP(char32_t(cp)))
+			if (!str::cp::Unicode(char32_t(cp)))
 				return { str::CPInvalid, 1 };
 			return { char32_t(cp), 1 };
 		}
@@ -137,46 +136,42 @@ namespace str {
 			/* read the next character and check if the character is incomplete (documentation suggests that a decoded codepoint should
 			*	always fit into single wide-char, and fail if the max encoding length promise would be broken => should not be possible) */
 			size_t res = std::mbrtowc((SizeOnly ? nullptr : &wc), begin, size_t(end - begin), &state);
-			if (res == static_cast<size_t>(-2)) {
-				if (end - begin >= str::MaxEncodeLength)
-					return { str::CPInvalid, str::MaxEncodeLength };
-				return { str::CPIncomplete, 0 };
-			}
-			uint32_t len = res;
+			uint32_t len = 1;
 
-			/* check if the decoded character is the null-character, which has a length of 1 */
-			if (res == 0)
-				len = 1;
+			/* check if the character is considered incompleted */
+			if (res == static_cast<size_t>(-2))
+				len = (end - begin);
 
 			/* check if the decoded character is not a valid character, in which case the length is not
 			*	returned and has to be figured out by creeping up to the previous response */
-			else if (res == static_cast<size_t>(-1)) {
-				len = 1;
+			else if (res == static_cast<size_t>(-1)) while (true) {
+				/* always use a clean state to ensure the previous try does not polute this result */
+				state = { 0 };
+				res = std::mbrtowc(0, begin, len, &state);
 
-				/* try to find the length by creeping up to the previous response (as we dont know the length of the error/null-byte) */
-				while (true) {
-					/* always use a clean state to ensure the previous try does not polute this result */
-					state = { 0 };
-					res = std::mbrtowc(0, begin, len, &state);
-
-					/* check if the given result has been reached, or the character is still incomplete */
-					if (res == static_cast<size_t>(-1))
-						break;
-					if (res == static_cast<size_t>(-2) && len < (end - begin)) {
-						++len;
-						continue;
-					}
-
-					/* a new error has been received/end of source has been reached, in which case an error in the encoding can
-					*	just be returned as this state should really never be reached for a valid and deterministic std::mbrtowc */
-					return { str::CPInvalid, std::min<size_t>(len, str::MaxEncodeLength) };
+				/* check if the encoding is not considered incomplete anymore (should std::mbrtowc
+				*	not behave deterministically, just return the current length as invalid) */
+				if (res != static_cast<size_t>(-2) || len >= (end - begin)) {
+					res = -1;
+					break;
 				}
+				++len;
 			}
 
-			/* check if the char is longer than the internal max character-length, which should really not happen in any encoding
-			*	and would break the promise of str::MaxEncodeLength, or invalid for both of which an error can be returned */
-			if (res == static_cast<size_t>(-1) || len > str::MaxEncodeLength)
-				return { str::CPInvalid, std::min<size_t>(len, str::MaxEncodeLength) };
+			/* check if the result is not the null-byte in which case it reflects the length */
+			else if (res != 0)
+				len = res;
+
+			/* check if the char is longer than the internal max character-length, which should really not happen
+			*	in any encoding and would break the promise of detail::MaxEncodingSize, or if an error occurred */
+			if (len > detail::MaxEncodingSize<char>::value)
+				return { str::CPInvalid, detail::MaxEncodingSize<char>::value };
+			if (res == static_cast<size_t>(-1))
+				return { str::CPInvalid, len };
+
+			/* check if the result is incomplete */
+			if (res == static_cast<size_t>(-2))
+				return { str::CPIncomplete, 0 };
 
 			/* check if only the size was required */
 			if constexpr (SizeOnly)
@@ -202,10 +197,8 @@ namespace str {
 			str::CPOut out{};
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (str::IsAscii<ChType>) {
-				if (std::make_unsigned_t<ChType>(*begin) < str::AsciiRange)
-					return { char32_t(*begin), 1 };
-			}
+			if (str::IsAscii<ChType> && cp::Ascii(*begin))
+				return { char32_t(*begin), 1 };
 
 			/* decode the next codepoint */
 			const EffType* effBegin = reinterpret_cast<const EffType*>(begin);
@@ -236,13 +229,13 @@ namespace str {
 				out[0] = static_cast<ChType>(0xc0 | (cp >> 6));
 				cont = 1;
 			}
-			else if (cp >= detail::Utf16LowerSurrogate && cp <= detail::Utf16LastSurrogate)
+			else if (cp >= cp::SurrogateFirst && cp <= cp::SurrogateLast)
 				return false;
 			else if (cp <= 0xffff) {
 				out[0] = static_cast<ChType>(0xe0 | (cp >> 12));
 				cont = 2;
 			}
-			else if (cp < str::UnicodeRange) {
+			else if (cp < cp::UnicodeRange) {
 				out[0] = static_cast<ChType>(0xf0 | (cp >> 18));
 				cont = 3;
 			}
@@ -264,19 +257,19 @@ namespace str {
 		constexpr bool WriteUtf16(auto& sink, uint32_t cp) {
 			/* check if its a single utf16-byte */
 			if (cp < 0x10000) {
-				if (cp >= detail::Utf16LowerSurrogate && cp <= detail::Utf16UpperSurrogate)
+				if (cp >= cp::SurrogateFirst && cp <= cp::SurrogateUpper)
 					return false;
 				str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 				return true;
 			}
-			if (cp >= str::UnicodeRange)
+			if (cp >= cp::UnicodeRange)
 				return false;
 			cp -= 0x10000;
 
 			/* produce the two utf16-bytes */
 			ChType out[2] = { 0 };
-			out[0] = static_cast<ChType>(detail::Utf16LowerSurrogate + (cp >> 10));
-			out[1] = static_cast<ChType>(detail::Utf16UpperSurrogate + (cp & 0x03ff));
+			out[0] = static_cast<ChType>(cp::SurrogateFirst + (cp >> 10));
+			out[1] = static_cast<ChType>(cp::SurrogateUpper + (cp & 0x03ff));
 
 			/* write the data to the sink */
 			str::SinkString<ChType>(sink, out, 2);
@@ -285,13 +278,13 @@ namespace str {
 		template <class ChType>
 		constexpr bool WriteUtf32(auto& sink, uint32_t cp) {
 			/* validate the codepoint and write it to the sink */
-			if (!str::ValidCP(char32_t(cp)))
+			if (!str::cp::Unicode(char32_t(cp)))
 				return false;
 			str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 			return true;
 		}
 		constexpr bool WriteMultiByte(auto& sink, uint32_t cp) {
-			str::Small<wchar_t, str::MaxEncodeLength> wc;
+			str::Small<wchar_t, detail::MaxEncodingSize<wchar_t>::value> wc;
 
 			/* convert the codepoint first to wide-characters and check if it only resulted in one, as a single
 			*	multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
@@ -316,7 +309,7 @@ namespace str {
 
 			/* check if the character could not be converted or if the converted character would break the promise of
 			*	the string-conversion max encoding length in which case the codepoint is not considered encodable */
-			if (res == static_cast<size_t>(-1) || res > str::MaxEncodeLength)
+			if (res == static_cast<size_t>(-1) || res > detail::MaxEncodingSize<char>::value)
 				return false;
 
 			/* write the characters to the sink (res should never be zero) */
@@ -329,11 +322,9 @@ namespace str {
 			using EffType = str::EffChar<ChType>;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (str::IsAscii<ChType>) {
-				if (static_cast<uint32_t>(cp) < str::AsciiRange) {
-					str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
-					return true;
-				}
+			if (str::IsAscii<ChType> && cp::Ascii(cp)) {
+				str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
+				return true;
 			}
 
 			/* encode the codepoint */
@@ -354,20 +345,18 @@ namespace str {
 			uint32_t len = 0;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if constexpr (str::IsAscii<ChType>) {
-				if (static_cast<uint32_t>(*begin) < str::AsciiRange)
-					return { str::CPSuccess, 1 };
-			}
+			if (str::IsAscii<ChType> && cp::Ascii(*begin))
+				return { str::CPSuccess, 1 };
 
 			/* check what encoding it is and read the size (invalid encodings result in length 0) */
 			if constexpr (std::is_same_v<EffType, char8_t>)
 				len = detail::Utf8InitCharLength[static_cast<uint8_t>(*begin) >> 3];
 			else if constexpr (std::is_same_v<EffType, char16_t>) {
 				uint16_t c16 = static_cast<uint16_t>(*begin);
-				if (c16 < detail::Utf16LowerSurrogate || c16 > detail::Utf16LastSurrogate)
+				if (c16 < cp::SurrogateFirst || c16 > cp::SurrogateLast)
 					len = 1;
 				else
-					len = (c16 < detail::Utf16UpperSurrogate ? 2 : 0);
+					len = (c16 < cp::SurrogateUpper ? 2 : 0);
 			}
 			else if constexpr (std::is_same_v<EffType, char32_t>)
 				len = 1;
@@ -409,6 +398,18 @@ namespace str {
 		}
 	}
 
+	/* maximum number of characters for the given char-type required to encode a single codepoint */
+	template <str::IsChar ChType>
+	constexpr size_t MaxEncSize = detail::MaxEncodingSize<ChType>::value;
+
+	/* maximum number of bytes for the given char-type required to encode a single codepoint */
+	template <str::IsChar ChType>
+	constexpr size_t MaxEncBytes = detail::MaxEncodingSize<ChType>::value * sizeof(ChType);
+
+	/* small-string large enough to hold at least one complete codepoint when encoded into it */
+	template <str::IsChar ChType>
+	using CPSmall = str::Small<ChType, str::MaxEncSize<ChType>>;
+
 	/* read a single codepoint from the beginning of the string (will not return invalid unicode-codepoints, if result is valid) */
 	constexpr str::CPOut Decode(const str::AnyString auto& source, bool sourceCompleted) {
 		using ChType = str::StringCharType<decltype(source)>;
@@ -433,14 +434,14 @@ namespace str {
 
 		/* check if the raw value itself can be checked for being an ascii character */
 		if constexpr (str::IsAscii<ChType>) {
-			if (std::make_unsigned_t<ChType>(*begin) < str::AsciiRange)
+			if (cp::Ascii(*begin))
 				return { char32_t(*begin), 1 };
 			return { str::CPNotAscii, 0 };
 		}
 
 		/* decode the codepoint and check if its a valid ascii character */
 		str::CPOut out = detail::ReadCodePoint<ChType>(begin, end);
-		if (!str::CPFailed(out.cp) && uint32_t(out.cp) < str::AsciiRange)
+		if (!str::CPFailed(out.cp) && cp::Ascii(out.cp))
 			return out;
 		return { str::CPNotAscii, 0 };
 	}
@@ -496,8 +497,8 @@ namespace str {
 	/* encodes a single codepoint into small string using str::EncodeInto and returns it
 	*	(return an empty string if the target charset cannot hold the codepoint) */
 	template <str::IsChar ChType>
-	constexpr str::Small<ChType, str::MaxEncodeLength> Encode(char32_t cp) {
-		str::Small<ChType, str::MaxEncodeLength> out{};
+	constexpr str::CPSmall<ChType> Encode(char32_t cp) {
+		str::CPSmall<ChType> out{};
 		str::EncodeInto(out, cp);
 		return out;
 	}
@@ -522,7 +523,7 @@ namespace str {
 	/* transcodes a single codepoint into small string using str::TranscodeInto and returns it */
 	template <str::IsChar ChType>
 	struct TranscodeOut {
-		str::Small<ChType, str::MaxEncodeLength> buffer;
+		str::CPSmall<ChType> buffer;
 		char32_t cp = str::CPEmpty;
 		uint32_t consumed = 0;
 	};
@@ -554,19 +555,17 @@ namespace str {
 				detail::WriteCodePoint<SinkType>(sink, static_cast<char32_t>(chr));
 
 			/* write the character and write the error char if an error occurred */
-			else if (detail::TranscodeNext<SourceType, SinkType>(sink, &chr, &chr + 1).cp != str::CPSuccess) {
-				if (cpOnError != 0)
-					detail::TranscodeNext<char32_t, SinkType>(sink, &cpOnError, &cpOnError + 1);
-			}
+			else if (detail::TranscodeNext<SourceType, SinkType>(sink, &chr, &chr + 1).cp != str::CPSuccess && cpOnError != 0)
+				detail::WriteCodePoint<SinkType>(sink, cpOnError);
 			return sink;
 		}
 		else if (count == 0)
 			return sink;
 
 		/* transcode the character to a temporary buffer and write the error char if an error occurred and otherwise return as nothing can be done */
-		str::Small<SinkType, str::MaxEncodeLength> temp;
+		str::CPSmall<SinkType> temp;
 		if (detail::TranscodeNext<SourceType, SinkType>(temp, &chr, &chr + 1).cp != str::CPSuccess) {
-			if (cpOnError == 0 || detail::TranscodeNext<char32_t, SinkType>(temp, &cpOnError, &cpOnError + 1).cp != str::CPSuccess)
+			if (cpOnError == 0 || !detail::WriteCodePoint<SinkType>(temp, cpOnError))
 				return sink;
 		}
 
@@ -604,12 +603,12 @@ namespace str {
 
 			/* check if an error occurred and the error character should be inserted instead and write the error character to the sink */
 			if (cp != str::CPSuccess && cpOnError != 0)
-				detail::TranscodeNext<char32_t, SinkType>(sink, &cpOnError, &cpOnError + 1);
+				detail::WriteCodePoint<SinkType>(sink, cpOnError);
 		}
 		return sink;
 	}
 
-	/* wraps str::Append to keep style of Convert/ConvertInto */
+	/* wraps str::Append to keep style of ConvertTo/ConvertInto */
 	constexpr auto& ConvertInto(str::AnySink auto&& sink, const str::AnyString auto& source, char32_t cpOnError = str::DefCPOnError) {
 		str::Append(sink, source, cpOnError);
 		return sink;

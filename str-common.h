@@ -118,12 +118,6 @@ namespace str {
 	static constexpr bool IsWideUtf16 = detail::WdIsUtf16;
 	static constexpr bool IsWideUtf32 = detail::WdIsUtf32;
 
-	/* number of ascii characters with valid range: [0, 127] */
-	static constexpr size_t AsciiRange = 128;
-
-	/* number of unicode characters lie within range: [0, 0x10ffff] */
-	static constexpr size_t UnicodeRange = 0x110000;
-
 	/* is type a supported character (not convertible, but exact type!) */
 	template <class Type>
 	concept IsUnicode = !std::is_void_v<typename detail::GetCharUnicode<Type>::type>;
@@ -134,7 +128,32 @@ namespace str {
 
 	/* check if the given type directly encodes ascii */
 	template <class Type>
-	concept IsAscii = (str::IsChar<Type> || !std::is_same_v<Type, char> || detail::MBHoldsAscii);
+	concept IsAscii = str::IsChar<Type> && (!std::is_same_v<Type, char> || detail::MBHoldsAscii);
+
+	namespace cp {
+		/* number of ascii characters with valid range: [0, 127] */
+		static constexpr size_t AsciiRange = 128;
+
+		/* number of unicode characters lie within range: [0, 0x10ffff] */
+		static constexpr size_t UnicodeRange = 0x110000;
+
+		/* surrogate-pair boundaries */
+		static constexpr uint16_t SurrogateFirst = 0xd800;
+		static constexpr uint16_t SurrogateUpper = 0xdc00;
+		static constexpr uint16_t SurrogateLast = 0xdfff;
+
+		/* check if the codepoint is valid (within unicode-range and not a surrograte-pair) */
+		inline constexpr bool Unicode(char32_t cp) {
+			/* char32_t is guaranteed to be unsigned */
+			return (cp < cp::UnicodeRange && (cp < cp::SurrogateFirst || cp > cp::SurrogateLast));
+		}
+
+		/* check if the codepoint is an ascii character (can also be used on upcasted characters which can directly encode ascii) */
+		inline constexpr bool Ascii(char32_t cp) {
+			/* char32_t is guaranteed to be unsigned */
+			return (cp < cp::AsciiRange);
+		}
+	}
 
 	/* return the effective character type equivalent to the encoding (i.e. if wchar_t uses
 	*	utf-16, will result in char16_t; will only result in char, char8_t, char16_t, char32_t) */
@@ -489,10 +508,4 @@ namespace str {
 			return { str.data(), str.size() };
 		}
 	};
-
-	/* check if the codepoint is valid (within unicode-range and not a surrograte-pair */
-	inline constexpr bool ValidCP(char32_t cp) {
-		/* char32_t is guaranteed to be unsigned */
-		return (cp < str::UnicodeRange && (cp < 0xd800 || cp > 0xdfff));
-	}
 }
