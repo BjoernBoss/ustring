@@ -69,7 +69,7 @@ namespace str {
 					return true;
 
 				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
-				if (!openStarted && !str::CPFailed(cp)) {
+				if (!openStarted && cp::Valid(cp)) {
 					if constexpr (str::EffSame<FmtType, SinkType>) {
 						if (len == 1)
 							str::SinkChars<SinkType>(sink, static_cast<SinkType>(fmt[0]));
@@ -152,7 +152,7 @@ namespace str {
 			ArgValid fmtState = ArgValid::valid;
 			while (true) {
 				auto [cp, len] = str::Decode(view, true);
-				if (str::CPFailed(cp)) {
+				if (!cp::Valid(cp)) {
 					fmtState = ArgValid::malformed;
 					break;
 				}
@@ -476,7 +476,7 @@ namespace str {
 
 		/* write the padded string out and apply the corresponding padding */
 		constexpr void WritePadded(str::AnySink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
-			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
+			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
 
 			/* check if the string is smaller than the minimum and add the padding */
 			if (str.size() < padding.minimum) {
@@ -621,7 +621,7 @@ namespace str {
 		constexpr bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
 			/* parse the padding format */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
-			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
+			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
 
 			/* parse the count */
 			auto [count, _consumed] = fmt::ParseIndicatedNumber(rest, U'@', 1);
@@ -644,16 +644,16 @@ namespace str {
 
 			/* decode the character to a codepoint */
 			auto [cp, _] = str::Decode(std::basic_string_view<Type>{ &val, 1 }, true);
-			if (str::CPFailed(cp)) {
+			if (!cp::Valid(cp)) {
 				if (!padding.replaceError)
 					return true;
-				cp = str::DefCPOnError;
+				cp = cp::DefErrorChar;
 			}
 
 			/* create the temporary buffer containing the single codepoint */
 			str::U32Small<10> buffer;
 			if (escape && (ascii || cp::Ascii(cp)))
-				str::EscapeAsciiInto(buffer, cp);
+				str::EscapeAsciiInto(buffer, cp, true);
 			else
 				buffer.push_back(cp);
 
@@ -874,7 +874,7 @@ namespace str {
 	template <str::AnyString Type> struct Formatter<Type> {
 		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
-			char32_t cpError = (padding.replaceError ? str::DefCPOnError : 0);
+			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
 
 			/* parse the string-formatting */
 			auto [ascii, escape] = detail::ParseStrFormatting(rest);
@@ -903,14 +903,14 @@ namespace str {
 					view = view.substr(consumed);
 
 					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
-					if (!str::CPFailed(cp)) {
+					if (cp::Valid(cp)) {
 						if (ascii || cp::Ascii(cp))
-							str::EscapeAsciiInto(buffer, cp);
+							str::EscapeAsciiInto(buffer, cp, true);
 						else
 							buffer.push_back(cp);
 					}
 					else if (padding.replaceError)
-						buffer.push_back(str::DefCPOnError);
+						buffer.push_back(cp::DefErrorChar);
 				}
 			}
 			else

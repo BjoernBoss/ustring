@@ -10,21 +10,22 @@
 #include <type_traits>
 
 namespace str {
-	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)} */
-	constexpr auto& EscapeAsciiInto(str::AnySink auto&& sink, char32_t cp) {
+	/* create the escape-sequence in ascii-only characters using ascii characters, common escape
+	*	sequences, \xhh, \u{(0|[1-9a-fA-F]h*)} (compact is designed for one-liner strings) */
+	constexpr auto& EscapeAsciiInto(str::AnySink auto&& sink, char32_t cp, bool compact) {
 		/* check if the character is an escape sequence */
 		if (cp == U'\t')
-			str::Append(sink, U"\\t");
+			str::Append(sink, compact ? U"\\t" : U"\t");
 		else if (cp == U'\n')
-			str::Append(sink, U"\\n");
+			str::Append(sink, compact ? U"\\n" : U"\n");
 		else if (cp == U'\0')
 			str::Append(sink, U"\\0");
 		else if (cp == U'\r')
-			str::Append(sink, U"\\r");
+			str::Append(sink, compact ? U"\\r" : U"\r");
 		else if (cp == U'\"')
-			str::Append(sink, U"\\\"");
+			str::Append(sink, compact ? U"\\\"" : U"\"");
 		else if (cp == U'\'')
-			str::Append(sink, U"\\'");
+			str::Append(sink, compact ? U"\\'" : U"'");
 		else if (cp == U'\\')
 			str::Append(sink, U"\\\\");
 
@@ -35,8 +36,8 @@ namespace str {
 		/* check if the codepoint can be added as short-version */
 		else if (cp <= 0xff) {
 			str::Append(sink, U"\\x");
-			str::AppChars(sink, str::DigitChar(cp >> 4));
-			str::AppChars(sink, str::DigitChar(cp & 0x0f));
+			str::AppChars(sink, cp::DigitToAscii(cp >> 4));
+			str::AppChars(sink, cp::DigitToAscii(cp & 0x0f));
 		}
 
 		/* add the codepoint as the unicode-codepoint */
@@ -47,7 +48,7 @@ namespace str {
 				digit -= 4;
 
 			while (digit >= 0) {
-				str::AppChars(sink, str::DigitChar((cp >> digit) & 0x0f));
+				str::AppChars(sink, cp::DigitToAscii((cp >> digit) & 0x0f));
 				digit -= 4;
 			}
 
@@ -58,16 +59,16 @@ namespace str {
 
 	/* create the escape-sequence in ascii-only characters (returning std::basic_string) */
 	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> EscapeAscii(char32_t cp) {
+	constexpr std::basic_string<ChType> EscapeAscii(char32_t cp, bool compact) {
 		std::basic_string<ChType> out{};
-		return str::EscapeAsciiInto(out, cp);
+		return str::EscapeAsciiInto(out, cp, compact);
 	}
 
 	/* create the escape-sequence in ascii-only characters (returning str::Small<Capacity>) */
 	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> EscapeAscii(char32_t cp) {
+	constexpr str::Small<ChType, Capacity> EscapeAscii(char32_t cp, bool compact) {
 		str::Small<ChType, Capacity> out{};
-		return str::EscapeAsciiInto(out, cp);
+		return str::EscapeAsciiInto(out, cp, compact);
 	}
 
 	enum class WireCoding : uint8_t {
@@ -143,7 +144,7 @@ namespace str {
 		bool pSourceCompleted = false;
 
 	public:
-		constexpr FromWire(str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll, char32_t cpOnError = str::DefCPOnError) {
+		constexpr FromWire(str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll, char32_t cpOnError = cp::DefErrorChar) {
 			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
 			pCoding = coding;
 			pMode = mode;
@@ -255,13 +256,13 @@ namespace str {
 				std::basic_string_view<WiType> view{ buffer, buffer + chars };
 				while (consumed < chars) {
 					auto [cp, len] = str::TranscodeInto(sink, view.substr(consumed), false);
-					if (cp == str::CPIncomplete)
+					if (cp == cp::Incomplete)
 						break;
 
 					/* consume the character and check if the codepoint could either not be decoded
 					*	or encoded properly, in which case the error characer can be written out */
 					consumed += len;
-					if (cp != str::CPSuccess && pCpOnError != 0)
+					if (cp != cp::Success && pCpOnError != 0)
 						str::EncodeInto(sink, pCpOnError);
 				}
 
@@ -361,7 +362,7 @@ namespace str {
 
 					/* check if the \xhh sequence has been completed/is still valid */
 					if (buffer[1] == U'x') {
-						size_t val = str::AsciiDigit(c);
+						size_t val = cp::AsciiToDigit(c);
 
 						/* check if the next character is valid (hexValue cannot overflow as it has 32-bits and only two hexits will be added) */
 						if (val < 16) {
@@ -394,7 +395,7 @@ namespace str {
 
 					/* check if a valid digit has been encountered (if first digit was null, no other digits are allowed) */
 					else if (escaped < 3 + detail::MaxEscapeHexits && (hexValue > 0 || escaped == 3)) {
-						size_t val = str::AsciiDigit(c);
+						size_t val = cp::AsciiToDigit(c);
 						if (val < 16) {
 							hexValue = hexValue * 16 + char32_t(val);
 							buffer[escaped++] = c;
@@ -491,7 +492,7 @@ namespace str {
 		bool pAddBOM = false;
 
 	public:
-		constexpr ToWire(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true, char32_t cpOnError = str::DefCPOnError) {
+		constexpr ToWire(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true, char32_t cpOnError = cp::DefErrorChar) {
 			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
 			pCoding = coding;
 			pAddBOM = addBOM;
@@ -540,7 +541,7 @@ namespace str {
 				view = view.substr(len);
 
 				/* check if the codepoint is valid */
-				if (!str::CPFailed(cp))
+				if (cp::Valid(cp))
 					fWriteDataCP<WiType, LittleEndian>(sink, cp);
 
 				/* write the error character out */
@@ -552,7 +553,7 @@ namespace str {
 			char8_t buffer[detail::MaxAsciiEscape] = { 0 };
 
 			/* write the characters to the buffer (cannot overflow the buffer as ascii maps one-to-one to utf8 and all this function is only called with valid codepoints) */
-			size_t size = str::EscapeAsciiInto(str::Chars(buffer), cp).size();
+			size_t size = str::EscapeAsciiInto(str::Chars(buffer), cp, false).size();
 
 			/* write the ascii characters to the sink */
 			str::SinkBytes(sink, reinterpret_cast<const uint8_t*>(buffer), size);
@@ -570,7 +571,7 @@ namespace str {
 				view = view.substr(len);
 
 				/* check if the codepoint is valid */
-				if (!str::CPFailed(cp))
+				if (cp::Valid(cp))
 					fWriteAsciiCP(sink, cp);
 
 				/* write the error character out */
@@ -607,6 +608,7 @@ namespace str {
 		uint8_t* pPtr = 0;
 		size_t pSize = 0;
 		size_t pOffset = 0;
+		bool pOverflow = false;
 
 	public:
 		template <size_t N>
@@ -621,13 +623,18 @@ namespace str {
 
 	public:
 		constexpr void write(const uint8_t* ptr, size_t sz) {
-			if (sz > pSize - pOffset)
+			if (sz > pSize - pOffset) {
 				sz = pSize - pOffset;
+				pOverflow = true;
+			}
 			std::copy(ptr, ptr + sz, pPtr + pOffset);
 			pOffset += sz;
 		}
 		constexpr size_t size() const {
 			return pOffset;
+		}
+		constexpr bool overflow() const {
+			return pOverflow;
 		}
 	};
 

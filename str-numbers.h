@@ -1,6 +1,7 @@
 #pragma once
 
 #include "str-common.h"
+#include "str-codepoint.h"
 #include "str-convert.h"
 
 #include <type_traits>
@@ -142,26 +143,13 @@ namespace str {
 			 6,  6,  6,  6,  6,  6,  6,  6,
 			 6,  6,  6,  6,  6
 		};
-		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
-		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 		static constexpr const char32_t* PrefixLower = U"__b_q___o_d_____x___________________";
 		static constexpr const char32_t* PrefixUpper = U"__B_Q___O_D_____X___________________";
-		static constexpr uint8_t NotAnAsciiDigit = 0xff;
-		static constexpr uint8_t AsciiDigitMap[cp::AsciiRange] = {
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff,
-			0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-			0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff
-		};
 
 		/* to differentiate nan/inf from normal numbers */
 		static constexpr uint32_t MaxRadixBeforeSpecialChar = std::min<uint32_t>(
-			std::max<uint32_t>({ detail::AsciiDigitMap[U'i'], detail::AsciiDigitMap[U'n'], detail::AsciiDigitMap[U'f'] }),
-			std::max<uint32_t>({ detail::AsciiDigitMap[U'n'], detail::AsciiDigitMap[U'a'], detail::AsciiDigitMap[U'n'] })
+			std::max<uint32_t>({ cp::detail::AsciiDigitMap[U'i'], cp::detail::AsciiDigitMap[U'n'], cp::detail::AsciiDigitMap[U'f'] }),
+			std::max<uint32_t>({ cp::detail::AsciiDigitMap[U'n'], cp::detail::AsciiDigitMap[U'a'], cp::detail::AsciiDigitMap[U'n'] })
 		);
 
 		struct PreComputedEntry {
@@ -627,7 +615,7 @@ namespace str {
 			while (true) {
 				/* decode the next character */
 				auto [cp, consumed] = str::ReadAscii(view.substr(out.signConsumed + prefixConsumed));
-				if (cp == str::CPNotAscii)
+				if (cp == cp::NotAscii)
 					return out;
 
 				/* check if a sign has been encountered */
@@ -686,9 +674,9 @@ namespace str {
 
 			/* iterate over the digits and parse them */
 			UType value = 0;
-			while (dec.cp != str::CPNotAscii) {
+			while (dec.cp != cp::NotAscii) {
 				/* check if the codepoint is a valid digit */
-				size_t digit = detail::AsciiDigitMap[dec.cp];
+				size_t digit = cp::detail::AsciiDigitMap[dec.cp];
 				if (digit >= radix)
 					break;
 
@@ -781,7 +769,7 @@ namespace str {
 				str::AppChars(sink, U'0');
 
 			/* write the digits out */
-			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
+			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
 			while (next != digits)
 				str::AppChars(sink, digitSet[*(--next)]);
 		}
@@ -837,11 +825,11 @@ namespace str {
 
 			/* parse the entire mantissa (integer component and fractional part) */
 			bool inFraction = false, hasValue = false, valueClosed = false;
-			while (dec.cp != str::CPNotAscii) {
+			while (dec.cp != cp::NotAscii) {
 				size_t digit = 0;
 
 				/* extract the digit or check if its the dot */
-				if ((digit = detail::AsciiDigitMap[dec.cp]) >= radix) {
+				if ((digit = cp::detail::AsciiDigitMap[dec.cp]) >= radix) {
 					if (dec.cp != U'.' || inFraction)
 						break;
 					inFraction = true;
@@ -1123,7 +1111,7 @@ namespace str {
 			flExponent += topBit;
 
 			/* write the digits out (no need to keep track of last-digits, only of nulls) */
-			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
+			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
 			intptr_t delayed = 0, digitsBeforePoint = 0;
 			for (intptr_t i = 0; i < totalDigits; ++i) {
 				topBit -= 4;
@@ -1207,7 +1195,7 @@ namespace str {
 
 			/* setup the visual properties of the string formatting from the style */
 			intptr_t digitsBeforePoint = (scientific ? 1 : std::max<intptr_t>(1, flExponent));
-			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
+			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
 
 			/* produce the given number of digits and keep track of trailing lowest/highest digits, in order to remove trailing nulls/handle
 			*	rounding (initialize the state to consider the initial nulls to be added to the output as already encountered) */
@@ -1476,21 +1464,6 @@ namespace str {
 			else
 				detail::PrintNormalFloat<Type, 0>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, dataPackages);
 		}
-	}
-
-	/* map ascii characters (0-9; a-z; A-Z) to values between 0-35 or return str::NotAsciiDigit (guaranteed to be larger than any valid digit, i.e. if larger than expected radix, invalid) */
-	static constexpr size_t NotAsciiDigit = detail::NotAnAsciiDigit;
-	inline constexpr size_t AsciiDigit(char32_t cp) {
-		if (!cp::Ascii(cp))
-			return str::NotAsciiDigit;
-		return detail::AsciiDigitMap[cp];
-	}
-
-	/* return ascii character codepoint or str::CPInvalid */
-	inline constexpr char32_t DigitChar(size_t digit, bool upperCase = false) {
-		if (digit >= str::MaxRadix)
-			return str::CPInvalid;
-		return (upperCase ? detail::DigitUpper : detail::DigitLower)[digit];
 	}
 
 	/*

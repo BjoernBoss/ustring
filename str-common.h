@@ -130,31 +130,6 @@ namespace str {
 	template <class Type>
 	concept IsAscii = str::IsChar<Type> && (!std::is_same_v<Type, char> || detail::MBHoldsAscii);
 
-	namespace cp {
-		/* number of ascii characters with valid range: [0, 127] */
-		static constexpr size_t AsciiRange = 128;
-
-		/* number of unicode characters lie within range: [0, 0x10ffff] */
-		static constexpr size_t UnicodeRange = 0x110000;
-
-		/* surrogate-pair boundaries */
-		static constexpr uint16_t SurrogateFirst = 0xd800;
-		static constexpr uint16_t SurrogateUpper = 0xdc00;
-		static constexpr uint16_t SurrogateLast = 0xdfff;
-
-		/* check if the codepoint is valid (within unicode-range and not a surrograte-pair) */
-		inline constexpr bool Unicode(char32_t cp) {
-			/* char32_t is guaranteed to be unsigned */
-			return (cp < cp::UnicodeRange && (cp < cp::SurrogateFirst || cp > cp::SurrogateLast));
-		}
-
-		/* check if the codepoint is an ascii character (can also be used on upcasted characters which can directly encode ascii) */
-		inline constexpr bool Ascii(char32_t cp) {
-			/* char32_t is guaranteed to be unsigned */
-			return (cp < cp::AsciiRange);
-		}
-	}
-
 	/* return the effective character type equivalent to the encoding (i.e. if wchar_t uses
 	*	utf-16, will result in char16_t; will only result in char, char8_t, char16_t, char32_t) */
 	template <str::IsChar Type>
@@ -378,6 +353,7 @@ namespace str {
 	private:
 		ChType* pBegin = 0;
 		ChType* pEnd = 0;
+		bool pOverflow = false;
 
 	public:
 		template <size_t N>
@@ -402,12 +378,19 @@ namespace str {
 				*pBegin = c;
 				*(++pBegin) = 0;
 			}
+			else
+				pOverflow = true;
 		}
 		constexpr void write(const ChType* str, size_t sz) {
-			if (sz > size_t(pEnd - pBegin))
+			if (sz > size_t(pEnd - pBegin)) {
 				sz = size_t(pEnd - pBegin);
+				pOverflow = true;
+			}
 			std::copy(str, str + sz, pBegin);
 			*(pBegin += sz) = 0;
+		}
+		constexpr bool overflow() const {
+			return pOverflow;
 		}
 	};
 
@@ -418,6 +401,7 @@ namespace str {
 		ChType* pPtr = 0;
 		size_t pSize = 0;
 		size_t pOffset = 0;
+		bool pOverflow = false;
 
 	public:
 		template <size_t N>
@@ -434,15 +418,22 @@ namespace str {
 		constexpr void put(ChType c) {
 			if (pOffset < pSize)
 				pPtr[pOffset++] = c;
+			else
+				pOverflow = true;
 		}
 		constexpr void write(const ChType* str, size_t sz) {
-			if (sz > pSize - pOffset)
+			if (sz > pSize - pOffset) {
 				sz = pSize - pOffset;
+				pOverflow = true;
+			}
 			std::copy(str, str + sz, pPtr + pOffset);
 			pOffset += sz;
 		}
 		constexpr size_t size() const {
 			return pOffset;
+		}
+		constexpr bool overflow() const {
+			return pOverflow;
 		}
 	};
 
