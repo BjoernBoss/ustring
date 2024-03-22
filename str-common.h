@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <stdexcept>
 #include <utility>
-#include <cstring>
+#include <algorithm>
 
 /*
 *	char8_t/char16_t/char32_t must be their respective unicode-encodings
@@ -194,12 +194,14 @@ namespace str {
 
 	/* wrapper to write to a sink */
 	template <class ChType>
-	constexpr void SinkChars(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
+	constexpr auto& SinkChars(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
 		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, chr, count);
+		return sink;
 	}
 	template <class ChType>
-	constexpr void SinkString(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
+	constexpr auto& SinkString(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
 		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, str, sz);
+		return sink;
 	}
 
 	/* character string interface which requires:
@@ -376,21 +378,21 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
 	template <class ChType>
-	class PtrSink {
+	class NullPtrSink {
 	private:
 		ChType* pBegin = 0;
 		ChType* pEnd = 0;
 
 	public:
 		template <size_t N>
-		PtrSink(ChType(&buf)[N]) {
+		constexpr NullPtrSink(ChType(&buf)[N]) {
 			if constexpr (N == 0)
 				return;
 			buf[0] = 0;
 			pBegin = buf;
 			pEnd = buf + (N - 1);
 		}
-		PtrSink(ChType* buf, size_t capacity) {
+		constexpr NullPtrSink(ChType* buf, size_t capacity) {
 			if (capacity == 0)
 				return;
 			buf[0] = 0;
@@ -399,19 +401,52 @@ namespace str {
 		}
 
 	public:
-		void put(ChType c) {
+		constexpr void put(ChType c) {
 			if (pBegin != pEnd) {
 				*pBegin = c;
 				*(++pBegin) = 0;
 			}
 		}
-		void write(const ChType* str, size_t sz) {
+		constexpr void write(const ChType* str, size_t sz) {
 			if (sz > size_t(pEnd - pBegin))
 				sz = size_t(pEnd - pBegin);
-			if (sz == 0)
-				return;
-			std::memcpy(pBegin, str, sizeof(ChType) * sz);
+			std::copy(str, str + sz, pBegin);
 			*(pBegin += sz) = 0;
+		}
+	};
+
+	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
+	template <class ChType>
+	class PtrSink {
+	private:
+		ChType* pPtr = 0;
+		size_t pSize = 0;
+		size_t pOffset = 0;
+
+	public:
+		template <size_t N>
+		constexpr PtrSink(ChType(&buf)[N]) {
+			pPtr = buf;
+			pSize = N;
+		}
+		constexpr PtrSink(ChType* buf, size_t capacity) {
+			pPtr = buf;
+			pSize = capacity;
+		}
+
+	public:
+		constexpr void put(ChType c) {
+			if (pOffset < pSize)
+				pPtr[pOffset++] = c;
+		}
+		constexpr void write(const ChType* str, size_t sz) {
+			if (sz > pSize - pOffset)
+				sz = pSize - pOffset;
+			std::copy(str, str + sz, pPtr + pOffset);
+			pOffset += sz;
+		}
+		constexpr size_t size() const {
+			return pOffset;
 		}
 	};
 
@@ -445,6 +480,16 @@ namespace str {
 				sink.put(chr);
 		}
 		constexpr void operator()(std::basic_ostream<ChType>& sink, const ChType* str, size_t size) const {
+			sink.write(str, size);
+		}
+	};
+	template <class ChType>
+	struct CharSink<str::NullPtrSink<ChType>, ChType> {
+		constexpr void operator()(str::NullPtrSink<ChType>& sink, ChType chr, size_t count) const {
+			for (size_t i = 0; i < count; ++i)
+				sink.put(chr);
+		}
+		constexpr void operator()(str::NullPtrSink<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};

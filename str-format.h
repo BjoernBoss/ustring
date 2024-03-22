@@ -3,6 +3,7 @@
 #include "str-common.h"
 #include "str-convert.h"
 #include "str-numbers.h"
+#include "str-wire.h"
 
 #include <string>
 #include <type_traits>
@@ -513,50 +514,6 @@ namespace str {
 	}
 
 	namespace detail {
-		constexpr void EscapeInto(auto& sink, char32_t cp, bool asciiOnly) {
-			/* check if the character is an escape sequence */
-			if (cp == U'\t')
-				sink.append(U"\\t");
-			else if (cp == U'\n')
-				sink.append(U"\\n");
-			else if (cp == U'\0')
-				sink.append(U"\\0");
-			else if (cp == U'\r')
-				sink.append(U"\\r");
-			else if (cp == U'\"')
-				sink.append(U"\\\"");
-			else if (cp == U'\'')
-				sink.append(U"\\'");
-			else if (cp == U'\\')
-				sink.append(U"\\\\");
-
-			/* check if the character can be added in all cases */
-			else if (cp >= 0x20 && cp != 0x7f && (!asciiOnly || cp::Ascii(cp)))
-				sink.push_back(cp);
-
-			/* check if the codepoint can be added as short-version */
-			else if (cp <= 0xff) {
-				sink.append(U"\\x");
-				sink.push_back(str::DigitChar(cp >> 4));
-				sink.push_back(str::DigitChar(cp & 0x0f));
-			}
-
-			/* add the codepoint as the unicode-codepoint */
-			else {
-				sink.append(U"\\u{");
-				int32_t digit = 28;
-				while (((cp >> digit) & 0x0f) == 0)
-					digit -= 4;
-
-				while (digit >= 0) {
-					sink.push_back(str::DigitChar((cp >> digit) & 0x0f));
-					digit -= 4;
-				}
-
-				sink.push_back(U'}');
-			}
-		}
-
 		struct NumPreamble {
 			size_t consumed = 0;
 			char32_t signChar = U'-';
@@ -695,8 +652,8 @@ namespace str {
 
 			/* create the temporary buffer containing the single codepoint */
 			str::U32Small<10> buffer;
-			if (escape)
-				detail::EscapeInto(buffer, cp, ascii);
+			if (escape && (ascii || cp::Ascii(cp)))
+				str::EscapeAsciiInto(buffer, cp);
 			else
 				buffer.push_back(cp);
 
@@ -912,7 +869,7 @@ namespace str {
 	};
 
 	/*	Normal padding
-	*	[eE]: escape: 0x00-0x1f;0x7f as \x..
+	*	[eE]: escape: 0x00-0x1f;0x7f as \x.. and common escape sequences
 	*	[aA]: ascii: escape and write 0x80-... as \u{....} (if not in escape-mode) */
 	template <str::AnyString Type> struct Formatter<Type> {
 		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
@@ -946,8 +903,12 @@ namespace str {
 					view = view.substr(consumed);
 
 					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
-					if (!str::CPFailed(cp))
-						detail::EscapeInto(buffer, cp, ascii);
+					if (!str::CPFailed(cp)) {
+						if (ascii || cp::Ascii(cp))
+							str::EscapeAsciiInto(buffer, cp);
+						else
+							buffer.push_back(cp);
+					}
 					else if (padding.replaceError)
 						buffer.push_back(str::DefCPOnError);
 				}
@@ -1021,7 +982,7 @@ namespace str {
 
 	/*	Normal padding
 	*	[@d+]: number of times to repeat char (default: 1)
-	*	[eE]: escape: 0x00-0x1f;0x7f as \x..
+	*	[eE]: escape: 0x00-0x1f;0x7f as \x.. and common escape sequences
 	*	[aA]: ascii: escape and write 0x80-... as \u{....} (if not in escape-mode) */
 	template <> struct Formatter<char> {
 		constexpr bool operator()(str::AnySink auto& sink, char val, const std::u32string_view& fmt) const {

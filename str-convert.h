@@ -46,7 +46,7 @@ namespace str {
 		uint32_t consumed = 0;
 	};
 
-	/* default error character */
+	/* default error character (guaranteed to be an ascii-character) */
 	static constexpr char32_t DefCPOnError = U'?';
 
 	namespace detail {
@@ -140,7 +140,7 @@ namespace str {
 
 			/* check if the character is considered incompleted */
 			if (res == static_cast<size_t>(-2))
-				len = (end - begin);
+				len = uint32_t(end - begin);
 
 			/* check if the decoded character is not a valid character, in which case the length is not
 			*	returned and has to be figured out by creeping up to the previous response */
@@ -160,7 +160,7 @@ namespace str {
 
 			/* check if the result is not the null-byte in which case it reflects the length */
 			else if (res != 0)
-				len = res;
+				len = uint32_t(res);
 
 			/* check if the char is longer than the internal max character-length, which should really not happen
 			*	in any encoding and would break the promise of detail::MaxEncodingSize, or if an error occurred */

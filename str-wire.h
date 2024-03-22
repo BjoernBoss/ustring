@@ -5,9 +5,70 @@
 
 #include <string>
 #include <algorithm>
+#include <vector>
+#include <iostream>
 
 namespace str {
-	/* ascii: all ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)} */
+	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)} */
+	constexpr auto& EscapeAsciiInto(str::AnySink auto&& sink, char32_t cp) {
+		/* check if the character is an escape sequence */
+		if (cp == U'\t')
+			str::Append(sink, U"\\t");
+		else if (cp == U'\n')
+			str::Append(sink, U"\\n");
+		else if (cp == U'\0')
+			str::Append(sink, U"\\0");
+		else if (cp == U'\r')
+			str::Append(sink, U"\\r");
+		else if (cp == U'\"')
+			str::Append(sink, U"\\\"");
+		else if (cp == U'\'')
+			str::Append(sink, U"\\'");
+		else if (cp == U'\\')
+			str::Append(sink, U"\\\\");
+
+		/* check if the character can be added as-is */
+		else if (cp >= 0x20 && cp != 0x7f && cp::Ascii(cp))
+			str::AppChars(sink, cp);
+
+		/* check if the codepoint can be added as short-version */
+		else if (cp <= 0xff) {
+			str::Append(sink, U"\\x");
+			str::AppChars(sink, str::DigitChar(cp >> 4));
+			str::AppChars(sink, str::DigitChar(cp & 0x0f));
+		}
+
+		/* add the codepoint as the unicode-codepoint */
+		else {
+			str::Append(sink, U"\\u{");
+			int32_t digit = 28;
+			while (((cp >> digit) & 0x0f) == 0)
+				digit -= 4;
+
+			while (digit >= 0) {
+				str::AppChars(sink, str::DigitChar((cp >> digit) & 0x0f));
+				digit -= 4;
+			}
+
+			str::AppChars(sink, U'}');
+		}
+		return sink;
+	}
+
+	/* create the escape-sequence in ascii-only characters (returning std::basic_string) */
+	template <str::IsChar ChType>
+	constexpr std::basic_string<ChType> EscapeAscii(char32_t cp) {
+		std::basic_string<ChType> out{};
+		return str::EscapeAsciiInto(out, cp);
+	}
+
+	/* create the escape-sequence in ascii-only characters (returning str::Small<Capacity>) */
+	template <str::IsChar ChType, intptr_t Capacity>
+	constexpr str::Small<ChType, Capacity> EscapeAscii(char32_t cp) {
+		str::Small<ChType, Capacity> out{};
+		return str::EscapeAsciiInto(out, cp);
+	}
+
 	enum class WireCoding : uint8_t {
 		utf8,
 		ascii,
@@ -31,6 +92,7 @@ namespace str {
 	};
 
 	namespace detail {
+		static constexpr char32_t BOMCodePoint = 0xfeff;
 		static constexpr size_t AsciiBOMSize = 8;
 		static constexpr size_t Utf8BOMSize = 3;
 		static constexpr size_t Utf16BOMSize = 2;
@@ -52,7 +114,7 @@ namespace str {
 		static constexpr uint8_t Utf32beBOM[detail::Utf32BOMSize] = { 0x00, 0x00, 0xfe, 0xff };
 	}
 
-	/* Read a string from raw bytes and dynamically detect the encoding based on a BOM or use the given encoding (will at all times consume all passed in bytes) */
+	/* read a string from raw bytes and dynamically detect the encoding based on a BOM or use the given encoding (will at all times consume all passed in bytes) */
 	class FromWire {
 		static constexpr size_t TranscodeBufCapacity = std::max<size_t>(1024, detail::MaxCodingSize);
 	private:
@@ -65,7 +127,7 @@ namespace str {
 
 	public:
 		constexpr FromWire(str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll, char32_t cpOnError = str::DefCPOnError) {
-			pCpOnError = cpOnError;
+			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
 			pCoding = coding;
 			pMode = mode;
 		}
@@ -386,8 +448,9 @@ namespace str {
 		}
 
 	public:
-		constexpr void into(str::AnySink auto&& sink, const uint8_t* ptr, size_t size, bool sourceComplete = false) {
+		constexpr auto& into(str::AnySink auto&& sink, const uint8_t* ptr, size_t size, bool sourceComplete = false) {
 			fSinkInto(sink, ptr, size, sourceComplete);
+			return sink;
 		}
 		template <str::IsChar ChType>
 		constexpr std::basic_string<ChType> to(const uint8_t* ptr, size_t size, bool sourceComplete = false) {
@@ -400,6 +463,190 @@ namespace str {
 			str::Small<ChType, Capacity> out{};
 			fSinkInto(out, ptr, size, sourceComplete);
 			return out;
+		}
+	};
+
+	/* byte sink interface which requires:
+	*	operator() to take the wire object and a pointer and a size */
+	template <class Type>
+	struct ByteSink;
+	template <class Type>
+	concept IsWire = !std::is_const_v<std::remove_reference_t<Type>> &&
+		requires(Type & t, const uint8_t * ptr, size_t sz) {
+		str::ByteSink<std::remove_cvref_t<Type>>{}(t, ptr, sz);
+	};
+
+	/* wrapper to write to a byte-sink */
+	constexpr auto& SinkBytes(str::IsWire auto&& sink, const uint8_t* ptr, size_t sz) {
+		str::ByteSink<std::remove_cvref_t<decltype(sink)>>{}(sink, ptr, sz);
+		return sink;
+	}
+
+	/* write a string of any type to a byte-sink and encode it using the defined wire-encoding */
+	class ToWire {
+	private:
+		char32_t pCpOnError = 0;
+		str::WireCoding pCoding = str::WireCoding::utf8;
+		bool pAddBOM = false;
+
+	public:
+		constexpr ToWire(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true, char32_t cpOnError = str::DefCPOnError) {
+			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
+			pCoding = coding;
+			pAddBOM = addBOM;
+		}
+
+	private:
+		template <class Type, bool LittleEndian>
+		static constexpr void fToBytes(uint8_t* buffer, Type value) {
+			if constexpr (LittleEndian) {
+				for (int i = 0; i < sizeof(Type); ++i) {
+					buffer[i] = uint8_t(value);
+					value >>= 8;
+				}
+			}
+			else for (int i = sizeof(Type) - 1; i >= 0; --i) {
+				buffer[i] = uint8_t(value);
+				value >>= 8;
+			}
+		}
+		template <class WiType, bool LittleEndian>
+		static constexpr void fWriteDataCP(auto& sink, char32_t cp) {
+			/* encode the character (cannot fail as this function is only called with valid codepoints for unicode-types) */
+			str::CPSmall<WiType> small = str::Encode<WiType>(cp);
+
+			/* convert the encoded string to bytes */
+			uint8_t buffer[str::MaxEncBytes<WiType>] = { 0 };
+			size_t size = 0;
+			for (size_t i = 0; i < small.size(); ++i) {
+				fToBytes<WiType, LittleEndian>(buffer + size, small[i]);
+				size += sizeof(WiType);
+			}
+
+			/* write the bytes to the sink */
+			str::SinkBytes(sink, buffer, size);
+		}
+		template <class ChType, class WiType, bool LittleEndian>
+		constexpr void fProcessData(auto& sink, std::basic_string_view<ChType> view) {
+			/* check if a BOM needs to be added */
+			if (pAddBOM)
+				fWriteDataCP<WiType, LittleEndian>(sink, detail::BOMCodePoint);
+			pAddBOM = false;
+
+			/* decode all characters and write them out */
+			while (!view.empty()) {
+				auto [cp, len] = str::Decode(view, true);
+				view = view.substr(len);
+
+				/* check if the codepoint is valid */
+				if (!str::CPFailed(cp))
+					fWriteDataCP<WiType, LittleEndian>(sink, cp);
+
+				/* write the error character out */
+				else if (pCpOnError != 0)
+					fWriteDataCP<WiType, LittleEndian>(sink, pCpOnError);
+			}
+		}
+		static constexpr void fWriteAsciiCP(auto& sink, char32_t cp) {
+			char8_t buffer[detail::MaxAsciiEscape] = { 0 };
+
+			/* write the characters to the buffer (cannot overflow the buffer as ascii maps one-to-one to utf8 and all this function is only called with valid codepoints) */
+			size_t size = str::EscapeAsciiInto(str::PtrSink(buffer), cp).size();
+
+			/* write the ascii characters to the sink */
+			str::SinkBytes(sink, reinterpret_cast<const uint8_t*>(buffer), size);
+		}
+		template <class ChType>
+		constexpr void fProcessAscii(auto& sink, std::basic_string_view<ChType> view) {
+			/* check if a BOM needs to be added */
+			if (pAddBOM)
+				fWriteAsciiCP(sink, detail::BOMCodePoint);
+			pAddBOM = false;
+
+			/* decode all characters and write them out */
+			while (!view.empty()) {
+				auto [cp, len] = str::Decode(view, true);
+				view = view.substr(len);
+
+				/* check if the codepoint is valid */
+				if (!str::CPFailed(cp))
+					fWriteAsciiCP(sink, cp);
+
+				/* write the error character out */
+				else if (pCpOnError != 0)
+					fWriteAsciiCP(sink, pCpOnError);
+			}
+		}
+
+	public:
+		constexpr auto& write(str::IsWire auto&& sink, const str::AnyString auto& string) {
+			using ChType = str::StringCharType<decltype(string)>;
+			std::basic_string_view<ChType> view = str::StringView<ChType>(string);
+
+			/* pass the data to the proper handler (will automatically write the BOM if necessary) */
+			if (pCoding == str::WireCoding::utf8)
+				fProcessData<ChType, char8_t, false>(sink, view);
+			else if (pCoding == str::WireCoding::utf16le)
+				fProcessData<ChType, char16_t, true>(sink, view);
+			else if (pCoding == str::WireCoding::utf16be)
+				fProcessData<ChType, char16_t, false>(sink, view);
+			else if (pCoding == str::WireCoding::utf32le)
+				fProcessData<ChType, char32_t, true>(sink, view);
+			else if (pCoding == str::WireCoding::utf32be)
+				fProcessData<ChType, char32_t, false>(sink, view);
+			else
+				fProcessAscii<ChType>(sink, view);
+			return sink;
+		}
+	};
+
+	/* wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available */
+	class BufBytes {
+	private:
+		uint8_t* pPtr = 0;
+		size_t pSize = 0;
+		size_t pOffset = 0;
+
+	public:
+		template <size_t N>
+		constexpr BufBytes(uint8_t(&buf)[N]) {
+			pPtr = buf;
+			pSize = N;
+		}
+		constexpr BufBytes(uint8_t* buf, size_t capacity) {
+			pPtr = buf;
+			pSize = capacity;
+		}
+
+	public:
+		constexpr void write(const uint8_t* ptr, size_t sz) {
+			if (sz > pSize - pOffset)
+				sz = pSize - pOffset;
+			std::copy(ptr, ptr + sz, pPtr + pOffset);
+			pOffset += sz;
+		}
+		constexpr size_t size() const {
+			return pOffset;
+		}
+	};
+
+	/* specializations for byte-sinks */
+	template <>
+	struct ByteSink<std::vector<uint8_t>> {
+		constexpr void operator()(std::vector<uint8_t>& sink, const uint8_t* ptr, size_t size) const {
+			sink.insert(sink.end(), ptr, ptr + size);
+		}
+	};
+	template <>
+	struct ByteSink<std::ostream> {
+		void operator()(std::ostream& sink, const uint8_t* ptr, size_t size) const {
+			sink.write(reinterpret_cast<const char*>(ptr), size);
+		}
+	};
+	template <>
+	struct ByteSink<str::BufBytes> {
+		void operator()(str::BufBytes& sink, const uint8_t* ptr, size_t size) const {
+			sink.write(ptr, size);
 		}
 	};
 }
