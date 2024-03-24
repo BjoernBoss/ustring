@@ -1,8 +1,53 @@
-# range: tuple of (inclusiveStart, inclusiveEnd, valueIndex)
-# enMap: maps strings to [0, len(enMap) - 1]
 # ranges: must not overlap, list of range-elements
+# ranges: will automatically be sorted and merged
 
-# ranges will automatically be sorted and merged
+# a range consists of: (inclusiveStart, inclusiveEnd, valueIndex, chars)
+class Range:
+	def __init__(self, start, end, valIndex, chars = None) -> None:
+		self.start = start
+		self.end = end
+		self.valIndex = valIndex
+		self.chars = chars if chars is not None else (self.end - self.start + 1)
+	def __repr__(self) -> str:
+		return f'[{self.start:05x}-{self.end:05x}/{self.chars}]:{self.valIndex}'
+	def canMerge(self, right: 'Range', shallow: bool) -> bool:
+		if shallow:
+			return self.valIndex == right.valIndex
+		return self.end + 1 == right.start and self.valIndex == right.valIndex
+	def merge(self, right: 'Range') -> 'Range':
+		return Range(self.start, right.end, self.valIndex, self.chars + right.chars)
+	def split(self, size: int) -> tuple['Range', 'Range']:
+		left = Range(self.start, self.start + size - 1, self.valIndex)
+		right = Range(self.start + size, self.end, self.valIndex)
+		return (left, right)
+	def span(self) -> int:
+		return (self.end - self.start + 1)
+
+# a config must consist of: (fnName, varName, spName, typeName, dynLookup, valMap, defValue)
+#	fnName: name of the function
+#	varName: name to be used for internal functions/buffers
+#	spName: name of the namespace to be used to access internal functions/buffers
+#	typeName: the name of the type to be used
+#	dynLookup: function to be called to convert value-index to type (i.e. static_cast for enums)
+# 	valMap: map value-index to static value as [0, len(valueMap) - 1]
+# 	defValue: value-index of default-value
+class Config:
+	def __init__(self, fnName, varName, spName, typeName, dynLookup, valMap, defValue) -> None:
+		self.fnName = fnName
+		self.varName = varName
+		self.spName = spName
+		self.typeName = typeName
+		self.dynLookup = dynLookup
+		self.valMap = valMap
+		self.defValue = defValue
+	def copy(self, fnName) -> 'Config':
+		return Config(fnName, self.varName, self.spName, self.typeName, self.dynLookup, self.valMap, self.defValue)
+
+def InvertMap(prefix, map):
+	out = [0] * len(map)
+	for key in map:
+		out[map[key]] = f'{prefix}{key}'
+	return out
 
 def ParseLine(line):
 	missing = ('@missing:' in line)
@@ -27,7 +72,7 @@ def ParseLine(line):
 	begin, end = cp.split('..')
 	return [missing, int(begin, 16), int(end, 16), fields]
 
-def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotInMap, legacyRanges):
+def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotInMap, legacyRanges) -> tuple[list[Range], int|None]:
 	default = None
 	ranges = []
 
@@ -75,7 +120,7 @@ def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotI
 			
 			# add the range to the list
 			else:
-				ranges.append((begin, end, property))
+				ranges.append(Range(begin, end, property))
 		if legacyState is not None:
 			raise RuntimeError(f'Half-open legacy state encountered [{legacyState[0]:06x}]')
 
@@ -84,71 +129,66 @@ def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotI
 		raise RuntimeError(f'Default property has not been found')
 	return ranges, default
 
-def PrepareAndCleanRanges(ranges, defValue):
+def PrepareAndCleanRanges(ranges: list[Range], defValue) -> list[Range]:
 	# sort the range and check if the list contains overlapping properties
-	ranges = sorted(ranges, key=lambda r : r[0])
+	ranges = sorted(ranges, key=lambda r : r.start)
 	for i in range(len(ranges) - 1):
-		if ranges[i + 1][0] < ranges[i][1]:
-			raise RuntimeError(f'Range contains overlapping entries [{ranges[i][0]:06x} - {ranges[i][1]:06x}] and [{ranges[i + 1][0]:06x} - {ranges[i + 1][1]:06x}]')
+		if ranges[i + 1].start < ranges[i].end:
+			raise RuntimeError(f'Range contains overlapping entries [{ranges[i].start:06x} - {ranges[i].end:06x}] and [{ranges[i + 1].start:06x} - {ranges[i + 1].end:06x}]')
 
 	# add the front and back default values such that the entire range is covered [0, topValue]
-	if ranges[0][0] > 0:
-		ranges = [(0, ranges[0][0] - 1, defValue)] + ranges
-	if ranges[-1][1] < 0x10ffff:
-		ranges.append((ranges[-1][1] + 1, 0x10ffff, defValue))
+	if ranges[0].start > 0:
+		ranges = [Range(ranges[0].start - 1, ranges[0].start - 1, defValue)] + ranges
+	ranges.append(Range(ranges[-1].end + 1, ranges[-1].end + 1, defValue))
 	
 	# patch all intermediate holes (no size restrictions, as they will be ensured later when merging the entries)
 	index = 0
 	while index + 1 < len(ranges):
-		if ranges[index][1] + 1 != ranges[index + 1][0]:
-			ranges = ranges[:index + 1] + [(ranges[index][1] + 1, ranges[index + 1][0] - 1, defValue)] + ranges[index + 1:]
+		if ranges[index].end + 1 != ranges[index + 1].start:
+			ranges = ranges[:index + 1] + [Range(ranges[index].end + 1, ranges[index + 1].start - 1, defValue)] + ranges[index + 1:]
 		else:
 			index += 1
 	
 	# merge neighboring ranges of the same type
 	merged = [ranges[0]]
 	for i in range(1, len(ranges)):
-		if merged[-1][2] != ranges[i][2]:
-			merged.append(ranges[i])
+		if merged[-1].canMerge(ranges[i], True):
+			merged[-1] = merged[-1].merge(ranges[i])
 		else:
-			merged[-1] = (merged[-1][0], ranges[i][1], merged[-1][2])
+			merged.append(ranges[i])
 	return merged
 
-def EnsureSizeConstraintsAndDropDefault(ranges, defValue):
+def EnsureSizeConstraintsAndDropDefault(ranges: list[Range], defValue) -> list[Range]:
 	# copy the ranges over and check if they need to be broken apart to fit into the 16bit (size will be decreased by one to allow 65536 to fit)
-	out = []
+	out: list[Range] = []
 	for i in range(len(ranges)):
 		# check if the range can be ignored
-		if ranges[i][2] == defValue:
+		if ranges[i].valIndex == defValue:
 			continue
-		offset = ranges[i][0]
 		
 		# add the next range and split it as long as necessary
-		while offset <= ranges[i][1]:
-			count = ranges[i][1] - offset + 1
-			if count > 0x10000:
-				count = 0x10000
-			out.append((offset, offset + count - 1, ranges[i][2]))
-			offset += count
+		out.append(ranges[i])
+		while out[-1].span() > 0x10000:
+			out[-1], r = out[-1].split(0x10000)
+			out.append(r)
 	return out
 
-def MakeCharString(val):
+def MakeCharString(val: int) -> str:
 	if val >= 0xffff or (val >= 0x8d00 and val <= 0x8fff):
 		return f'0x{val:05x}'
 	if val >= 0x80:
 		return f'U\'\\u{val:04x}\''
 	return f'U{repr(chr(val))}'
 
-def MakeCodeLookup(file, ranges, enNameElseBool, valMap, fnName):
-	# count the number of ranges per property and characters per property and update the ranges to also contain their actual character-count
-	incomplete = [[0, 0] for _ in range(len(valMap))]
+def MakeSmallLookup(file, ranges: list[Range], config: Config) -> None:
+	# count the number of ranges per property and characters per property
+	incomplete = [[0, 0] for _ in range(len(config.valMap))]
 	for i in range(len(ranges)):
-		ranges[i] = (ranges[i][0], ranges[i][1], ranges[i][2], ranges[i][1] - ranges[i][0] + 1)
-		incomplete[ranges[i][2]][0] += 1
-		incomplete[ranges[i][2]][1] += ranges[i][3]
+		incomplete[ranges[i].valIndex][0] += 1
+		incomplete[ranges[i].valIndex][1] += ranges[i].chars
 	
 	# add the function to actually lookup the type
-	file.write(f'\tinline constexpr {"bool" if enNameElseBool is None else enNameElseBool} {fnName}(char32_t cp) {{\n')
+	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
 
 	# process all ranges until they have all been inserted
 	while True:
@@ -162,9 +202,10 @@ def MakeCodeLookup(file, ranges, enNameElseBool, valMap, fnName):
 		incomplete[best] = [0, 0]
 
 		# extract all ranges selected by the property and merge the remaining ranges
-		actual, index, leftMost, rightMost = [], 0, False, False
+		actual: list[Range] = []
+		index, leftMost, rightMost = 0, False, False
 		while index < len(ranges):
-			if ranges[index][2] != best:
+			if ranges[index].valIndex != best:
 				index += 1
 				continue
 			actual.append(ranges[index])
@@ -174,20 +215,17 @@ def MakeCodeLookup(file, ranges, enNameElseBool, valMap, fnName):
 				rightMost = True
 
 			# check if the previous and next range can be merged (cannot be one of the selected types)
-			if index > 0 and index + 1 < len(ranges) and ranges[index - 1][2] == ranges[index + 1][2]:
-				merged = (ranges[index - 1][0], ranges[index + 1][1], ranges[index - 1][2], ranges[index - 1][3] + ranges[index + 1][3])
-				ranges = ranges[:index - 1] + [merged] + ranges[index + 2:]
-				incomplete[merged[2]][0] -= 1
+			if index > 0 and index + 1 < len(ranges) and ranges[index - 1].canMerge(ranges[index + 1], True):
+				ranges[index - 1] = ranges[index - 1].merge(ranges[index + 1])
+				ranges = ranges[:index] + ranges[index + 2:]
+				incomplete[ranges[index - 1].valIndex][0] -= 1
 			else:
 				ranges = ranges[:index] + ranges[index + 1:]
 				index += 1
 
 		# check if these are the last ranges, in which case no if-statement is necessary
 		if len(ranges) == 0:
-			if enNameElseBool is None:
-				file.write(f'\t\treturn {"true" if valMap[best] > 0 else "false"};\n')
-			else:
-				file.write(f'\t\treturn {enNameElseBool}::{valMap[best]};\n')
+			file.write(f'\t\treturn {config.valMap[best]};\n')
 			break
 
 		consumed = 0
@@ -206,107 +244,102 @@ def MakeCodeLookup(file, ranges, enNameElseBool, valMap, fnName):
 			for i in range(consumed, consumed + count):
 				if i > consumed:
 					file.write(' || ')
-				if actual[i][3] == 1:
-					file.write(f'cp == {MakeCharString(actual[i][0])}')
-				elif leftMost and i == 0:
-					file.write(f'cp <= {MakeCharString(actual[i][1])}')
+				if leftMost and i == 0:
+					file.write(f'cp <= {MakeCharString(actual[i].end)}')
 				elif rightMost and i + 1 == len(actual):
-					file.write(f'cp >= {MakeCharString(actual[i][0])}')
-				elif actual[i][3] == 2:
-					file.write(f'cp == {MakeCharString(actual[i][0])} || cp == {MakeCharString(actual[i][1])}')
-				elif len(actual) > 1:
-					file.write(f'(cp >= {MakeCharString(actual[i][0])} && cp <= {MakeCharString(actual[i][1])})')
+					file.write(f'cp >= {MakeCharString(actual[i].start)}')
+				elif actual[i].chars == 1:
+					file.write(f'cp == {MakeCharString(actual[i].start)}')
+				elif actual[i].chars == 2:
+					file.write(f'cp == {MakeCharString(actual[i].start)} || cp == {MakeCharString(actual[i].end)}')
+				elif count > 1:
+					file.write(f'(cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)})')
 				else:
-					file.write(f'cp >= {MakeCharString(actual[i][0])} && cp <= {MakeCharString(actual[i][1])}')
+					file.write(f'cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)}')
 			consumed += count
 
 			# add the end of the if-statement and the return of the value
-			if enNameElseBool is None:
-				file.write(f')\n\t\t\treturn {"true" if valMap[best] > 0 else "false"};\n')
-			else:
-				file.write(f')\n\t\t\treturn {enNameElseBool}::{valMap[best]};\n')
+			file.write(f')\n\t\t\treturn {config.valMap[best]};\n')
 
 	# write the tail of the function
 	file.write('\t}\n')
 
-def MakeComplexLookup(file, ranges, defValue, enNameElseBool, valMap, fnName, subName, subNamespace):
+def MakeLargeLookup(file, ranges: list[Range], config: Config) -> None:
 	# split off the ascii characters for a speed-up
-	asciiRanges = []
-	while ranges[0][1] < 0x80:
+	asciiRanges: list[Range] = []
+	while len(ranges) > 0 and ranges[0].end < 0x80:
 		asciiRanges.append(ranges[0])
 		ranges = ranges[1:]
-	if ranges[0][0] < 0x80:
-		asciiRanges.append((ranges[0][0], 0x7f, ranges[0][2]))
-		ranges[0] = (0x80, ranges[0][1], ranges[0][2])
+	if len(ranges) > 0 and ranges[0].start < 0x80:
+		l, ranges[0] = ranges[0].split(0x80 - ranges[0].start)
+		asciiRanges.append(l)
 	
 	# cleanup the ranges used internally to adhere to the size-constraints of 16 bits (larger by one, as values are
 	# stored decreased by one) and remove default-values, as the binary-search is only interested in the other values
-	ranges = EnsureSizeConstraintsAndDropDefault(ranges, defValue)
+	ranges = EnsureSizeConstraintsAndDropDefault(ranges, config.defValue)
 
-	# if the type is an enum, write the type-map, which maps ranges to their type (as uint8_t as the expanded enum would bloat the file)
-	if enNameElseBool is not None:
-		file.write(f'\tstatic constexpr uint8_t {subName}RangeType[{len(ranges)}] = {{\n\t\t')
+	# if the type has more than two values, add a type-map, which maps ranges to their value-index (as uint8_t as the expanded enum would bloat the file)
+	if len(config.valMap) > 2:
+		file.write(f'\tstatic constexpr uint8_t {config.varName}RangeType[{len(ranges)}] = {{\n\t\t')
 		for i in range(len(ranges)):
 			if i > 0:
 				file.write(f',{"\n\t\t" if (i % 64) == 0 else ""}')
-			file.write(str(ranges[i][2]))
+			file.write(str(ranges[i].valIndex))
 		file.write('\n\t};\n')
 
 	# write the range-sizes, which maps range index to its size (as uint16_t as it will be enough, but store the size smaller by 1 to allow 65536 to be written)
-	file.write(f'\tstatic constexpr uint16_t {subName}RangeSize[{len(ranges)}] = {{\n\t\t')
+	file.write(f'\tstatic constexpr uint16_t {config.varName}RangeSize[{len(ranges)}] = {{\n\t\t')
 	for i in range(len(ranges)):
 		if i > 0:
 			file.write(f',{"\n\t\t" if (i % 64) == 0 else ""}')
-		file.write(str(ranges[i][1] - ranges[i][0]))
+		file.write(str(ranges[i].end - ranges[i].start))
 	file.write('\n\t};\n')
 
 	# write the range-starts, which maps range index to its beginning (as uint32_t as entries greater than 0xffff exist)
-	file.write(f'\tstatic constexpr uint32_t {subName}RangeStart[{len(ranges)}] = {{\n\t\t')
+	file.write(f'\tstatic constexpr uint32_t {config.varName}RangeStart[{len(ranges)}] = {{\n\t\t')
 	for i in range(len(ranges)):
 		if i > 0:
 			file.write(f',{"\n\t\t" if (i % 32) == 0 else ""}')
-		file.write(f'0x{ranges[i][0]:05x}')
+		file.write(f'0x{ranges[i].start:05x}')
 	file.write('\n\t};\n')
 
 	# check if an additional ascii-type lookup map needs to be added (as uint8_t like the normal type-map, or bool if boolean-ranges)
 	highComplexity = (len(asciiRanges) >= 32)
 	if highComplexity:
-		file.write(f'\tstatic constexpr {"bool" if enNameElseBool is None else "uint8_t"} {subName}LookupAscii[128] = {{\n\t\t')
+		file.write(f'\tstatic constexpr uint8_t {config.varName}LookupAscii[128] = {{\n\t\t')
 		index = 0
 		for i in range(128):
 			if i > 0:
 				file.write(f',{"\n\t\t" if (i % 32) == 0 else ""}')
-			if i > asciiRanges[index][1]:
-				index += 1
-			if enNameElseBool is None:
-				file.write('true' if asciiRanges[index] else 'false')
+			if i < asciiRanges[0].start or i > asciiRanges[-1].end:
+				file.write(f'{config.defValue}')
 			else:
-				file.write(f'0x{asciiRanges[index][2]}')
+				if i > asciiRanges[index].end:
+					index += 1
+				file.write(f'{asciiRanges[index].valIndex}')
 		file.write('\n\t};\n')
 
 	# otherwise add the function for the ascii-evaluation
 	else:
-		MakeCodeLookup(file, asciiRanges, enNameElseBool, valMap, f'{subName}LookupAscii')
+		MakeSmallLookup(file, asciiRanges, config.copy(f'{config.varName}LookupAscii'))
 
 	# add the function to actually lookup the type
-	file.write(f'\tinline constexpr {"bool" if enNameElseBool is None else enNameElseBool} {fnName}(char32_t cp) {{\n')
+	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
 
 	# check if the character is an ascii character and either add the ascii-lookup or the logic
 	file.write(f'\t\t/* check if the codepoint is an ascii character and speed up its type-lookup */\n')
 	file.write('\t\tif (cp < 0x80)\n')
 	if not highComplexity:
-		file.write(f'\t\t\treturn {subNamespace}::{subName}LookupAscii(cp);\n\n')
-	elif enNameElseBool is None:
-		file.write(f'\t\t\treturn {subNamespace}::{subName}LookupAscii[cp];\n\n')
+		file.write(f'\t\t\treturn {config.spName}::{config.varName}LookupAscii(cp);\n\n')
 	else:
-		file.write(f'\t\t\treturn static_cast<{enNameElseBool}>({subNamespace}::{subName}LookupAscii[cp]);\n\n')
+		file.write(f'\t\t\treturn {config.dynLookup}({config.spName}::{config.varName}LookupAscii[cp]);\n\n')
 	
 	# add the binary search for the matching range
 	file.write(f'\t\t/* perform binary search for the matching range */\n')
 	file.write(f'\t\tsize_t left = 0, right = {len(ranges) - 1};\n')
 	file.write('\t\twhile (left < right) {\n')
 	file.write('\t\t\tsize_t center = (right - left) / 2;\n')
-	file.write(f'\t\t\tif (cp < {subNamespace}::{subName}RangeStart[center])\n')
+	file.write(f'\t\t\tif (cp < {config.spName}::{config.varName}RangeStart[center])\n')
 	file.write('\t\t\t\tright = center - 1;\n')
 	file.write('\t\t\telse\n')
 	file.write('\t\t\t\tleft = center;\n')
@@ -314,43 +347,22 @@ def MakeComplexLookup(file, ranges, defValue, enNameElseBool, valMap, fnName, su
 
 	# add the check if the codepoint lies within the found range
 	file.write(f'\t\t/* check if the codepoint lies within the found range (size is smaller by one to allow 65536 to be encoded as range-size) */\n')
-	if enNameElseBool is None:
-		if valMap[defValue] > 0:
-			file.write(f'\t\treturn (cp - {subNamespace}::{subName}RangeStart[left] > {subNamespace}::{subName}RangeSize[left]);\n')
-		else:
-			file.write(f'\t\treturn (cp - {subNamespace}::{subName}RangeStart[left] <= {subNamespace}::{subName}RangeSize[left]);\n')
+	file.write(f'\t\tif (cp - {config.spName}::{config.varName}RangeStart[left] > {config.spName}::{config.varName}RangeSize[left])\n')
+	file.write(f'\t\t\treturn {config.valMap[config.defValue]};\n')
+	if len(config.valMap) > 0:
+		file.write(f'\t\treturn {config.dynLookup}({config.spName}::{config.varName}RangeType[left]);\n')
 	else:
-		file.write(f'\t\tif (cp - {subNamespace}::{subName}RangeStart[left] > {subNamespace}::{subName}RangeSize[left])\n')
-		file.write(f'\t\t\treturn {enNameElseBool}::{valMap[defValue]};\n')
-		file.write(f'\t\treturn static_cast<{enNameElseBool}>({subNamespace}::{subName}RangeType[left]);\n')
+		file.write(f'\t\treturn {config.valMap[1 - config.defValue]};\n')
 	file.write('\t}\n')
 
-def WriteEnumLookup(file, ranges, defValue, enName, enMap, fnName, subName, subNamespace):
-	defValue = enMap[defValue]
-	ranges = PrepareAndCleanRanges(ranges, defValue)
+def WriteLookup(file, ranges: list[Range], config: Config) -> None:
+	ranges = PrepareAndCleanRanges(ranges, config.defValue)
 	
-	# invert the enum-map to generate the value-map
-	valMap = [0] * len(enMap)
-	for key in enMap:
-		valMap[enMap[key]] = key
-
 	# check if the complex lookup should be used
-	if len(ranges) > 96:
-		MakeComplexLookup(file, ranges, defValue, enName, valMap, fnName, subName, subNamespace)
+	if len(ranges) > 64:
+		MakeLargeLookup(file, ranges, config)
 	else:
-		MakeCodeLookup(file, ranges, enName, valMap, fnName, False)
-
-def WriteBinaryLookup(file, ranges, defValue, fnName, subName, subNamespace):
-	ranges = PrepareAndCleanRanges(ranges, defValue)
-	
-	# setup the dummy value-map
-	valMap = [0, 1]
-
-	# check if the complex lookup should be used
-	if len(ranges) > 96:
-		MakeComplexLookup(file, ranges, defValue, None, valMap, fnName, subName, subNamespace)
-	else:
-		MakeCodeLookup(file, ranges, None, valMap, fnName)
+		MakeSmallLookup(file, ranges, config)
 
 def WriteEnumString(file, enName, enMap):
 	# sort the map to an array based on the actual stored integer indices
@@ -374,7 +386,7 @@ def BeginFile(file):
 def EndFile(file):
 	file.write('}\n')
 
-def RemapRanges(ranges, oldMap, newMap):
+def RemapRanges(ranges: list[Range], oldMap, newMap) -> list[Range]:
 	# invert the map to revert the range value-indices
 	inverse = [0] * len(oldMap)
 	for key in oldMap:
@@ -383,7 +395,7 @@ def RemapRanges(ranges, oldMap, newMap):
 	# map all ranges over
 	remapped = []
 	for i in range(len(ranges)):
-		remapped.append((ranges[i][0], ranges[i][1], newMap[inverse[ranges[i][2]]]))
+		remapped.append(Range(ranges[i].start, ranges[i].end, newMap[inverse[ranges[i].valIndex]], ranges[i].chars))
 	return remapped
 
 
@@ -394,18 +406,26 @@ def RemapRanges(ranges, oldMap, newMap):
 
 
 # add ability to enforce lookup-map
-# add ability to return integer types as well
+# add 'sparse' optimization use another function call
+# => simply convert type-map to another map and again call lookup on it
+# move direct-lookup to MakeCodeLookup and let it decide if map should be used for indexing
+# => decide based on density of values
+
+
+
+# IsAscii [<= 0x7f; bool]
+# IsAlpha [a-zA-Z; bool]
+# IsDigit [0-9a-zA-Z; 0-35, 0xff]
+# IsWhitespace [PropList.txt: White_Space; bool]
+# IsPrintable [UnicodeData.txt: Not C./Z.; printable, printSpace, none]
+# IsControl [C0 or C1; UnicodeData.txt: Cc]
+
+
 
 # IsLowercase [DerivedCoreProperties.txt: lowercase]
 # IsUppercase [DerivedCoreProperties.txt: uppercase]
 # ToLower
 # ToUpper
-# IsAscii [<= 0x7f]
-# IsAlpha [a-zA-Z]
-# IsDigit [0-9a-zA-Z]
-# IsWhitespace [PropList.txt: White_Space]
-# IsPrintable [UnicodeData.txt: Not C./Z. excluding 0x20 U' ']
-# IsControl [C0 or C1; UnicodeData.txt: Cc]
 # IsPunctuation
 # IsLetter 
 # GetCased [IsLowercase?, IsUppercase?, UnicodeData.txt:Lt?, None] 
@@ -424,13 +444,13 @@ def MakeCodepointTesting():
 	categoryRanges = ParseFile('ucd/UnicodeData.txt', 14, 1, categoryMap, False, True, True)[0]
 	
 	# prepare the ascii ranges (<= 0x7f)
-	asciiRanges = [(0, 0x7f, 1)]
+	asciiRanges = [Range(0, 0x7f, 1)]
 
 	# prepare the alpha-ranges [a-zA-Z]
-	alphaRanges = [(ord('a'), ord('z'), 1), (ord('A'), ord('Z'), 1)]
+	alphaRanges = [Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)]
 
 	# prepare the digit-ranges [0-9a-zA-Z]
-	digitRanges = [(ord('0'), ord('9'), 1), (ord('a'), ord('z'), 1), (ord('A'), ord('Z'), 1)]
+	digitRanges = [Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)]
 
 	# prepare the whitespace state (https://www.unicode.org/reports/tr44/#White_Space)
 	whiteSpaceRanges = ParseFile('ucd/PropList.txt', 1, 0, { 'white_space': 1 }, False, False, False)[0]
@@ -454,19 +474,19 @@ def MakeCodepointTesting():
 		BeginFile(file)
 		
 		# write the ascii-test to the file
-		WriteBinaryLookup(file, asciiRanges, 0, 'TestAscii', 'Ascii', 'detail')
+		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'detail', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 
 		# write the alpha-test to the file
-		WriteBinaryLookup(file, alphaRanges, 0, 'TestAlpha', 'Alpha', 'detail')
+		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'detail', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 
 		# write the digit-test to the file
-		WriteBinaryLookup(file, digitRanges, 0, 'TestDigit', 'Digit', 'detail')
+		WriteLookup(file, digitRanges, Config('TestDigit', 'Digit', 'detail', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
 		file.write('\n')
 
 		# write the whitespace-test to the file
-		WriteBinaryLookup(file, whiteSpaceRanges, 0, 'TestWhiteSpace', 'WhiteSpace', 'detail')
+		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'detail', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 		
 		# write the printable-enum to the file
@@ -474,11 +494,11 @@ def MakeCodepointTesting():
 			'printable': 0, 'printSpace': 1, 'none': 2
 		}
 		WriteEnumString(file, printableEnumName, printableEnumMap)
-		WriteEnumLookup(file, printableRanges, 'none', f'detail::{printableEnumName}', printableEnumMap, 'TestPrintable', 'Printable', 'detail')
+		WriteLookup(file, printableRanges, Config('TestPrintable', 'Printable', 'detail', f'detail::{printableEnumName}', f'static_cast<detail::{printableEnumName}>', InvertMap(f'detail::{printableEnumName}::', printableEnumMap), 2))
 		file.write('\n')
 		
 		# write the control-test to the file
-		WriteBinaryLookup(file, controlRanges, 0, 'TestControl', 'Control', 'detail')
+		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'detail', 'bool', 'bool', ['false', 'true'], 0))
 		
 		EndFile(file)
 
@@ -505,12 +525,12 @@ def MakeGraphemeTypeMapping():
 		
 		# write the grapheme-enum to the file
 		WriteEnumString(file, graphemeEnumName, graphemeEnumMap)
-		WriteEnumLookup(file, ranges, 'other', f'detail::{graphemeEnumName}', graphemeEnumMap, 'GraphemeType', 'Grapheme', 'detail')
+		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'detail', f'detail::{graphemeEnumName}', f'static_cast<detail::{graphemeEnumName}>', InvertMap(f'detail::{graphemeEnumName}::', graphemeEnumMap), 0))
 		
 		EndFile(file)
 
 
 
 
-# MakeCodepointTesting()
+MakeCodepointTesting()
 MakeGraphemeTypeMapping()
