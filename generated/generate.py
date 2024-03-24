@@ -25,25 +25,25 @@ class Range:
 	def span(self) -> int:
 		return (self.end - self.start + 1)
 
-# a config must consist of: (fnName, varName, spName, typeName, dynLookup, valMap, defValue)
+# a config must consist of: (fnName, varName, varAccName, typeName, dynLookup, valMap, defValue)
 #	fnName: name of the function
-#	varName: name to be used for internal functions/buffers
-#	spName: name of the namespace to be used to access internal functions/buffers
+#	varName: name to be used to define functions/buffers
+#	varAccName: name to be used to access internal functions/buffers
 #	typeName: the name of the type to be used
 #	dynLookup: function to be called to convert value-index to type (i.e. static_cast for enums)
 # 	valMap: map value-index to static value as [0, len(valueMap) - 1]
 # 	defValue: value-index of default-value
 class Config:
-	def __init__(self, fnName, varName, spName, typeName, dynLookup, valMap, defValue) -> None:
+	def __init__(self, fnName, varName, varAccName, typeName, dynLookup, valMap, defValue) -> None:
 		self.fnName = fnName
 		self.varName = varName
-		self.spName = spName
+		self.varAccName = varAccName
 		self.typeName = typeName
 		self.dynLookup = dynLookup
 		self.valMap = valMap
 		self.defValue = defValue
-	def copy(self, fnName) -> 'Config':
-		return Config(fnName, self.varName, self.spName, self.typeName, self.dynLookup, self.valMap, self.defValue)
+	def copy(self, add) -> 'Config':
+		return Config(f'{self.varName}{add}', f'{self.varName}{add}', f'{self.varAccName}{add}', self.typeName, self.dynLookup, self.valMap, self.defValue)
 
 def SplitRange(ranges: list[Range], startOfOther: int) -> tuple[list[Range], list[Range]]:
 	left: list[Range] = []
@@ -157,20 +157,17 @@ def SortAndMergeRanges(ranges: list[Range]) -> list[Range]:
 			merged.append(ranges[i])
 	return merged
 
-def InsertDefValues(ranges: list[Range], defValue: int, addEdges: bool, lastValue: int|None) -> list[Range]:
-	# check if the entire area should be flooded
-	if lastValue is not None:
-		if ranges[0].start > 0:
-			ranges = [Range(0, ranges[0].start - 1, defValue)] + ranges
-		if ranges[-1].end < lastValue:
-			ranges.append(Range(ranges[-1].end + 1, lastValue, defValue))
-
-	# add the front and back default values to ensure the boundary exists
-	elif addEdges:
-		if ranges[0].start > 0:
-			ranges = [Range(ranges[0].start - 1, ranges[0].start - 1, defValue)] + ranges
-		ranges.append(Range(ranges[-1].end + 1, ranges[-1].end + 1, defValue))
+def InsertDefValues(ranges: list[Range], defValue: int, leftEdge: int, rightEdge: int|None) -> list[Range]:
+	# check if the lower edge needs to be flooded
+	if leftEdge < ranges[0].start:
+		ranges = [Range(leftEdge, ranges[0].start - 1, defValue)] + ranges
 	
+	# check if the upper edge needs to be flooded or if just a single placeholder needs to be added
+	if rightEdge is None:
+		ranges.append(Range(ranges[-1].end + 1, ranges[-1].end + 1, defValue))
+	elif rightEdge > ranges[-1].end:
+		ranges.append(Range(ranges[-1].end + 1, rightEdge, defValue))
+
 	# patch all intermediate holes
 	index = 0
 	while index + 1 < len(ranges):
@@ -213,12 +210,12 @@ def WriteBufferOut(file: io.TextIOWrapper, type: str, name: str, data: list[int]
 	for i in range(len(data)):
 		if i > 0:
 			file.write(f',{"\n\t\t" if (i % valsPerLine) == 0 else ""}')
-		file.write(f' 0x{data[i]:05x}' if largeAsHex else f'{data[i]:3}')
+		file.write(f' 0x{data[i]:04x}' if largeAsHex else f'{data[i]:3}')
 
 	# close the buffer-string
 	file.write('\n\t};\n')
 
-def DensityClustering(ranges: list[Range], leftSideClosed: bool, rightSideClosed: bool) -> None:
+def DensityClustering(ranges: list[Range], rightSideClosed: bool) -> None:
 	thresholdDensity, thresholdChars = 1.0 / 1.8, 32
 
 	# initialize the cluster-map [(first, last, ranges, chars)]
@@ -226,9 +223,7 @@ def DensityClustering(ranges: list[Range], leftSideClosed: bool, rightSideClosed
 	for i in range(len(ranges)):
 		clusters.append((i, i, 1, ranges[i].span()))
 
-	# check if the sides are open, in which case the correpsonding cluster must not be considered
-	if not leftSideClosed:
-		clusters = clusters[1:]
+	# check if the right side is open, in which case the correpsonding cluster must not be considered
 	if not rightSideClosed:
 		clusters = clusters[:-1]
 	
@@ -258,9 +253,9 @@ def DensityClustering(ranges: list[Range], leftSideClosed: bool, rightSideClosed
 			clusters = clusters[:index] + clusters[index + 1:]
 	return clusters
 
-def CodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], leftSideClosed: bool, rightSideClosed: bool, config: Config, abortOnSingleCluster: bool) -> bool:
+def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], rightSideClosed: bool, abortOnSingleCluster: bool, config: Config) -> bool:
 	# perform density-clustering to detect if buffers need to be created
-	clusters = DensityClustering(ranges, leftSideClosed, rightSideClosed)
+	clusters = DensityClustering(ranges, rightSideClosed)
 	indexStartOfClusters = len(config.valMap)
 
 	# check if only a single large cluster has been produced in which case a direct buffer could be the alternative to this function
@@ -338,7 +333,7 @@ def CodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], leftSideClo
 				file.write(f'\t\treturn ')
 
 			# add the dereferencing
-			file.write(f'{config.dynLookup}({config.spName}::{config.varName}Buf{i - indexStartOfClusters}[cp')
+			file.write(f'{config.dynLookup}({config.varAccName}Buf{i - indexStartOfClusters}[cp')
 			if start > 0:
 				file.write(f' - {start}')
 			file.write(']);\n')
@@ -387,7 +382,7 @@ def CodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], leftSideClo
 	file.write('\t}\n')
 	return True
 
-def BinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
+def WriteBinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
 	# cleanup the ranges used internally to adhere to the size-constraints of 16 bits (larger by one, as values are
 	# stored decreased by one) and remove default-values, as the binary-search is only interested in the other values
 	ranges = CheckSizeAndDropDef(ranges, config.defValue)
@@ -398,16 +393,22 @@ def BinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config: Conf
 		tempRanges = [Range(i, i, ranges[i].valIndex) for i in range(len(ranges))]
 
 		# check if a code/buffer lookup can be used and otherwise create the buffer
-		if MakeLookup(file, tempRanges, False, config.copy(f'{config.varName}Value')):
+		if WriteBoundedLookup(file, tempRanges, 0, tempRanges[-1].end, True, config.copy(f'Value')):
 			hasLookupFn = True
 		else:
 			WriteBufferOut(file, 'uint8_t', f'{config.varName}Value', [v.valIndex for v in ranges], False)
 
 	# write the range-sizes, which map range index to its size (uint16_t is guaranteed to be enough, but store the size smaller by 1 to allow 65536 to be written)
-	WriteBufferOut(file, 'uint16_t', f'{config.varName}Size', [r.span() - 1 for r in ranges], False)
+	if all(r.span() <= 256 for r in ranges):
+		WriteBufferOut(file, 'uint8_t', f'{config.varName}Size', [r.span() - 1 for r in ranges], False)
+	else:
+		WriteBufferOut(file, 'uint16_t', f'{config.varName}Size', [r.span() - 1 for r in ranges], False)		
 
 	# write the range-starts, which map range index to its beginning (as uint32_t as entries greater than 0xffff exist)
-	WriteBufferOut(file, 'uint32_t', f'{config.varName}Start', [r.start for r in ranges], True)
+	if all(r.start <= 65536 for r in ranges):
+		WriteBufferOut(file, 'uint16_t', f'{config.varName}Start', [r.start for r in ranges], True)
+	else:
+		WriteBufferOut(file, 'uint32_t', f'{config.varName}Start', [r.start for r in ranges], True)
 
 	# add the function to actually lookup the type
 	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
@@ -416,65 +417,84 @@ def BinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config: Conf
 	file.write(f'\t\tsize_t left = 0, right = {len(ranges) - 1};\n')
 	file.write('\t\twhile (left < right) {\n')
 	file.write('\t\t\tsize_t center = (right - left) / 2;\n')
-	file.write(f'\t\t\tif (cp < {config.spName}::{config.varName}Start[center])\n')
+	file.write(f'\t\t\tif (cp < {config.varAccName}Start[center])\n')
 	file.write('\t\t\t\tright = center - 1;\n')
 	file.write('\t\t\telse\n')
 	file.write('\t\t\t\tleft = center;\n')
-	file.write('\t\t}\n\n')
+	file.write('\t\t}\n')
 
 	# add the check if the codepoint lies within the found range
-	file.write(f'\t\tif (cp - {config.spName}::{config.varName}Start[left] > {config.spName}::{config.varName}Size[left])\n')
+	file.write(f'\t\tif (cp - {config.varAccName}Start[left] > {config.varAccName}Size[left])\n')
 	file.write(f'\t\t\treturn {config.valMap[config.defValue]};\n')
 
 	# either add the call to the type-lookup or add the array index/return the static value
 	if len(config.valMap) <= 2:
 		file.write(f'\t\treturn {config.valMap[1 - config.defValue]};\n')
 	elif hasLookupFn:
-		file.write(f'\t\treturn {config.spName}::{config.varName}Value(left);\n')
+		file.write(f'\t\treturn {config.varAccName}Value(left);\n')
 	else:
-		file.write(f'\t\treturn {config.dynLookup}({config.spName}::{config.varName}Value[left]);\n')
+		file.write(f'\t\treturn {config.dynLookup}({config.varAccName}Value[left]);\n')
 	file.write('\t}\n')
 
-def MakeLookup(file: io.TextIOWrapper, ranges: list[Range], basicString: bool, config: Config) -> bool:
+def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: int, boundRight: int|None, binSearchLookup: bool, config: Config) -> bool:
 	# remove all default-ranges and sort the ranges (default entries will be added back if necessary, but
 	# otherwise the range-checks might get confused as too many un-merged default values are encountered)
 	ranges = SortAndMergeRanges(r for r in ranges if r.valIndex != config.defValue)
 	
 	# check if it is a simple lookup, in which case a code/buffer lookup is enough (low spread/few ranges)
-	if len(ranges) < 24 or ((ranges[-1].end - ranges[0].start + 1) / sum(r.span() for r in ranges)) < 1.75:
-		ranges = InsertDefValues(ranges, config.defValue, basicString, None)
-		return CodeAndBufferLookup(file, ranges, (ranges[0].start == 0), not basicString, config, not basicString)
+	rangeCoveredChars, actualRangeChars = (ranges[-1].end - ranges[0].start + 1), sum(r.span() for r in ranges)
+	if len(ranges) < 24 or (rangeCoveredChars <= 1.75 * actualRangeChars and rangeCoveredChars <= 3.0 * len(ranges)):
+		ranges = InsertDefValues(ranges, config.defValue, boundLeft, boundRight)
+		return WriteCodeAndBufferLookup(file, ranges, boundRight is not None, binSearchLookup, config)
 
-	# check if its a basic string, as otherwise only code-and-buffer lookups will be offered
-	if not basicString:
+	# check if its a binary-search sub-lookup, in which case only code-and-buffer lookups will be offered
+	if binSearchLookup:
 		return False
 
 	# check if its an ascii-only range
-	asciiRanges, binaryRanges = SplitRange(ranges, 0x80)
-	if len(binaryRanges) == 0:
-		CodeAndBufferLookup(file, asciiRanges, (asciiRanges[0].start == 0), False, config, False)
+	asciiRanges, ranges = SplitRange(ranges, 0x80)
+	if len(ranges) == 0:
+		asciiRanges = InsertDefValues(asciiRanges, config.defValue, boundLeft, boundRight)
+		WriteCodeAndBufferLookup(file, asciiRanges, False, boundRight is not None, config)
 		return True
-	
+	lowerRanges, upperRanges = SplitRange(ranges, 0x10000)
+
 	# check if its a binary-search-only range
 	if len(asciiRanges) == 0:
-		BinarySearchLookup(file, binaryRanges, config)
-		return True
+		if len(lowerRanges) == 0:
+			WriteBinarySearchLookup(file, upperRanges, config)
+			return True
+		elif len(upperRanges) == 0:
+			WriteBinarySearchLookup(file, lowerRanges, config)
+			return True
 
-	# setup the code and buffer-lookup and binary-search lookup
-	asciiRanges = InsertDefValues(asciiRanges, config.defValue, True, 0x7f)
-	CodeAndBufferLookup(file, asciiRanges, True, True, config.copy(f'{config.fnName}Ascii'), False)
-	BinarySearchLookup(file, binaryRanges, config.copy(f'{config.fnName}BinSearch'))
+	# setup the code and buffer-lookup for ascii
+	if len(asciiRanges) > 0:
+		asciiRanges = InsertDefValues(asciiRanges, config.defValue, 0, 0x7f)
+		WriteCodeAndBufferLookup(file, asciiRanges, True, False, config.copy(f'Ascii'))
+
+	# setup the lookups for the lower and upper
+	if len(lowerRanges) > 0 and len(upperRanges) > 0:
+		WriteBoundedLookup(file, lowerRanges, 0x80 if len(asciiRanges) > 0 else 0x00, 0x10000, False, config.copy(f'Low'))
+		WriteBoundedLookup(file, upperRanges, 0x10000, None, False, config.copy(f'High'))
+	else:
+		WriteBinarySearchLookup(file, ranges, config.copy(f'BinSearch'))
 
 	# generate the glue code (i.e. the actual function)
 	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
 	file.write('\t\tif (cp < 0x80)\n')
-	file.write(f'\t\t\treturn {config.spName}::{config.fnName}Ascii(cp);\n')
-	file.write(f'\t\treturn {config.spName}::{config.fnName}BinSearch(cp);\n')
+	file.write(f'\t\t\treturn {config.varAccName}Ascii(cp);\n')
+	if len(lowerRanges) > 0 and len(upperRanges) > 0:
+		file.write('\t\tif (cp < 0x10000)\n')
+		file.write(f'\t\t\treturn {config.varAccName}Low(cp);\n')
+		file.write(f'\t\treturn {config.varAccName}High(cp);\n')
+	else:
+		file.write(f'\t\treturn {config.varAccName}BinSearch(cp);\n')
 	file.write('\t}\n')
 	return True
 
 def WriteLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
-	MakeLookup(file, ranges, True, config)
+	WriteBoundedLookup(file, ranges, 0, None, False, config)
 
 def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
 	# sort the map to an array based on the actual stored integer indices
@@ -510,6 +530,9 @@ def RemapRanges(ranges: list[Range], oldMap, newMap) -> list[Range]:
 		remapped.append(Range(ranges[i].start, ranges[i].end, newMap[inverse[ranges[i].valIndex]], ranges[i].chars))
 	return remapped
 
+def FilterRanges(ranges: list[Range], filterVal: int) -> list[Range]:
+	return [r for r in ranges if r.valIndex != filterVal]
+
 def InvertMap(prefix, map):
 	out = [0] * len(map)
 	for key in map:
@@ -520,18 +543,14 @@ def InvertMap(prefix, map):
 
 
 
-# remove varName, just use fnName and append to it?
-
-
-
 
 # IsAscii [<= 0x7f; bool]
 # IsAlpha [a-zA-Z; bool]
 # IsDigit [0-9a-zA-Z; 0-35, 0xff]
 # IsWhitespace [PropList.txt: White_Space; bool]
-# IsPrintable [UnicodeData.txt: Not C./Z.; printable, printSpace, none]
 # IsControl [C0 or C1; UnicodeData.txt: Cc]
-
+# GetPrintable [UnicodeData.txt: Not C./Z.; printable, printSpace, none]
+# GetCase [IsLowercase, IsUppercase, TitleCased, None] 
 
 
 # IsLowercase [DerivedCoreProperties.txt: lowercase]
@@ -540,7 +559,6 @@ def InvertMap(prefix, map):
 # ToUpper
 # IsPunctuation
 # IsLetter 
-# GetCased [IsLowercase?, IsUppercase?, UnicodeData.txt:Lt?, None] 
 # GetCategory [UnicodeData.txt: ...]
 
 
@@ -554,7 +572,7 @@ def MakeCodepointTesting():
 		'zs': 22, 'zl': 23, 'zp': 24, 'cc': 25, 'cf': 26, 'cs': 27, 'co': 28, 'cn': 29
 	}
 	categoryRanges = ParseFile('ucd/UnicodeData.txt', 14, 1, categoryMap, False, True, True)[0]
-	
+
 	# prepare the ascii ranges (<= 0x7f)
 	asciiRanges = [Range(0, 0x7f, 1)]
 
@@ -567,13 +585,6 @@ def MakeCodepointTesting():
 	# prepare the whitespace state (https://www.unicode.org/reports/tr44/#White_Space)
 	whiteSpaceRanges = ParseFile('ucd/PropList.txt', 1, 0, { 'white_space': 1 }, False, False, False)[0]
 
-	# prepare the printable state (https://en.wikipedia.org/wiki/Graphic_character) 
-	printableRanges = RemapRanges(categoryRanges, categoryMap, {
-		'lu': 0, 'll': 0, 'lt': 0, 'lm': 0, 'lo': 0, 'mn': 0, 'mc': 0, 'me': 0, 'nd': 0, 'nl': 0, 'no': 0,
-		'pc': 0, 'pd': 0, 'ps': 0, 'pe': 0, 'pi': 0, 'pf': 0, 'po': 0, 'sm': 0, 'sc': 0, 'sk': 0, 'so': 0,
-		'zs': 1, 'zl': 2, 'zp': 2, 'cc': 2, 'cf': 2, 'cs': 2, 'co': 2, 'cn': 2
-	})
-
 	# prepare the control state (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
 	controlRanges = RemapRanges(categoryRanges, categoryMap, {
 		'lu': 0, 'll': 0, 'lt': 0, 'lm': 0, 'lo': 0, 'mn': 0, 'mc': 0, 'me': 0, 'nd': 0, 'nl': 0, 'no': 0,
@@ -581,36 +592,63 @@ def MakeCodepointTesting():
 		'zs': 0, 'zl': 0, 'zp': 0, 'cc': 1, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
 	})
 
+	# prepare the printable state (https://en.wikipedia.org/wiki/Graphic_character) 
+	printableRanges = RemapRanges(categoryRanges, categoryMap, {
+		'lu': 1, 'll': 1, 'lt': 1, 'lm': 1, 'lo': 1, 'mn': 1, 'mc': 1, 'me': 1, 'nd': 1, 'nl': 1, 'no': 1,
+		'pc': 1, 'pd': 1, 'ps': 1, 'pe': 1, 'pi': 1, 'pf': 1, 'po': 1, 'sm': 1, 'sc': 1, 'sk': 1, 'so': 1,
+		'zs': 2, 'zl': 0, 'zp': 0, 'cc': 0, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
+	})
+
+	# prepare the cased state (https://www.unicode.org/reports/tr44/#Cased)
+	caseRanges = ParseFile('ucd/DerivedCoreProperties.txt', 1, 0, {
+		'lowercase': 1, 'uppercase': 2
+	}, False, False, False)[0]
+	caseRanges += FilterRanges(RemapRanges(categoryRanges, categoryMap, {
+		'lu': 0, 'll': 0, 'lt': 3, 'lm': 0, 'lo': 0, 'mn': 0, 'mc': 0, 'me': 0, 'nd': 0, 'nl': 0, 'no': 0,
+		'pc': 0, 'pd': 0, 'ps': 0, 'pe': 0, 'pi': 0, 'pf': 0, 'po': 0, 'sm': 0, 'sc': 0, 'sk': 0, 'so': 0,
+		'zs': 0, 'zl': 0, 'zp': 0, 'cc': 0, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
+	}), 0)
+
 	# write the state to the file
 	with open('test-unicode.h', 'w', encoding='ascii') as file:
 		BeginFile(file)
 		
 		# write the ascii-test to the file
-		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'detail', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'detail::Ascii', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 
 		# write the alpha-test to the file
-		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'detail', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'detail::Alpha', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 
 		# write the digit-test to the file
-		WriteLookup(file, digitRanges, Config('TestDigit', 'Digit', 'detail', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
+		WriteLookup(file, digitRanges, Config('TestDigit', 'Digit', 'detail::Digit', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
 		file.write('\n')
 
 		# write the whitespace-test to the file
-		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'detail', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'detail::WhiteSpace', 'bool', 'bool', ['false', 'true'], 0))
+		file.write('\n')
+		
+		# write the control-test to the file
+		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'detail::Control', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n')
 		
 		# write the printable-enum to the file
 		printableEnumName, printableEnumMap = 'PrintableType', {
-			'printable': 0, 'printSpace': 1, 'none': 2
+			'none': 0, 'printable': 1, 'printSpace': 2
 		}
 		WriteEnumString(file, printableEnumName, printableEnumMap)
-		WriteLookup(file, printableRanges, Config('TestPrintable', 'Printable', 'detail', f'detail::{printableEnumName}', f'static_cast<detail::{printableEnumName}>', InvertMap(f'detail::{printableEnumName}::', printableEnumMap), 2))
+		printableEnumName = f'detail::{printableEnumName}'
+		WriteLookup(file, printableRanges, Config('GetPrintable', 'Printable', 'detail::Printable', printableEnumName, f'static_cast<{printableEnumName}>', InvertMap(f'{printableEnumName}::', printableEnumMap), 0))
 		file.write('\n')
 		
-		# write the control-test to the file
-		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'detail', 'bool', 'bool', ['false', 'true'], 0))
+		# write the cased-enum to the file
+		caseEnumName, caseEnumMap = 'CaseType', {
+			'none': 0, 'lowerCase': 1, 'upperCase': 2, 'titleCase': 3
+		}
+		WriteEnumString(file, caseEnumName, caseEnumMap)
+		caseEnumName = f'detail::{caseEnumName}'
+		WriteLookup(file, caseRanges, Config('GetCase', 'Case', 'detail::Case', caseEnumName, f'static_cast<{caseEnumName}>', InvertMap(f'{caseEnumName}::', caseEnumMap), 0))
 		
 		EndFile(file)
 
@@ -637,7 +675,7 @@ def MakeGraphemeTypeMapping():
 		
 		# write the grapheme-enum to the file
 		WriteEnumString(file, graphemeEnumName, graphemeEnumMap)
-		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'detail', f'detail::{graphemeEnumName}', f'static_cast<detail::{graphemeEnumName}>', InvertMap(f'detail::{graphemeEnumName}::', graphemeEnumMap), 0))
+		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'detail::Grapheme', f'detail::{graphemeEnumName}', f'static_cast<detail::{graphemeEnumName}>', InvertMap(f'detail::{graphemeEnumName}::', graphemeEnumMap), 0))
 		
 		EndFile(file)
 
