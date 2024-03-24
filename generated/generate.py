@@ -61,91 +61,11 @@ def SplitRange(ranges: list[Range], startOfOther: int) -> tuple[list[Range], lis
 			right.append(r)
 	return (left, right)
 
-def ParseLine(line):
-	missing = ('@missing:' in line)
-	
-	# check if this is a missing line
-	if missing:
-		_, line = line.split('@missing:')
-
-	# remove any comments and split the line and strip all entries
-	fields = [s.strip() for s in line.split('#')[0].split(';')]
-
-	# validate the field count
-	if fields == ['']:
-		return None
-	if len(fields) < 2:
-		raise RuntimeError(f'Line with an invalid field count encountered [{fields[0]}]')
-	cp, fields = fields[0], fields[1:]
-
-	# expand the unicode range
-	if '..' not in cp:
-		return [missing, int(cp, 16), int(cp, 16), fields]
-	begin, end = cp.split('..')
-	return [missing, int(begin, 16), int(end, 16), fields]
-
-def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotInMap, legacyRanges) -> tuple[list[Range], int|None]:
-	default = None
-	ranges = []
-
-	# open the file for reading and iterate over its lines
-	with open(path, 'r', encoding='utf-8') as file:
-		legacyState = None
-		for line in file:
-			# parse the line
-			parsed = ParseLine(line)
-			if parsed is None:
-				continue
-			missing, begin, end, property = parsed
-
-			# check if a legacy range has been started
-			if legacyState is not None:
-				if ', Last>' not in property[0] or property[0][:-7] != legacyState[1] or property[1:] != legacyState[2:]:
-					raise RuntimeError(f'Legacy range not closed properly [{begin:06x}]')
-				begin = legacyState[0]
-				legacyState = None
-			elif legacyRanges and ', First>' in property[0]:
-				legacyState = [begin, property[0][:-8]] + property[1:]
-				continue
-
-			# check if the line can be ignored
-			if len(property) < fieldCount:
-				if failIfNotInMap:
-					raise RuntimeError(f'Too few properties in line [{begin:06x} - {end:06x}]')
-				continue
-			property = property[relevantField].lower()
-
-			# check if the value should be ignored
-			if missing and not findDefault:
-				continue
-			if property not in indexMap:
-				if failIfNotInMap:
-					raise RuntimeError(f'Unknown property encountered [{property}]')
-				continue
-			property = indexMap[property]
-
-			# check if this is the default value
-			if missing:
-				if default != None:
-					raise RuntimeError('Multiple default values encountered')
-				default = property
-			
-			# add the range to the list
-			else:
-				ranges.append(Range(begin, end, property))
-		if legacyState is not None:
-			raise RuntimeError(f'Half-open legacy state encountered [{legacyState[0]:06x}]')
-
-	# check if a default value has been found
-	if default is None and findDefault:
-		raise RuntimeError(f'Default property has not been found')
-	return ranges, default
-
 def SortAndMergeRanges(ranges: list[Range]) -> list[Range]:
 	# sort the range and check if the list contains overlapping properties
 	ranges = sorted(ranges, key=lambda r : r.start)
 	for i in range(len(ranges) - 1):
-		if ranges[i + 1].start < ranges[i].end:
+		if ranges[i + 1].start <= ranges[i].end:
 			raise RuntimeError(f'Range contains overlapping entries [{ranges[i].start:06x} - {ranges[i].end:06x}] and [{ranges[i + 1].start:06x} - {ranges[i + 1].end:06x}]')
 
 	# merge neighboring ranges of the same type
@@ -216,7 +136,7 @@ def WriteBufferOut(file: io.TextIOWrapper, type: str, name: str, data: list[int]
 	file.write('\n\t};\n')
 
 def DensityClustering(ranges: list[Range], rightSideClosed: bool) -> None:
-	thresholdDensity, thresholdChars = 1.0 / 1.8, 32
+	thresholdDensity, thresholdChars = 1.0 / 2.0, 8
 
 	# initialize the cluster-map [(first, last, ranges, chars)]
 	clusters = []
@@ -494,6 +414,7 @@ def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: i
 	return True
 
 def WriteLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
+	print(f'Creating {config.fnName}...')
 	WriteBoundedLookup(file, ranges, 0, None, False, config)
 
 def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
@@ -505,154 +426,237 @@ def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
 	file.write(",\n".join([f'\t\t{key}' for key in map]))
 	file.write('\n\t};\n')
 
+def WriteComment(file: io.TextIOWrapper, msg: str, indent: bool):
+	if indent:
+		file.write(f'\t/*\n\t*\t{msg}\n\t*/\n')
+	else:
+		file.write(f'/*\n*\t{msg}\n*/\n')
+
 def BeginFile(file: io.TextIOWrapper):
 	file.write('#pragma once\n')
 	file.write('\n')
 	file.write('#include <cinttypes>\n')
 	file.write('\n')
-	file.write('/*\n')
-	file.write('*\tThis is an automatically generated file and should not be modified\n')
-	file.write('*/\n')
+	WriteComment(file, 'This is an automatically generated file and should not be modified', False)
 	file.write('namespace str::cp::detail {\n')
 
 def EndFile(file: io.TextIOWrapper):
 	file.write('}\n')
 
-def RemapRanges(ranges: list[Range], oldMap, newMap) -> list[Range]:
-	# invert the map to revert the range value-indices
-	inverse = [0] * len(oldMap)
-	for key in oldMap:
-		inverse[oldMap[key]] = key
+def ParseLine(line):
+	missing = ('@missing:' in line)
+	
+	# check if this is a missing line
+	if missing:
+		_, line = line.split('@missing:')
 
-	# map all ranges over
-	remapped = []
-	for i in range(len(ranges)):
-		remapped.append(Range(ranges[i].start, ranges[i].end, newMap[inverse[ranges[i].valIndex]], ranges[i].chars))
-	return remapped
+	# remove any comments and split the line and strip all entries
+	fields = [s.strip() for s in line.split('#')[0].split(';')]
 
-def FilterRanges(ranges: list[Range], filterVal: int) -> list[Range]:
-	return [r for r in ranges if r.valIndex != filterVal]
+	# validate the field count
+	if fields == ['']:
+		return None
+	if len(fields) < 2:
+		raise RuntimeError(f'Line with an invalid field count encountered [{fields[0]}]')
+	cp, fields = fields[0], fields[1:]
 
-def InvertMap(prefix, map):
+	# expand the unicode range
+	if '..' not in cp:
+		return [missing, int(cp, 16), int(cp, 16), fields]
+	begin, end = cp.split('..')
+	return [missing, int(begin, 16), int(end, 16), fields]
+
+def RawParseFile(path: str, legacyRanges: bool) -> list[tuple[int, int, bool, list[str]]]:
+	# list of (begin, end, missing, fields)
+	out = []
+
+	# open the file for reading and iterate over its lines
+	print(f'Parsing [{path}]...')
+	with open(path, 'r', encoding='utf-8') as file:
+		legacyState = None
+		for line in file:
+			# parse the line
+			parsed = ParseLine(line)
+			if parsed is None:
+				continue
+			missing, begin, end, fields = parsed
+
+			# check if a legacy range has been started
+			if legacyState is not None:
+				if len(fields) == 0 or ', Last>' not in fields[0] or fields[0][:-7] != legacyState[1] or fields[1:] != legacyState[2:]:
+					raise RuntimeError(f'Legacy range not closed properly [{begin:06x}]')
+				begin = legacyState[0]
+				legacyState = None
+			elif legacyRanges and ', First>' in fields[0]:
+				legacyState = [begin, fields[0][:-8]] + fields[1:]
+				continue
+
+			# check if the line can be ignored, because its empty (i.e. only a comment)
+			if len(fields) < 1:
+				continue
+			
+			# write the value to the output
+			out.append((begin, end, missing, fields))
+		if legacyState is not None:
+			raise RuntimeError(f'Half-open legacy state encountered [{legacyState[0]:06x}]')
+	return out
+
+def ExtractProperties(parsed, relevantField: int, indexMap: map, findDefault: bool, failIfNotInMap: bool, filterSkip = None) -> tuple[list[Range], int|None]:
+	default, ranges = None, []
+
+	# iterate over the parsed lines and validate them
+	for (begin, end, missing, fields) in parsed:
+		# check if the line can be ignored
+		if len(fields) <= relevantField:
+			if failIfNotInMap:
+				raise RuntimeError(f'Too few fields in line [{begin:06x} - {end:06x}]')
+			continue
+		field = fields[relevantField].lower()
+
+		# check if the value should be ignored
+		if missing and not findDefault:
+			continue
+		if field in indexMap:
+			valIndex = indexMap[field]
+		elif (len(field) > 0 and None in indexMap):
+			valIndex = indexMap[None]
+		else:
+			if failIfNotInMap:
+				raise RuntimeError(f'Unknown field encountered [{field}]')
+			continue
+		
+		# check if the value has been filtered out
+		if filterSkip != None and filterSkip(fields):
+			continue
+
+		# check if this is the default value
+		if missing:
+			if default != None:
+				raise RuntimeError('Multiple default values encountered')
+			default = valIndex
+			
+		# add the range to the list
+		else:
+			ranges.append(Range(begin, end, valIndex))
+
+	# check if a default value has been found
+	if default is None and findDefault:
+		raise RuntimeError(f'Default value has not been found')
+	return ranges, default
+
+def InvertMap(prefix: str, map: map) -> map:
 	out = [0] * len(map)
 	for key in map:
 		out[map[key]] = f'{prefix}{key}'
 	return out
 
 
-
-
-
-
-# IsAscii [<= 0x7f; bool]
-# IsAlpha [a-zA-Z; bool]
-# IsDigit [0-9a-zA-Z; 0-35, 0xff]
-# IsWhitespace [PropList.txt: White_Space; bool]
-# IsControl [C0 or C1; UnicodeData.txt: Cc]
-# GetPrintable [UnicodeData.txt: Not C./Z.; printable, printSpace, none]
-# GetCase [IsLowercase, IsUppercase, TitleCased, None] 
-
-
-# IsLowercase [DerivedCoreProperties.txt: lowercase]
-# IsUppercase [DerivedCoreProperties.txt: uppercase]
-# ToLower
-# ToUpper
-# IsPunctuation
-# IsLetter 
-# GetCategory [UnicodeData.txt: ...]
-
-
-
-
+# TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
 def MakeCodepointTesting():
-	# load the initial General_Category values (default value else 'cn')
-	categoryMap = {
-		'lu': 0, 'll': 1, 'lt': 2, 'lm': 3, 'lo': 4, 'mn': 5, 'mc': 6, 'me': 7, 'nd': 8, 'nl': 9, 'no': 10,
-		'pc': 11, 'pd': 12, 'ps': 13, 'pe': 14, 'pi': 15, 'pf': 16, 'po': 17, 'sm': 18, 'sc': 19, 'sk': 20, 'so': 21,
-		'zs': 22, 'zl': 23, 'zp': 24, 'cc': 25, 'cf': 26, 'cs': 27, 'co': 28, 'cn': 29
-	}
-	categoryRanges = ParseFile('ucd/UnicodeData.txt', 14, 1, categoryMap, False, True, True)[0]
-
-	# prepare the ascii ranges (<= 0x7f)
-	asciiRanges = [Range(0, 0x7f, 1)]
-
-	# prepare the alpha-ranges [a-zA-Z]
-	alphaRanges = [Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)]
-
-	# prepare the digit-ranges [0-9a-zA-Z]
-	digitRanges = [Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)]
-
-	# prepare the whitespace state (https://www.unicode.org/reports/tr44/#White_Space)
-	whiteSpaceRanges = ParseFile('ucd/PropList.txt', 1, 0, { 'white_space': 1 }, False, False, False)[0]
-
-	# prepare the control state (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
-	controlRanges = RemapRanges(categoryRanges, categoryMap, {
-		'lu': 0, 'll': 0, 'lt': 0, 'lm': 0, 'lo': 0, 'mn': 0, 'mc': 0, 'me': 0, 'nd': 0, 'nl': 0, 'no': 0,
-		'pc': 0, 'pd': 0, 'ps': 0, 'pe': 0, 'pi': 0, 'pf': 0, 'po': 0, 'sm': 0, 'sc': 0, 'sk': 0, 'so': 0,
-		'zs': 0, 'zl': 0, 'zp': 0, 'cc': 1, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
-	})
-
-	# prepare the printable state (https://en.wikipedia.org/wiki/Graphic_character) 
-	printableRanges = RemapRanges(categoryRanges, categoryMap, {
-		'lu': 1, 'll': 1, 'lt': 1, 'lm': 1, 'lo': 1, 'mn': 1, 'mc': 1, 'me': 1, 'nd': 1, 'nl': 1, 'no': 1,
-		'pc': 1, 'pd': 1, 'ps': 1, 'pe': 1, 'pi': 1, 'pf': 1, 'po': 1, 'sm': 1, 'sc': 1, 'sk': 1, 'so': 1,
-		'zs': 2, 'zl': 0, 'zp': 0, 'cc': 0, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
-	})
-
-	# prepare the cased state (https://www.unicode.org/reports/tr44/#Cased)
-	caseRanges = ParseFile('ucd/DerivedCoreProperties.txt', 1, 0, {
-		'lowercase': 1, 'uppercase': 2
-	}, False, False, False)[0]
-	caseRanges += FilterRanges(RemapRanges(categoryRanges, categoryMap, {
-		'lu': 0, 'll': 0, 'lt': 3, 'lm': 0, 'lo': 0, 'mn': 0, 'mc': 0, 'me': 0, 'nd': 0, 'nl': 0, 'no': 0,
-		'pc': 0, 'pd': 0, 'ps': 0, 'pe': 0, 'pi': 0, 'pf': 0, 'po': 0, 'sm': 0, 'sc': 0, 'sk': 0, 'so': 0,
-		'zs': 0, 'zl': 0, 'zp': 0, 'cc': 0, 'cf': 0, 'cs': 0, 'co': 0, 'cn': 0
-	}), 0)
+	# parse the relevant files
+	unicodeData = RawParseFile('ucd/UnicodeData.txt', True)
+	derivedProperties = RawParseFile('ucd/DerivedCoreProperties.txt', False)
+	propList = RawParseFile('ucd/PropList.txt', False)
 
 	# write the state to the file
 	with open('test-unicode.h', 'w', encoding='ascii') as file:
 		BeginFile(file)
 		
 		# write the ascii-test to the file
+		asciiRanges = [Range(0, 0x7f, 1)]
+		WriteComment(file, 'Automatically generated from: [cp <= 0x7f]', True)
 		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'detail::Ascii', 'bool', 'bool', ['false', 'true'], 0))
-		file.write('\n')
+		file.write('\n\n')
 
 		# write the alpha-test to the file
+		alphaRanges = [Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)]
+		WriteComment(file, 'Automatically generated from: [a-zA-Z]', True)
 		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'detail::Alpha', 'bool', 'bool', ['false', 'true'], 0))
-		file.write('\n')
+		file.write('\n\n')
 
-		# write the digit-test to the file
-		WriteLookup(file, digitRanges, Config('TestDigit', 'Digit', 'detail::Digit', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
-		file.write('\n')
+		# write the radix-getter to the file
+		radixRanges = [Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)]
+		WriteComment(file, 'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff', True)
+		WriteLookup(file, radixRanges, Config('GetRadix', 'Radix', 'detail::Radix', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
+		file.write('\n\n')
 
-		# write the whitespace-test to the file
+		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
+		digitRanges = ExtractProperties(unicodeData, 5, { str(i): i for i in range(10) }, False, False)[0]
+		digitRanges += ExtractProperties(unicodeData, 6, { str(i): 0xf0 for i in range(10) }, False, False, lambda f: f[5] != '')[0]
+		digitRanges += ExtractProperties(unicodeData, 7, { None: 0xf1 }, False, False, lambda f: f[5] != '' or f[6] != '')[0]
+		WriteComment(file, 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]', True)
+		WriteLookup(file, digitRanges, Config('GetDigit', 'Digit', 'detail::Digit', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
+		file.write('\n\n')
+
+		# write the whitespace-test to the file (https://www.unicode.org/reports/tr44/#White_Space)
+		whiteSpaceRanges = ExtractProperties(propList, 0, { 'white_space': 1 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode White_Space property', True)
 		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'detail::WhiteSpace', 'bool', 'bool', ['false', 'true'], 0))
-		file.write('\n')
+		file.write('\n\n')
 		
-		# write the control-test to the file
+		# write the control-test to the file (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
+		controlRanges = ExtractProperties(unicodeData, 1, { 'cc': 1 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)', True)
 		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'detail::Control', 'bool', 'bool', ['false', 'true'], 0))
-		file.write('\n')
+		file.write('\n\n')
 		
-		# write the printable-enum to the file
-		printableEnumName, printableEnumMap = 'PrintableType', {
-			'none': 0, 'printable': 1, 'printSpace': 2
-		}
+		# write the letter-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic)
+		letterRanges = ExtractProperties(derivedProperties, 0, { 'alphabetic': 1 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode derived property Alphabetic', True)
+		WriteLookup(file, letterRanges, Config('TestLetter', 'Letter', 'detail::Letter', 'bool', 'bool', ['false', 'true'], 0))
+		file.write('\n\n')
+		
+		# write the printable-enum to the file (https://en.wikipedia.org/wiki/Graphic_character)
+		printableEnumName, printableEnumMap = 'PrintableType', { 'none': 0, 'printable': 1, 'printSpace': 2 }
+		printableRanges = ExtractProperties(unicodeData, 1, { 
+			'lu': 1, 'll': 1, 'lt': 1, 'lm': 1, 'lo': 1, 'mn': 1, 'mc': 1, 'me': 1, 'nd': 1, 'nl': 1, 'no': 1,
+			'pc': 1, 'pd': 1, 'ps': 1, 'pe': 1, 'pi': 1, 'pf': 1, 'po': 1, 'sm': 1, 'sc': 1, 'sk': 1, 'so': 1,
+			'zs': 2 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs', True)
 		WriteEnumString(file, printableEnumName, printableEnumMap)
 		printableEnumName = f'detail::{printableEnumName}'
 		WriteLookup(file, printableRanges, Config('GetPrintable', 'Printable', 'detail::Printable', printableEnumName, f'static_cast<{printableEnumName}>', InvertMap(f'{printableEnumName}::', printableEnumMap), 0))
-		file.write('\n')
+		file.write('\n\n')
 		
-		# write the cased-enum to the file
-		caseEnumName, caseEnumMap = 'CaseType', {
-			'none': 0, 'lowerCase': 1, 'upperCase': 2, 'titleCase': 3
-		}
+		# write the cased-enum to the file (https://www.unicode.org/reports/tr44/#Cased)
+		caseEnumName, caseEnumMap = 'CaseType', { 'none': 0, 'lowerCase': 1, 'upperCase': 2, 'titleCase': 3 }
+		caseRanges = ExtractProperties(derivedProperties, 0, { 'lowercase': 1, 'uppercase': 2 }, False, False)[0]
+		caseRanges += ExtractProperties(unicodeData, 1, { 'lt': 3 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt', True)
 		WriteEnumString(file, caseEnumName, caseEnumMap)
 		caseEnumName = f'detail::{caseEnumName}'
 		WriteLookup(file, caseRanges, Config('GetCase', 'Case', 'detail::Case', caseEnumName, f'static_cast<{caseEnumName}>', InvertMap(f'{caseEnumName}::', caseEnumMap), 0))
+		file.write('\n\n')
 		
+		# write the control-test to the file (https://www.unicode.org/reports/tr44/#GC_Values_Table)
+		categoryEnumName, categoryEnumMap = 'CategoryType', {
+			'lu': 0, 'll': 1, 'lt': 2, 'lm': 3, 'lo': 4, 'mn': 5, 'mc': 6, 'me': 7, 'nd': 8, 'nl': 9, 'no': 10,
+			'pc': 11, 'pd': 12, 'ps': 13, 'pe': 14, 'pi': 15, 'pf': 16, 'po': 17, 'sm': 18, 'sc': 19, 'sk': 20, 'so': 21,
+			'zs': 22, 'zl': 23, 'zp': 24, 'cc': 25, 'cf': 26, 'cs': 27, 'co': 28, 'cn': 29
+		}
+		categoryRanges = ExtractProperties(unicodeData, 1, categoryEnumMap, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode General_Category', True)
+		WriteEnumString(file, categoryEnumName, categoryEnumMap)
+		categoryEnumName = f'detail::{categoryEnumName}'
+		WriteLookup(file, categoryRanges, Config('GetCategory', 'Category', 'detail::Category', categoryEnumName, f'static_cast<{categoryEnumName}>', InvertMap(f'{categoryEnumName}::', categoryEnumMap), 0))
+
 		EndFile(file)
 
+
+
+
+# IsLowercase [GetCase == lowercase]
+# IsUppercase [GetCase == uppercase]
+# ToLower (?)
+# ToUpper (?)
+# IsPunctuation
+# GetCategory [UnicodeData.txt: ...]
+
 def MakeGraphemeTypeMapping():
+	# parse the relevant files
+	graphemeBreakProperty = RawParseFile('ucd/GraphemeBreakProperty.txt', False)
+	emojiData = RawParseFile('ucd/emoji-data.txt', False)
+
 	graphemeEnumName, graphemeEnumMap = 'GraphemeType', {
 		'other': 0, 'prepend': 1, 'cr': 2, 'lf': 3, 
 		'control': 4, 'extend': 5, 'regional_indicator': 6, 'spacingmark': 7, 
@@ -660,14 +664,12 @@ def MakeGraphemeTypeMapping():
 	}
 
 	# parse the GraphemeBreakProperty.txt file to extract the grapheme-properties
-	ranges, defValue = ParseFile('ucd/GraphemeBreakProperty.txt', 1, 0, graphemeEnumMap, True, True, False)
+	ranges, defValue = ExtractProperties(graphemeBreakProperty, 0, graphemeEnumMap, True, True)
 	if defValue != graphemeEnumMap['other']:
 		raise RuntimeError('Default grapheme-value is expected to be [other]')
 	
 	# parse the emoji-data.txt file to extract the Extended_Pictographic property
-	ranges += ParseFile('ucd/emoji-data.txt', 1, 0, {
-		'extended_pictographic': graphemeEnumMap['extended_pictographic'] 
-	}, False, False, False)[0]
+	ranges += ExtractProperties(emojiData, 0, { 'extended_pictographic': graphemeEnumMap['extended_pictographic'] }, False, False)[0]
 
 	# open the output file and generate the code into it
 	with open('grapheme-type.h', 'w', encoding='ascii') as file:
