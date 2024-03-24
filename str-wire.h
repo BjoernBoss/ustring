@@ -30,14 +30,14 @@ namespace str {
 			str::Append(sink, U"\\\\");
 
 		/* check if the character can be added as-is */
-		else if (cp >= 0x20 && cp != 0x7f && cp::Ascii(cp))
+		else if (cp >= 0x20 && cp != 0x7f && cp::IsAscii(cp))
 			str::AppChars(sink, cp);
 
 		/* check if the codepoint can be added as short-version */
 		else if (cp <= 0xff) {
 			str::Append(sink, U"\\x");
-			str::AppChars(sink, cp::DigitToAscii(cp >> 4));
-			str::AppChars(sink, cp::DigitToAscii(cp & 0x0f));
+			str::AppChars(sink, cp::GetRadixLower(cp >> 4));
+			str::AppChars(sink, cp::GetRadixLower(cp & 0x0f));
 		}
 
 		/* add the codepoint as the unicode-codepoint */
@@ -48,7 +48,7 @@ namespace str {
 				digit -= 4;
 
 			while (digit >= 0) {
-				str::AppChars(sink, cp::DigitToAscii((cp >> digit) & 0x0f));
+				str::AppChars(sink, cp::GetRadixLower((cp >> digit) & 0x0f));
 				digit -= 4;
 			}
 
@@ -145,7 +145,7 @@ namespace str {
 
 	public:
 		constexpr FromWire(str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll, char32_t cpOnError = cp::DefErrorChar) {
-			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
+			pCpOnError = (cp::IsUnicode(cpOnError) ? cpOnError : 0);
 			pCoding = coding;
 			pMode = mode;
 		}
@@ -362,7 +362,7 @@ namespace str {
 
 					/* check if the \xhh sequence has been completed/is still valid */
 					if (buffer[1] == U'x') {
-						size_t val = cp::AsciiToDigit(c);
+						size_t val = cp::GetRadix(c);
 
 						/* check if the next character is valid (hexValue cannot overflow as it has 32-bits and only two hexits will be added) */
 						if (val < 16) {
@@ -395,7 +395,7 @@ namespace str {
 
 					/* check if a valid digit has been encountered (if first digit was null, no other digits are allowed) */
 					else if (escaped < 3 + detail::MaxEscapeHexits && (hexValue > 0 || escaped == 3)) {
-						size_t val = cp::AsciiToDigit(c);
+						size_t val = cp::GetRadix(c);
 						if (val < 16) {
 							hexValue = hexValue * 16 + char32_t(val);
 							buffer[escaped++] = c;
@@ -412,7 +412,7 @@ namespace str {
 				/* check if the codepoint starts a new escape sequence or write it out */
 				if (c == U'\\')
 					buffer[escaped++] = u8'\\';
-				else if ((!cp::Ascii(c) || !str::EncodeInto(sink, c)) && pCpOnError != 0)
+				else if ((!cp::IsAscii(c) || !str::EncodeInto(sink, c)) && pCpOnError != 0)
 					str::EncodeInto(sink, pCpOnError);
 			}
 
@@ -493,7 +493,7 @@ namespace str {
 
 	public:
 		constexpr ToWire(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true, char32_t cpOnError = cp::DefErrorChar) {
-			pCpOnError = (cp::Unicode(cpOnError) ? cpOnError : 0);
+			pCpOnError = (cp::IsUnicode(cpOnError) ? cpOnError : 0);
 			pCoding = coding;
 			pAddBOM = addBOM;
 		}

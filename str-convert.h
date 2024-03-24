@@ -44,6 +44,11 @@ namespace str {
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x1f, 0x1f, 0x0f, 0x0f, 0x07, 0x00
 		};
 
+		/* utf-16 surrogate-pair boundaries */
+		static constexpr uint16_t SurrogateFirst = 0xd800;
+		static constexpr uint16_t SurrogateUpper = 0xdc00;
+		static constexpr uint16_t SurrogateLast = 0xdfff;
+
 		inline constexpr str::CPOut ReadUtf8(const char8_t* begin, const char8_t* end) {
 			uint8_t c8 = static_cast<uint8_t>(*begin);
 
@@ -70,7 +75,7 @@ namespace str {
 			}
 
 			/* check if its an invalid codepoint */
-			if (!str::cp::Unicode(char32_t(cp)))
+			if (!cp::IsUnicode(char32_t(cp)))
 				return { cp::Invalid, len };
 			return { char32_t(cp), len };
 		}
@@ -78,18 +83,18 @@ namespace str {
 			uint32_t cp = static_cast<uint16_t>(*begin);
 
 			/* check if its a valid single-token codepoint */
-			if (cp < cp::SurrogateFirst || cp > cp::SurrogateLast)
+			if (cp < detail::SurrogateFirst || cp > detail::SurrogateLast)
 				return { cp, 1 };
 
 			/* ensure there are enough characters for a surrogate-pair and that the first value is valid */
-			if (cp >= cp::SurrogateUpper)
+			if (cp >= detail::SurrogateUpper)
 				return { cp::Invalid, 1 };
 			if (end - begin < 2)
 				return { cp::Incomplete, 0 };
 
 			/* extract and validate the second token */
 			uint32_t next = static_cast<uint16_t>(begin[1]);
-			if (next < cp::SurrogateUpper || next > cp::SurrogateLast)
+			if (next < detail::SurrogateUpper || next > detail::SurrogateLast)
 				return { cp::Invalid, 2 };
 
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
@@ -99,7 +104,7 @@ namespace str {
 			uint32_t cp = static_cast<uint32_t>(*begin);
 
 			/* validate the codepoint */
-			if (!str::cp::Unicode(char32_t(cp)))
+			if (!cp::IsUnicode(char32_t(cp)))
 				return { cp::Invalid, 1 };
 			return { char32_t(cp), 1 };
 		}
@@ -174,7 +179,7 @@ namespace str {
 			str::CPOut out{};
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::Ascii(*begin))
+			if (str::IsAscii<ChType> && cp::IsAscii(*begin))
 				return { char32_t(*begin), 1 };
 
 			/* decode the next codepoint */
@@ -206,7 +211,7 @@ namespace str {
 				out[0] = static_cast<ChType>(0xc0 | (cp >> 6));
 				cont = 1;
 			}
-			else if (cp >= cp::SurrogateFirst && cp <= cp::SurrogateLast)
+			else if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateLast)
 				return false;
 			else if (cp <= 0xffff) {
 				out[0] = static_cast<ChType>(0xe0 | (cp >> 12));
@@ -234,7 +239,7 @@ namespace str {
 		constexpr bool WriteUtf16(auto& sink, uint32_t cp) {
 			/* check if its a single utf16-byte */
 			if (cp < 0x10000) {
-				if (cp >= cp::SurrogateFirst && cp <= cp::SurrogateUpper)
+				if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
 					return false;
 				str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 				return true;
@@ -245,8 +250,8 @@ namespace str {
 
 			/* produce the two utf16-bytes */
 			ChType out[2] = { 0 };
-			out[0] = static_cast<ChType>(cp::SurrogateFirst + (cp >> 10));
-			out[1] = static_cast<ChType>(cp::SurrogateUpper + (cp & 0x03ff));
+			out[0] = static_cast<ChType>(detail::SurrogateFirst + (cp >> 10));
+			out[1] = static_cast<ChType>(detail::SurrogateUpper + (cp & 0x03ff));
 
 			/* write the data to the sink */
 			str::SinkString<ChType>(sink, out, 2);
@@ -255,7 +260,7 @@ namespace str {
 		template <class ChType>
 		constexpr bool WriteUtf32(auto& sink, uint32_t cp) {
 			/* validate the codepoint and write it to the sink */
-			if (!str::cp::Unicode(char32_t(cp)))
+			if (!cp::IsUnicode(char32_t(cp)))
 				return false;
 			str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 			return true;
@@ -299,7 +304,7 @@ namespace str {
 			using EffType = str::EffChar<ChType>;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::Ascii(cp)) {
+			if (str::IsAscii<ChType> && cp::IsAscii(cp)) {
 				str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 				return true;
 			}
@@ -322,7 +327,7 @@ namespace str {
 			uint32_t len = 0;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::Ascii(*begin))
+			if (str::IsAscii<ChType> && cp::IsAscii(*begin))
 				return { cp::Success, 1 };
 
 			/* check what encoding it is and read the size (invalid encodings result in length 0) */
@@ -330,10 +335,10 @@ namespace str {
 				len = detail::Utf8InitCharLength[static_cast<uint8_t>(*begin) >> 3];
 			else if constexpr (std::is_same_v<EffType, char16_t>) {
 				uint16_t c16 = static_cast<uint16_t>(*begin);
-				if (c16 < cp::SurrogateFirst || c16 > cp::SurrogateLast)
+				if (c16 < detail::SurrogateFirst || c16 > detail::SurrogateLast)
 					len = 1;
 				else
-					len = (c16 < cp::SurrogateUpper ? 2 : 0);
+					len = (c16 < detail::SurrogateUpper ? 2 : 0);
 			}
 			else if constexpr (std::is_same_v<EffType, char32_t>)
 				len = 1;
@@ -411,14 +416,14 @@ namespace str {
 
 		/* check if the raw value itself can be checked for being an ascii character */
 		if constexpr (str::IsAscii<ChType>) {
-			if (cp::Ascii(*begin))
+			if (cp::IsAscii(*begin))
 				return { char32_t(*begin), 1 };
 			return { cp::NotAscii, 0 };
 		}
 
 		/* decode the codepoint and check if its a valid ascii character */
 		str::CPOut out = detail::ReadCodePoint<ChType>(begin, end);
-		if (cp::Valid(out.cp) && cp::Ascii(out.cp))
+		if (cp::Valid(out.cp) && cp::IsAscii(out.cp))
 			return out;
 		return { cp::NotAscii, 0 };
 	}

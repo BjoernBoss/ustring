@@ -652,7 +652,7 @@ namespace str {
 
 			/* create the temporary buffer containing the single codepoint */
 			str::U32Small<10> buffer;
-			if (escape && (ascii || cp::Ascii(cp)))
+			if (escape && (ascii || cp::IsAscii(cp)))
 				str::EscapeAsciiInto(buffer, cp, true);
 			else
 				buffer.push_back(cp);
@@ -904,7 +904,7 @@ namespace str {
 
 					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
 					if (cp::Valid(cp)) {
-						if (ascii || cp::Ascii(cp))
+						if (ascii || cp::IsAscii(cp))
 							str::EscapeAsciiInto(buffer, cp, true);
 						else
 							buffer.push_back(cp);

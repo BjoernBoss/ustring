@@ -2,6 +2,7 @@ import io
 import urllib.request
 import os
 import sys
+import datetime
 
 # a range consists of: (inclusiveStart, inclusiveEnd, valueIndex, chars)
 class Range:
@@ -25,7 +26,7 @@ class Range:
 	def span(self) -> int:
 		return (self.end - self.start + 1)
 
-# ranges are lists of range-objects, which must not overlap
+# ranges are lists of range-objects, which must not overlap with (if the have different valueIndices)
 # ranges will automatically be sorted and merged with neighboring ranges
 
 # a config must consist of: (fnName, varName, varAccName, typeName, dynLookup, valMap, defValue)
@@ -65,11 +66,18 @@ def SplitRange(ranges: list[Range], startOfOther: int) -> tuple[list[Range], lis
 	return (left, right)
 
 def SortAndMergeRanges(ranges: list[Range]) -> list[Range]:
-	# sort the range and check if the list contains overlapping properties
-	ranges = sorted(ranges, key=lambda r : r.start)
-	for i in range(len(ranges) - 1):
-		if ranges[i + 1].start <= ranges[i].end:
+	# sort the range and check if the list contains overlapping conflicting properties
+	ranges, i = sorted(ranges, key=lambda r : r.start), 0
+	while i + 1 < len(ranges):
+		if ranges[i + 1].start > ranges[i].end:
+			i += 1
+			continue
+		if ranges[i + 1].valIndex != ranges[i].valIndex:
 			raise RuntimeError(f'Range contains overlapping entries [{ranges[i].start:06x} - {ranges[i].end:06x}] and [{ranges[i + 1].start:06x} - {ranges[i + 1].end:06x}]')
+	
+		# merge the overlapping ranges
+		ranges[i] = Range(min(ranges[i].start, ranges[i + 1].start), max(ranges[i].end, ranges[i + 1].end), ranges[i].valIndex)
+		ranges = ranges[:i + 1] + ranges[i + 2:]
 
 	# merge neighboring ranges of the same type
 	merged = [ranges[0]]
@@ -115,8 +123,8 @@ def CheckSizeAndDropDef(ranges: list[Range], defValue) -> list[Range]:
 			out.append(r)
 	return out
 
-def MakeCharString(val: int) -> str:
-	if val >= 0xffff or (val >= 0x8d00 and val <= 0x8fff):
+def MakeCharString(val: int, valIsChar: bool) -> str:
+	if not valIsChar or val >= 0xffff or (val >= 0xd800 and val <= 0xdfff):
 		return f'0x{val:05x}'
 	if val >= 0x80:
 		return f'U\'\\u{val:04x}\''
@@ -138,7 +146,7 @@ def WriteBufferOut(file: io.TextIOWrapper, type: str, name: str, data: list[int]
 	# close the buffer-string
 	file.write('\n\t};\n')
 
-def DensityClustering(ranges: list[Range], rightSideClosed: bool) -> None:
+def DensityClustering(ranges: list[Range]) -> None:
 	thresholdDensity, thresholdChars = 1.0 / 2.0, 8
 
 	# initialize the cluster-map [(first, last, ranges, chars)]
@@ -146,10 +154,6 @@ def DensityClustering(ranges: list[Range], rightSideClosed: bool) -> None:
 	for i in range(len(ranges)):
 		clusters.append((i, i, 1, ranges[i].span()))
 
-	# check if the right side is open, in which case the correpsonding cluster must not be considered
-	if not rightSideClosed:
-		clusters = clusters[:-1]
-	
 	# iteratively merge clusters, if their combined density lies beneath the threshold (density = ranges / chars, higher is better)
 	while len(clusters) > 1:
 		# look for the two neighboring clusters, which result in the highest density
@@ -176,13 +180,16 @@ def DensityClustering(ranges: list[Range], rightSideClosed: bool) -> None:
 			clusters = clusters[:index] + clusters[index + 1:]
 	return clusters
 
-def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], rightSideClosed: bool, abortOnSingleCluster: bool, config: Config) -> bool:
+def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: int, boundRight: int, binSearchLookup: bool, config: Config) -> bool:
+	# fill all slots in the range with the default-value
+	ranges = InsertDefValues(ranges, config.defValue, boundLeft, boundRight)
+		
 	# perform density-clustering to detect if buffers need to be created
-	clusters = DensityClustering(ranges, rightSideClosed)
+	clusters = DensityClustering(ranges)
 	indexStartOfClusters = len(config.valMap)
 
 	# check if only a single large cluster has been produced in which case a direct buffer could be the alternative to this function
-	if len(clusters) == 1 and clusters[0][0] == 0 and clusters[0][1] == len(ranges) - 1 and abortOnSingleCluster:
+	if len(clusters) == 1 and clusters[0][0] == 0 and clusters[0][1] == len(ranges) - 1 and binSearchLookup:
 		return False
 
 	# write the cluster-buffers out and merge the ranges together (will only hold value-indices, therefore uint8_t is enough)
@@ -208,7 +215,8 @@ def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], rightS
 		incomplete[ranges[i].valIndex][1] += ranges[i].chars
 
 	# add the function to actually lookup the value
-	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
+	varName, usingChars = ("index" if binSearchLookup else "cp"), not binSearchLookup
+	file.write(f'\tinline constexpr {config.typeName} {config.fnName}({"size_t" if binSearchLookup else "char32_t"} {varName}) {{\n')
 
 	# iterate until all ranges have been processed/inserted
 	while len(ranges) > 0:
@@ -248,15 +256,15 @@ def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], rightS
 			# check which bounds need to be checked (closed-side can be ignored, as it would in turn ensure at least one range lies to the side of the buffer)
 			if checkLeft or checkRight:
 				file.write(f'\t\tif (')
-				file.write(f'cp >= {MakeCharString(start)}' if checkLeft else '')
-				file.write(' || ' if (checkLeft and checkRight) else '')
-				file.write(f'cp <= {MakeCharString(end)}' if checkRight else '')
+				file.write(f'{varName} >= {MakeCharString(start, usingChars)}' if checkLeft else '')
+				file.write(' && ' if (checkLeft and checkRight) else '')
+				file.write(f'{varName} <= {MakeCharString(end, usingChars)}' if checkRight else '')
 				file.write(f')\n\t\t\treturn ')
 			else:
 				file.write(f'\t\treturn ')
 
 			# add the dereferencing
-			file.write(f'{config.dynLookup}({config.varAccName}Buf{i - indexStartOfClusters}[cp')
+			file.write(f'{config.dynLookup}({config.varAccName}Buf{i - indexStartOfClusters}[{varName}')
 			if start > 0:
 				file.write(f' - {start}')
 			file.write(']);\n')
@@ -285,17 +293,17 @@ def WriteCodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], rightS
 				if i > index:
 					file.write(' || ')
 				if not checkLeft and i == 0:
-					file.write(f'cp <= {MakeCharString(actual[i].end)}')
+					file.write(f'{varName} <= {MakeCharString(actual[i].end, usingChars)}')
 				elif not checkRight and i + 1 == len(actual):
-					file.write(f'cp >= {MakeCharString(actual[i].start)}')
+					file.write(f'{varName} >= {MakeCharString(actual[i].start, usingChars)}')
 				elif actual[i].chars == 1:
-					file.write(f'cp == {MakeCharString(actual[i].start)}')
+					file.write(f'{varName} == {MakeCharString(actual[i].start, usingChars)}')
 				elif actual[i].chars == 2:
-					file.write(f'cp == {MakeCharString(actual[i].start)} || cp == {MakeCharString(actual[i].end)}')
+					file.write(f'{varName} == {MakeCharString(actual[i].start, usingChars)} || {varName} == {MakeCharString(actual[i].end, usingChars)}')
 				elif count > 1:
-					file.write(f'(cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)})')
+					file.write(f'({varName} >= {MakeCharString(actual[i].start, usingChars)} && {varName} <= {MakeCharString(actual[i].end, usingChars)})')
 				else:
-					file.write(f'cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)}')
+					file.write(f'{varName} >= {MakeCharString(actual[i].start, usingChars)} && {varName} <= {MakeCharString(actual[i].end, usingChars)}')
 			index += count
 
 			# add the end of the if-statement and the return of the value
@@ -339,7 +347,7 @@ def WriteBinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config:
 	# add the binary search for the matching range
 	file.write(f'\t\tsize_t left = 0, right = {len(ranges) - 1};\n')
 	file.write('\t\twhile (left < right) {\n')
-	file.write('\t\t\tsize_t center = (right - left) / 2;\n')
+	file.write('\t\t\tsize_t center = (left + right + 1) / 2;\n')
 	file.write(f'\t\t\tif (cp < {config.varAccName}Start[center])\n')
 	file.write('\t\t\t\tright = center - 1;\n')
 	file.write('\t\t\telse\n')
@@ -359,7 +367,7 @@ def WriteBinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config:
 		file.write(f'\t\treturn {config.dynLookup}({config.varAccName}Value[left]);\n')
 	file.write('\t}\n')
 
-def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: int, boundRight: int|None, binSearchLookup: bool, config: Config) -> bool:
+def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: int, boundRight: int, binSearchLookup: bool, config: Config) -> bool:
 	# remove all default-ranges and sort the ranges (default entries will be added back if necessary, but
 	# otherwise the range-checks might get confused as too many un-merged default values are encountered)
 	ranges = SortAndMergeRanges(r for r in ranges if r.valIndex != config.defValue)
@@ -367,8 +375,7 @@ def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: i
 	# check if it is a simple lookup, in which case a code/buffer lookup is enough (low spread/few ranges)
 	rangeCoveredChars, actualRangeChars = (ranges[-1].end - ranges[0].start + 1), sum(r.span() for r in ranges)
 	if len(ranges) < 24 or (rangeCoveredChars <= 1.75 * actualRangeChars and rangeCoveredChars <= 3.0 * len(ranges)):
-		ranges = InsertDefValues(ranges, config.defValue, boundLeft, boundRight)
-		return WriteCodeAndBufferLookup(file, ranges, boundRight is not None, binSearchLookup, config)
+		return WriteCodeAndBufferLookup(file, ranges, boundLeft, boundRight, binSearchLookup, config)
 
 	# check if its a binary-search sub-lookup, in which case only code-and-buffer lookups will be offered
 	if binSearchLookup:
@@ -377,8 +384,7 @@ def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: i
 	# check if its an ascii-only range
 	asciiRanges, ranges = SplitRange(ranges, 0x80)
 	if len(ranges) == 0:
-		asciiRanges = InsertDefValues(asciiRanges, config.defValue, boundLeft, boundRight)
-		WriteCodeAndBufferLookup(file, asciiRanges, False, boundRight is not None, config)
+		WriteCodeAndBufferLookup(file, asciiRanges, boundLeft, boundRight, False, config)
 		return True
 	lowerRanges, upperRanges = SplitRange(ranges, 0x10000)
 
@@ -393,13 +399,12 @@ def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: i
 
 	# setup the code and buffer-lookup for ascii
 	if len(asciiRanges) > 0:
-		asciiRanges = InsertDefValues(asciiRanges, config.defValue, 0, 0x7f)
-		WriteCodeAndBufferLookup(file, asciiRanges, True, False, config.copy(f'Ascii'))
+		WriteCodeAndBufferLookup(file, asciiRanges, 0x00, 0x7f, False, config.copy(f'Ascii'))
 
 	# setup the lookups for the lower and upper
 	if len(lowerRanges) > 0 and len(upperRanges) > 0:
 		WriteBoundedLookup(file, lowerRanges, 0x80 if len(asciiRanges) > 0 else 0x00, 0x10000, False, config.copy(f'Low'))
-		WriteBoundedLookup(file, upperRanges, 0x10000, None, False, config.copy(f'High'))
+		WriteBoundedLookup(file, upperRanges, 0x10000, boundRight, False, config.copy(f'High'))
 	else:
 		WriteBinarySearchLookup(file, ranges, config.copy(f'BinSearch'))
 
@@ -418,7 +423,7 @@ def WriteBoundedLookup(file: io.TextIOWrapper, ranges: list[Range], boundLeft: i
 
 def WriteLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
 	print(f'Creating {config.fnName}...')
-	WriteBoundedLookup(file, ranges, 0, None, False, config)
+	WriteBoundedLookup(file, ranges, 0, 2**32 - 1, False, config)
 
 def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
 	# sort the map to an array based on the actual stored integer indices
@@ -442,8 +447,11 @@ def BeginFile(file: io.TextIOWrapper):
 	file.write('\n')
 	file.write('#include <cinttypes>\n')
 	file.write('\n')
-	WriteComment(file, 'This is an automatically generated file and should not be modified.\nAll data are based on the lastest information provided by the unicode character database.\nSource: https://www.unicode.org/Public/UCD/latest', False)
-	file.write('namespace str::cp::detail {\n')
+	WriteComment(file, 'This is an automatically generated file and should not be modified.\n'
+			  + 'All data are based on the lastest information provided by the unicode character database.\n'
+			  + 'Source: https://www.unicode.org/Public/UCD/latest\n'
+			  + f'Generated: {datetime.datetime.today().strftime('%Y-%m-%d %H:%M')}', False)
+	file.write('namespace cp::detail::gen {\n')
 
 def EndFile(file: io.TextIOWrapper):
 	file.write('}\n')
@@ -507,6 +515,7 @@ def RawParseFile(path: str, legacyRanges: bool) -> list[tuple[int, int, bool, li
 	return out
 
 def ExtractProperties(parsed, relevantField: int, indexMap: map, findDefault: bool, failIfNotInMap: bool, filterSkip = None) -> tuple[list[Range], int|None]:
+	# indexMap[None] matches the non-empty field string
 	default, ranges = None, []
 
 	# iterate over the parsed lines and validate them
@@ -564,7 +573,7 @@ def DownloadUCDFiles(refreshFiles: bool) -> None:
 		'PropList.txt': 'ucd/PropList.txt', 
 		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt'
 	}
-	dirPath = './ucd'
+	dirPath = './generated/ucd'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
@@ -581,32 +590,49 @@ def DownloadUCDFiles(refreshFiles: bool) -> None:
 
 
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
-def MakeCodepointTesting():
+def MakeCodepointQuery():
 	# parse the relevant files
-	unicodeData = RawParseFile('ucd/UnicodeData.txt', True)
-	derivedProperties = RawParseFile('ucd/DerivedCoreProperties.txt', False)
-	propList = RawParseFile('ucd/PropList.txt', False)
+	unicodeData = RawParseFile('generated/ucd/UnicodeData.txt', True)
+	derivedProperties = RawParseFile('generated/ucd/DerivedCoreProperties.txt', False)
+	propList = RawParseFile('generated/ucd/PropList.txt', False)
 
 	# write the state to the file
-	with open('test-unicode.h', 'w', encoding='ascii') as file:
+	with open('generated/unicode-cp-query.h', 'w', encoding='ascii') as file:
 		BeginFile(file)
 		
+		# write the unicode-test to the file
+		unicodeRanges = [Range(0x110000, 2**32-1, 0)]
+		unicodeRanges += ExtractProperties(unicodeData, 1, { 'cs': 0 }, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff', True)
+		WriteLookup(file, unicodeRanges, Config('TestUnicode', 'Unicode', 'gen::Unicode', 'bool', 'bool', ['false', 'true'], 1))
+		file.write('\n\n')
+
+		# write the assigned-test to the file
+		assignedRanges = ExtractProperties(unicodeData, 1, {
+			'lu': 1, 'll': 1, 'lt': 1, 'lm': 1, 'lo': 1, 'mn': 1, 'mc': 1, 'me': 1, 'nd': 1, 'nl': 1, 'no': 1,
+			'pc': 1, 'pd': 1, 'ps': 1, 'pe': 1, 'pi': 1, 'pf': 1, 'po': 1, 'sm': 1, 'sc': 1, 'sk': 1, 'so': 1,
+			'zs': 1, 'zl': 1, 'zp': 1, 'cc': 1, 'cf': 1, 'cs': 0, 'co': 0, 'cn': 0
+		}, False, False)[0]
+		WriteComment(file, 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)', True)
+		WriteLookup(file, assignedRanges, Config('TestAssigned', 'Assigned', 'gen::Assigned', 'bool', 'bool', ['false', 'true'], 0))
+		file.write('\n\n')
+
 		# write the ascii-test to the file
 		asciiRanges = [Range(0, 0x7f, 1)]
 		WriteComment(file, 'Automatically generated from: [cp <= 0x7f]', True)
-		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'detail::Ascii', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, asciiRanges, Config('TestAscii', 'Ascii', 'gen::Ascii', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n\n')
 
 		# write the alpha-test to the file
 		alphaRanges = [Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)]
 		WriteComment(file, 'Automatically generated from: [a-zA-Z]', True)
-		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'detail::Alpha', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, alphaRanges, Config('TestAlpha', 'Alpha', 'gen::Alpha', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n\n')
 
 		# write the radix-getter to the file
 		radixRanges = [Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)]
 		WriteComment(file, 'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff', True)
-		WriteLookup(file, radixRanges, Config('GetRadix', 'Radix', 'detail::Radix', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
+		WriteLookup(file, radixRanges, Config('GetRadix', 'Radix', 'gen::Radix', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
 		file.write('\n\n')
 
 		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
@@ -614,25 +640,34 @@ def MakeCodepointTesting():
 		digitRanges += ExtractProperties(unicodeData, 6, { str(i): 0xf0 for i in range(10) }, False, False, lambda f: f[5] != '')[0]
 		digitRanges += ExtractProperties(unicodeData, 7, { None: 0xf1 }, False, False, lambda f: f[5] != '' or f[6] != '')[0]
 		WriteComment(file, 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]', True)
-		WriteLookup(file, digitRanges, Config('GetDigit', 'Digit', 'detail::Digit', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
+		WriteLookup(file, digitRanges, Config('GetDigit', 'Digit', 'gen::Digit', 'uint8_t', 'uint8_t', [f'0x{i:02x}' for i in range(256)], 0xff))
 		file.write('\n\n')
 
 		# write the whitespace-test to the file (https://www.unicode.org/reports/tr44/#White_Space)
 		whiteSpaceRanges = ExtractProperties(propList, 0, { 'white_space': 1 }, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode White_Space property', True)
-		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'detail::WhiteSpace', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, whiteSpaceRanges, Config('TestWhiteSpace', 'WhiteSpace', 'gen::WhiteSpace', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n\n')
 		
 		# write the control-test to the file (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		controlRanges = ExtractProperties(unicodeData, 1, { 'cc': 1 }, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)', True)
-		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'detail::Control', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, controlRanges, Config('TestControl', 'Control', 'gen::Control', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n\n')
 		
 		# write the letter-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic)
 		letterRanges = ExtractProperties(derivedProperties, 0, { 'alphabetic': 1 }, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode derived property Alphabetic', True)
-		WriteLookup(file, letterRanges, Config('TestLetter', 'Letter', 'detail::Letter', 'bool', 'bool', ['false', 'true'], 0))
+		WriteLookup(file, letterRanges, Config('TestLetter', 'Letter', 'gen::Letter', 'bool', 'bool', ['false', 'true'], 0))
+		file.write('\n\n')
+		
+		# write the alpha-num-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic + https://www.unicode.org/reports/tr44/#Numeric_Type)
+		alnumRanges = ExtractProperties(derivedProperties, 0, { 'alphabetic': 1 }, False, False)[0]
+		alnumRanges += ExtractProperties(unicodeData, 5, { str(i): 1 for i in range(10) }, False, False)[0]
+		alnumRanges += ExtractProperties(unicodeData, 6, { str(i): 1 for i in range(10) }, False, False, lambda f: f[5] != '')[0]
+		alnumRanges += ExtractProperties(unicodeData, 7, { None: 1 }, False, False, lambda f: f[5] != '' or f[6] != '')[0]
+		WriteComment(file, 'Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric', True)
+		WriteLookup(file, alnumRanges, Config('TestAlNum', 'AlNum', 'gen::AlNum', 'bool', 'bool', ['false', 'true'], 0))
 		file.write('\n\n')
 		
 		# write the printable-enum to the file (https://en.wikipedia.org/wiki/Graphic_character)
@@ -643,8 +678,8 @@ def MakeCodepointTesting():
 			'zs': 2 }, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs', True)
 		WriteEnumString(file, printableEnumName, printableEnumMap)
-		printableEnumName = f'detail::{printableEnumName}'
-		WriteLookup(file, printableRanges, Config('GetPrintable', 'Printable', 'detail::Printable', printableEnumName, f'static_cast<{printableEnumName}>', InvertMap(f'{printableEnumName}::', printableEnumMap), 0))
+		printableEnumName = f'gen::{printableEnumName}'
+		WriteLookup(file, printableRanges, Config('GetPrintable', 'Printable', 'gen::Printable', printableEnumName, f'static_cast<{printableEnumName}>', InvertMap(f'{printableEnumName}::', printableEnumMap), printableEnumMap['none']))
 		file.write('\n\n')
 		
 		# write the cased-enum to the file (https://www.unicode.org/reports/tr44/#Cased)
@@ -653,11 +688,11 @@ def MakeCodepointTesting():
 		caseRanges += ExtractProperties(unicodeData, 1, { 'lt': 3 }, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt', True)
 		WriteEnumString(file, caseEnumName, caseEnumMap)
-		caseEnumName = f'detail::{caseEnumName}'
-		WriteLookup(file, caseRanges, Config('GetCase', 'Case', 'detail::Case', caseEnumName, f'static_cast<{caseEnumName}>', InvertMap(f'{caseEnumName}::', caseEnumMap), 0))
+		caseEnumName = f'gen::{caseEnumName}'
+		WriteLookup(file, caseRanges, Config('GetCase', 'Case', 'gen::Case', caseEnumName, f'static_cast<{caseEnumName}>', InvertMap(f'{caseEnumName}::', caseEnumMap), caseEnumMap['none']))
 		file.write('\n\n')
 		
-		# write the control-test to the file (https://www.unicode.org/reports/tr44/#GC_Values_Table)
+		# write the category-enum to the file (https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		categoryEnumName, categoryEnumMap = 'CategoryType', {
 			'lu': 0, 'll': 1, 'lt': 2, 'lm': 3, 'lo': 4, 'mn': 5, 'mc': 6, 'me': 7, 'nd': 8, 'nl': 9, 'no': 10,
 			'pc': 11, 'pd': 12, 'ps': 13, 'pe': 14, 'pi': 15, 'pf': 16, 'po': 17, 'sm': 18, 'sc': 19, 'sk': 20, 'so': 21,
@@ -666,20 +701,16 @@ def MakeCodepointTesting():
 		categoryRanges = ExtractProperties(unicodeData, 1, categoryEnumMap, False, False)[0]
 		WriteComment(file, 'Automatically generated from: Unicode General_Category', True)
 		WriteEnumString(file, categoryEnumName, categoryEnumMap)
-		categoryEnumName = f'detail::{categoryEnumName}'
-		WriteLookup(file, categoryRanges, Config('GetCategory', 'Category', 'detail::Category', categoryEnumName, f'static_cast<{categoryEnumName}>', InvertMap(f'{categoryEnumName}::', categoryEnumMap), 0))
+		categoryEnumName = f'gen::{categoryEnumName}'
+		WriteLookup(file, categoryRanges, Config('GetCategory', 'Category', 'gen::Category', categoryEnumName, f'static_cast<{categoryEnumName}>', InvertMap(f'{categoryEnumName}::', categoryEnumMap), categoryEnumMap['cn']))
 
 		EndFile(file)
 
 
 
 
-# IsLowercase [GetCase == lowercase]
-# IsUppercase [GetCase == uppercase]
 # ToLower (?)
 # ToUpper (?)
-# IsPunctuation
-# GetCategory [UnicodeData.txt: ...]
 
 def MakeGraphemeTypeMapping():
 	# parse the relevant files
@@ -706,7 +737,7 @@ def MakeGraphemeTypeMapping():
 		
 		# write the grapheme-enum to the file
 		WriteEnumString(file, graphemeEnumName, graphemeEnumMap)
-		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'detail::Grapheme', f'detail::{graphemeEnumName}', f'static_cast<detail::{graphemeEnumName}>', InvertMap(f'detail::{graphemeEnumName}::', graphemeEnumMap), 0))
+		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'gen::Grapheme', f'gen::{graphemeEnumName}', f'static_cast<gen::{graphemeEnumName}>', InvertMap(f'gen::{graphemeEnumName}::', graphemeEnumMap), 0))
 		
 		EndFile(file)
 
@@ -714,5 +745,5 @@ def MakeGraphemeTypeMapping():
 
 # check if the files need to be downloaded
 DownloadUCDFiles('--refresh' in sys.argv)
-MakeCodepointTesting()
-MakeGraphemeTypeMapping()
+MakeCodepointQuery()
+# MakeGraphemeTypeMapping()

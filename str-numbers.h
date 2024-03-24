@@ -145,11 +145,23 @@ namespace str {
 		};
 		static constexpr const char32_t* PrefixLower = U"__b_q___o_d_____x___________________";
 		static constexpr const char32_t* PrefixUpper = U"__B_Q___O_D_____X___________________";
+		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
+		static constexpr uint8_t AsciiDigitMap[cp::AsciiRange] = {
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff,
+		0xff, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0xff, 0xff, 0xff, 0xff, 0xff
+		};
+		static constexpr const char32_t* DigitUpper = U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 		/* to differentiate nan/inf from normal numbers */
 		static constexpr uint32_t MaxRadixBeforeSpecialChar = std::min<uint32_t>(
-			std::max<uint32_t>({ cp::detail::AsciiDigitMap[U'i'], cp::detail::AsciiDigitMap[U'n'], cp::detail::AsciiDigitMap[U'f'] }),
-			std::max<uint32_t>({ cp::detail::AsciiDigitMap[U'n'], cp::detail::AsciiDigitMap[U'a'], cp::detail::AsciiDigitMap[U'n'] })
+			std::max<uint32_t>({ detail::AsciiDigitMap[U'i'], detail::AsciiDigitMap[U'n'], detail::AsciiDigitMap[U'f'] }),
+			std::max<uint32_t>({ detail::AsciiDigitMap[U'n'], detail::AsciiDigitMap[U'a'], detail::AsciiDigitMap[U'n'] })
 		);
 
 		struct PreComputedEntry {
@@ -676,7 +688,7 @@ namespace str {
 			UType value = 0;
 			while (dec.cp != cp::NotAscii) {
 				/* check if the codepoint is a valid digit */
-				size_t digit = cp::detail::AsciiDigitMap[dec.cp];
+				size_t digit = detail::AsciiDigitMap[dec.cp];
 				if (digit >= radix)
 					break;
 
@@ -769,7 +781,7 @@ namespace str {
 				str::AppChars(sink, U'0');
 
 			/* write the digits out */
-			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
+			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
 			while (next != digits)
 				str::AppChars(sink, digitSet[*(--next)]);
 		}
@@ -829,7 +841,7 @@ namespace str {
 				size_t digit = 0;
 
 				/* extract the digit or check if its the dot */
-				if ((digit = cp::detail::AsciiDigitMap[dec.cp]) >= radix) {
+				if ((digit = detail::AsciiDigitMap[dec.cp]) >= radix) {
 					if (dec.cp != U'.' || inFraction)
 						break;
 					inFraction = true;
@@ -1111,7 +1123,7 @@ namespace str {
 			flExponent += topBit;
 
 			/* write the digits out (no need to keep track of last-digits, only of nulls) */
-			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
+			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
 			intptr_t delayed = 0, digitsBeforePoint = 0;
 			for (intptr_t i = 0; i < totalDigits; ++i) {
 				topBit -= 4;
@@ -1195,7 +1207,7 @@ namespace str {
 
 			/* setup the visual properties of the string formatting from the style */
 			intptr_t digitsBeforePoint = (scientific ? 1 : std::max<intptr_t>(1, flExponent));
-			const char32_t* digitSet = (upperCase ? cp::detail::AsciiDigitUpper : cp::detail::AsciiDigitLower);
+			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
 
 			/* produce the given number of digits and keep track of trailing lowest/highest digits, in order to remove trailing nulls/handle
 			*	rounding (initialize the state to consider the initial nulls to be added to the output as already encountered) */
