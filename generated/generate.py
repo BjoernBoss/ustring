@@ -1,3 +1,5 @@
+import io
+
 # ranges: must not overlap, list of range-elements
 # ranges: will automatically be sorted and merged
 
@@ -43,11 +45,21 @@ class Config:
 	def copy(self, fnName) -> 'Config':
 		return Config(fnName, self.varName, self.spName, self.typeName, self.dynLookup, self.valMap, self.defValue)
 
-def InvertMap(prefix, map):
-	out = [0] * len(map)
-	for key in map:
-		out[map[key]] = f'{prefix}{key}'
-	return out
+def SplitRange(ranges: list[Range], startOfOther: int) -> tuple[list[Range], list[Range]]:
+	left: list[Range] = []
+	right: list[Range] = []
+
+	# copy the ranges to the left until the cut-off point has been reached
+	for i in range(len(ranges)):
+		if ranges[i].start >= startOfOther:
+			right.append(ranges[i])
+		elif ranges[i].end < startOfOther:
+			left.append(ranges[i])
+		else:
+			l, r = ranges[i].split(startOfOther - ranges[i].start)
+			left.append(l)
+			right.append(r)
+	return (left, right)
 
 def ParseLine(line):
 	missing = ('@missing:' in line)
@@ -129,36 +141,46 @@ def ParseFile(path, fieldCount, relevantField, indexMap, findDefault, failIfNotI
 		raise RuntimeError(f'Default property has not been found')
 	return ranges, default
 
-def PrepareAndCleanRanges(ranges: list[Range], defValue) -> list[Range]:
+def SortAndMergeRanges(ranges: list[Range]) -> list[Range]:
 	# sort the range and check if the list contains overlapping properties
 	ranges = sorted(ranges, key=lambda r : r.start)
 	for i in range(len(ranges) - 1):
 		if ranges[i + 1].start < ranges[i].end:
 			raise RuntimeError(f'Range contains overlapping entries [{ranges[i].start:06x} - {ranges[i].end:06x}] and [{ranges[i + 1].start:06x} - {ranges[i + 1].end:06x}]')
 
-	# add the front and back default values such that the entire range is covered [0, topValue]
-	if ranges[0].start > 0:
-		ranges = [Range(ranges[0].start - 1, ranges[0].start - 1, defValue)] + ranges
-	ranges.append(Range(ranges[-1].end + 1, ranges[-1].end + 1, defValue))
+	# merge neighboring ranges of the same type
+	merged = [ranges[0]]
+	for i in range(1, len(ranges)):
+		if merged[-1].canMerge(ranges[i], False):
+			merged[-1] = merged[-1].merge(ranges[i])
+		else:
+			merged.append(ranges[i])
+	return merged
+
+def InsertDefValues(ranges: list[Range], defValue: int, addEdges: bool, lastValue: int|None) -> list[Range]:
+	# check if the entire area should be flooded
+	if lastValue is not None:
+		if ranges[0].start > 0:
+			ranges = [Range(0, ranges[0].start - 1, defValue)] + ranges
+		if ranges[-1].end < lastValue:
+			ranges.append(Range(ranges[-1].end + 1, lastValue, defValue))
+
+	# add the front and back default values to ensure the boundary exists
+	elif addEdges:
+		if ranges[0].start > 0:
+			ranges = [Range(ranges[0].start - 1, ranges[0].start - 1, defValue)] + ranges
+		ranges.append(Range(ranges[-1].end + 1, ranges[-1].end + 1, defValue))
 	
-	# patch all intermediate holes (no size restrictions, as they will be ensured later when merging the entries)
+	# patch all intermediate holes
 	index = 0
 	while index + 1 < len(ranges):
 		if ranges[index].end + 1 != ranges[index + 1].start:
 			ranges = ranges[:index + 1] + [Range(ranges[index].end + 1, ranges[index + 1].start - 1, defValue)] + ranges[index + 1:]
 		else:
 			index += 1
-	
-	# merge neighboring ranges of the same type
-	merged = [ranges[0]]
-	for i in range(1, len(ranges)):
-		if merged[-1].canMerge(ranges[i], True):
-			merged[-1] = merged[-1].merge(ranges[i])
-		else:
-			merged.append(ranges[i])
-	return merged
+	return ranges
 
-def EnsureSizeConstraintsAndDropDefault(ranges: list[Range], defValue) -> list[Range]:
+def CheckSizeAndDropDef(ranges: list[Range], defValue) -> list[Range]:
 	# copy the ranges over and check if they need to be broken apart to fit into the 16bit (size will be decreased by one to allow 65536 to fit)
 	out: list[Range] = []
 	for i in range(len(ranges)):
@@ -180,58 +202,158 @@ def MakeCharString(val: int) -> str:
 		return f'U\'\\u{val:04x}\''
 	return f'U{repr(chr(val))}'
 
-def MakeSmallLookup(file, ranges: list[Range], config: Config) -> None:
-	# count the number of ranges per property and characters per property
-	incomplete = [[0, 0] for _ in range(len(config.valMap))]
+def WriteBufferOut(file: io.TextIOWrapper, type: str, name: str, data: list[int], largeAsHex) -> None:
+	# slightly align the count to get a closer resembles of rectangles
+	valsPerLine = 24 if largeAsHex else 32
+	estimatedLines = (len(data) + valsPerLine - 1) // valsPerLine
+	valsPerLine = (len(data) + estimatedLines - 1) // estimatedLines
+	
+	# write the header and the data out
+	file.write(f'\tstatic constexpr {type} {name}[{len(data)}] = {{\n\t\t')
+	for i in range(len(data)):
+		if i > 0:
+			file.write(f',{"\n\t\t" if (i % valsPerLine) == 0 else ""}')
+		file.write(f' 0x{data[i]:05x}' if largeAsHex else f'{data[i]:3}')
+
+	# close the buffer-string
+	file.write('\n\t};\n')
+
+def DensityClustering(ranges: list[Range], leftSideClosed: bool, rightSideClosed: bool) -> None:
+	thresholdDensity, thresholdChars = 1.0 / 1.8, 32
+
+	# initialize the cluster-map [(first, last, ranges, chars)]
+	clusters = []
+	for i in range(len(ranges)):
+		clusters.append((i, i, 1, ranges[i].span()))
+
+	# check if the sides are open, in which case the correpsonding cluster must not be considered
+	if not leftSideClosed:
+		clusters = clusters[1:]
+	if not rightSideClosed:
+		clusters = clusters[:-1]
+	
+	# iteratively merge clusters, if their combined density lies beneath the threshold (density = ranges / chars, higher is better)
+	while len(clusters) > 1:
+		# look for the two neighboring clusters, which result in the highest density
+		best, bestDensity = None, 0.0
+		for i in range(1, len(clusters)):
+			density = (clusters[i - 1][2] + clusters[i][2]) / (clusters[i - 1][3] + clusters[i][3])
+			if best is None or density > bestDensity:
+				best = i - 1
+				bestDensity = density
+		
+		# check if the pair can be merged or if the threshold has not been reached
+		if bestDensity < thresholdDensity:
+			break
+		l, r = clusters[best], clusters[best + 1]
+		clusters[best] = (l[0], r[1], l[2] + r[2], l[3] + r[3])
+		clusters = clusters[:best + 1] + clusters[best + 2:]
+
+	# remove all clusters, which either did not reach the density or chars threshold
+	index = 0
+	while index < len(clusters):
+		if clusters[index][3] >= thresholdChars and (clusters[index][2] / clusters[index][3]) >= thresholdDensity:
+			index += 1
+		else:
+			clusters = clusters[:index] + clusters[index + 1:]
+	return clusters
+
+def CodeAndBufferLookup(file: io.TextIOWrapper, ranges: list[Range], leftSideClosed: bool, rightSideClosed: bool, config: Config, abortOnSingleCluster: bool) -> bool:
+	# perform density-clustering to detect if buffers need to be created
+	clusters = DensityClustering(ranges, leftSideClosed, rightSideClosed)
+	indexStartOfClusters = len(config.valMap)
+
+	# check if only a single large cluster has been produced in which case a direct buffer could be the alternative to this function
+	if len(clusters) == 1 and clusters[0][0] == 0 and clusters[0][1] == len(ranges) - 1 and abortOnSingleCluster:
+		return False
+
+	# write the cluster-buffers out and merge the ranges together (will only hold value-indices, therefore uint8_t is enough)
+	shift = 0
+	for i in range(len(clusters)):
+		data = []
+		for r in range(clusters[i][0], clusters[i][1] + 1):
+			data += [ranges[r - shift].valIndex] * ranges[r - shift].span()
+		WriteBufferOut(file, 'uint8_t', f'{config.varName}Buf{i}', data, False)
+
+		# merge the ranges to a single large range and assign a new value-index to indicate its type
+		index, count = clusters[i][0] - shift, clusters[i][1] - clusters[i][0] + 1
+		f, b = ranges[index], ranges[index + count - 1]
+		ranges[index] = Range(f.start, b.end, indexStartOfClusters + i)
+		ranges = ranges[:index + 1] + ranges[index + count:]
+		shift += count
+
+	# count the number of ranges and characters per value-index [ranges, chars]
+	totalValueIndices = indexStartOfClusters + len(clusters)
+	incomplete = [[0, 0] for _ in range(totalValueIndices)]
 	for i in range(len(ranges)):
 		incomplete[ranges[i].valIndex][0] += 1
 		incomplete[ranges[i].valIndex][1] += ranges[i].chars
-	
-	# add the function to actually lookup the type
+
+	# add the function to actually lookup the value
 	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
 
-	# process all ranges until they have all been inserted
-	while True:
-		# look for the property with the largest number of characters, which consists of the fewest number of ranges
-		best = 0
-		for i in range(1, len(incomplete)):
-			if incomplete[i][0] == 0:
-				continue
-			if incomplete[best][0] == 0 or incomplete[best][0] > incomplete[i][0] or (incomplete[best][0] == incomplete[i][0] and incomplete[best][1] < incomplete[i][1]):
-				best = i
-		incomplete[best] = [0, 0]
+	# iterate until all ranges have been processed/inserted
+	while len(ranges) > 0:
+		# look for the value-index with the largest number of characters, which consists of the fewest number of ranges
+		bestIndex, bestRanges, bestChars = 0, 0, 0
+		for i in range(totalValueIndices):
+			ra, ch = incomplete[i]
+			if ra != 0 and (bestRanges == 0 or bestRanges > ra or (bestRanges == ra and bestChars < ch)):
+				bestIndex, bestRanges, bestChars = i, ra, ch
+		
+		# mark the value-index as consumed, as all corresponding ranges will now be processed
+		incomplete[bestIndex] = [0, 0]
 
-		# extract all ranges selected by the property and merge the remaining ranges
+		# extract all ranges selected by the best value-index and merge the remaining ranges
 		actual: list[Range] = []
-		index, leftMost, rightMost = 0, False, False
+		index = 0
 		while index < len(ranges):
-			if ranges[index].valIndex != best:
+			if ranges[index].valIndex != bestIndex:
 				index += 1
 				continue
 			actual.append(ranges[index])
-			if index == 0:
-				leftMost = True
-			if index + 1 == len(ranges):
-				rightMost = True
-
+			ranges = ranges[:index] + ranges[index + 1:]
+			
 			# check if the previous and next range can be merged (cannot be one of the selected types)
-			if index > 0 and index + 1 < len(ranges) and ranges[index - 1].canMerge(ranges[index + 1], True):
-				ranges[index - 1] = ranges[index - 1].merge(ranges[index + 1])
-				ranges = ranges[:index] + ranges[index + 2:]
-				incomplete[ranges[index - 1].valIndex][0] -= 1
-			else:
+			if index > 0 and index < len(ranges) and ranges[index - 1].canMerge(ranges[index], True):
+				ranges[index - 1] = ranges[index - 1].merge(ranges[index])
 				ranges = ranges[:index] + ranges[index + 1:]
-				index += 1
+				incomplete[ranges[index - 1].valIndex][0] -= 1
+		
+		# check which side of the outer bounds of the actual ranges need to be checked
+		checkLeft, checkRight = (len(ranges) > 0 and ranges[0].start < actual[0].start), (len(ranges) > 0 and ranges[-1].end > actual[-1].end)
+		
+		# check if this is a cluster-entry, in which case the buffer needs to be dereferenced (there can only be one range per cluster-entry)
+		if bestIndex >= indexStartOfClusters:
+			start, end = actual[0].start, actual[0].end
+
+			# check which bounds need to be checked (closed-side can be ignored, as it would in turn ensure at least one range lies to the side of the buffer)
+			if checkLeft or checkRight:
+				file.write(f'\t\tif (')
+				file.write(f'cp >= {MakeCharString(start)}' if checkLeft else '')
+				file.write(' || ' if (checkLeft and checkRight) else '')
+				file.write(f'cp <= {MakeCharString(end)}' if checkRight else '')
+				file.write(f')\n\t\t\treturn ')
+			else:
+				file.write(f'\t\treturn ')
+
+			# add the dereferencing
+			file.write(f'{config.dynLookup}({config.spName}::{config.varName}Buf{i - indexStartOfClusters}[cp')
+			if start > 0:
+				file.write(f' - {start}')
+			file.write(']);\n')
+			continue
 
 		# check if these are the last ranges, in which case no if-statement is necessary
 		if len(ranges) == 0:
-			file.write(f'\t\treturn {config.valMap[best]};\n')
-			break
+			file.write(f'\t\treturn {config.valMap[bestIndex]};\n')
+			continue
 
-		consumed = 0
-		while consumed < len(actual):
-			# check if the if-statement should be broken in two (it too many ranges)
-			count = len(actual) - consumed
+		# write the if-statement out and potentially break it, in case it could become an overlong row
+		index = 0
+		while index < len(actual):
+			# check if the if-statement should be broken in two (if it has too many ranges)
+			count = len(actual) - index
 			if count >= 8:
 				count = 4
 			elif count > 4:
@@ -240,13 +362,13 @@ def MakeSmallLookup(file, ranges: list[Range], config: Config) -> None:
 			# add the next if-statement
 			file.write(f'\t\tif (')
 
-			# iterate over the ranges to be tested and add them to the condition
-			for i in range(consumed, consumed + count):
-				if i > consumed:
+			# iterate over the ranges to be tested and add them to the condition (check greater/less equal before equality, to ensure open sides are handled properly)
+			for i in range(index, index + count):
+				if i > index:
 					file.write(' || ')
-				if leftMost and i == 0:
+				if not checkLeft and i == 0:
 					file.write(f'cp <= {MakeCharString(actual[i].end)}')
-				elif rightMost and i + 1 == len(actual):
+				elif not checkRight and i + 1 == len(actual):
 					file.write(f'cp >= {MakeCharString(actual[i].start)}')
 				elif actual[i].chars == 1:
 					file.write(f'cp == {MakeCharString(actual[i].start)}')
@@ -256,115 +378,105 @@ def MakeSmallLookup(file, ranges: list[Range], config: Config) -> None:
 					file.write(f'(cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)})')
 				else:
 					file.write(f'cp >= {MakeCharString(actual[i].start)} && cp <= {MakeCharString(actual[i].end)}')
-			consumed += count
+			index += count
 
 			# add the end of the if-statement and the return of the value
-			file.write(f')\n\t\t\treturn {config.valMap[best]};\n')
+			file.write(f')\n\t\t\treturn {config.valMap[bestIndex]};\n')
 
 	# write the tail of the function
 	file.write('\t}\n')
+	return True
 
-def MakeLargeLookup(file, ranges: list[Range], config: Config) -> None:
-	# split off the ascii characters for a speed-up
-	asciiRanges: list[Range] = []
-	while len(ranges) > 0 and ranges[0].end < 0x80:
-		asciiRanges.append(ranges[0])
-		ranges = ranges[1:]
-	if len(ranges) > 0 and ranges[0].start < 0x80:
-		l, ranges[0] = ranges[0].split(0x80 - ranges[0].start)
-		asciiRanges.append(l)
-	
+def BinarySearchLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
 	# cleanup the ranges used internally to adhere to the size-constraints of 16 bits (larger by one, as values are
 	# stored decreased by one) and remove default-values, as the binary-search is only interested in the other values
-	ranges = EnsureSizeConstraintsAndDropDefault(ranges, config.defValue)
+	ranges = CheckSizeAndDropDef(ranges, config.defValue)
 
-	# if the type has more than two values, add a type-map, which maps ranges to their value-index (as uint8_t as the expanded enum would bloat the file)
+	# check if there are more than two values, in which case a value-map is required
+	hasLookupFn = False
 	if len(config.valMap) > 2:
-		file.write(f'\tstatic constexpr uint8_t {config.varName}RangeType[{len(ranges)}] = {{\n\t\t')
-		for i in range(len(ranges)):
-			if i > 0:
-				file.write(f',{"\n\t\t" if (i % 64) == 0 else ""}')
-			file.write(str(ranges[i].valIndex))
-		file.write('\n\t};\n')
+		tempRanges = [Range(i, i, ranges[i].valIndex) for i in range(len(ranges))]
 
-	# write the range-sizes, which maps range index to its size (as uint16_t as it will be enough, but store the size smaller by 1 to allow 65536 to be written)
-	file.write(f'\tstatic constexpr uint16_t {config.varName}RangeSize[{len(ranges)}] = {{\n\t\t')
-	for i in range(len(ranges)):
-		if i > 0:
-			file.write(f',{"\n\t\t" if (i % 64) == 0 else ""}')
-		file.write(str(ranges[i].end - ranges[i].start))
-	file.write('\n\t};\n')
+		# check if a code/buffer lookup can be used and otherwise create the buffer
+		if MakeLookup(file, tempRanges, False, config.copy(f'{config.varName}Value')):
+			hasLookupFn = True
+		else:
+			WriteBufferOut(file, 'uint8_t', f'{config.varName}Value', [v.valIndex for v in ranges], False)
 
-	# write the range-starts, which maps range index to its beginning (as uint32_t as entries greater than 0xffff exist)
-	file.write(f'\tstatic constexpr uint32_t {config.varName}RangeStart[{len(ranges)}] = {{\n\t\t')
-	for i in range(len(ranges)):
-		if i > 0:
-			file.write(f',{"\n\t\t" if (i % 32) == 0 else ""}')
-		file.write(f'0x{ranges[i].start:05x}')
-	file.write('\n\t};\n')
+	# write the range-sizes, which map range index to its size (uint16_t is guaranteed to be enough, but store the size smaller by 1 to allow 65536 to be written)
+	WriteBufferOut(file, 'uint16_t', f'{config.varName}Size', [r.span() - 1 for r in ranges], False)
 
-	# check if an additional ascii-type lookup map needs to be added (as uint8_t like the normal type-map, or bool if boolean-ranges)
-	highComplexity = (len(asciiRanges) >= 32)
-	if highComplexity:
-		file.write(f'\tstatic constexpr uint8_t {config.varName}LookupAscii[128] = {{\n\t\t')
-		index = 0
-		for i in range(128):
-			if i > 0:
-				file.write(f',{"\n\t\t" if (i % 32) == 0 else ""}')
-			if i < asciiRanges[0].start or i > asciiRanges[-1].end:
-				file.write(f'{config.defValue}')
-			else:
-				if i > asciiRanges[index].end:
-					index += 1
-				file.write(f'{asciiRanges[index].valIndex}')
-		file.write('\n\t};\n')
-
-	# otherwise add the function for the ascii-evaluation
-	else:
-		MakeSmallLookup(file, asciiRanges, config.copy(f'{config.varName}LookupAscii'))
+	# write the range-starts, which map range index to its beginning (as uint32_t as entries greater than 0xffff exist)
+	WriteBufferOut(file, 'uint32_t', f'{config.varName}Start', [r.start for r in ranges], True)
 
 	# add the function to actually lookup the type
 	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
 
-	# check if the character is an ascii character and either add the ascii-lookup or the logic
-	file.write(f'\t\t/* check if the codepoint is an ascii character and speed up its type-lookup */\n')
-	file.write('\t\tif (cp < 0x80)\n')
-	if not highComplexity:
-		file.write(f'\t\t\treturn {config.spName}::{config.varName}LookupAscii(cp);\n\n')
-	else:
-		file.write(f'\t\t\treturn {config.dynLookup}({config.spName}::{config.varName}LookupAscii[cp]);\n\n')
-	
 	# add the binary search for the matching range
-	file.write(f'\t\t/* perform binary search for the matching range */\n')
 	file.write(f'\t\tsize_t left = 0, right = {len(ranges) - 1};\n')
 	file.write('\t\twhile (left < right) {\n')
 	file.write('\t\t\tsize_t center = (right - left) / 2;\n')
-	file.write(f'\t\t\tif (cp < {config.spName}::{config.varName}RangeStart[center])\n')
+	file.write(f'\t\t\tif (cp < {config.spName}::{config.varName}Start[center])\n')
 	file.write('\t\t\t\tright = center - 1;\n')
 	file.write('\t\t\telse\n')
 	file.write('\t\t\t\tleft = center;\n')
 	file.write('\t\t}\n\n')
 
 	# add the check if the codepoint lies within the found range
-	file.write(f'\t\t/* check if the codepoint lies within the found range (size is smaller by one to allow 65536 to be encoded as range-size) */\n')
-	file.write(f'\t\tif (cp - {config.spName}::{config.varName}RangeStart[left] > {config.spName}::{config.varName}RangeSize[left])\n')
+	file.write(f'\t\tif (cp - {config.spName}::{config.varName}Start[left] > {config.spName}::{config.varName}Size[left])\n')
 	file.write(f'\t\t\treturn {config.valMap[config.defValue]};\n')
-	if len(config.valMap) > 0:
-		file.write(f'\t\treturn {config.dynLookup}({config.spName}::{config.varName}RangeType[left]);\n')
-	else:
+
+	# either add the call to the type-lookup or add the array index/return the static value
+	if len(config.valMap) <= 2:
 		file.write(f'\t\treturn {config.valMap[1 - config.defValue]};\n')
+	elif hasLookupFn:
+		file.write(f'\t\treturn {config.spName}::{config.varName}Value(left);\n')
+	else:
+		file.write(f'\t\treturn {config.dynLookup}({config.spName}::{config.varName}Value[left]);\n')
 	file.write('\t}\n')
 
-def WriteLookup(file, ranges: list[Range], config: Config) -> None:
-	ranges = PrepareAndCleanRanges(ranges, config.defValue)
+def MakeLookup(file: io.TextIOWrapper, ranges: list[Range], basicString: bool, config: Config) -> bool:
+	# remove all default-ranges and sort the ranges (default entries will be added back if necessary, but
+	# otherwise the range-checks might get confused as too many un-merged default values are encountered)
+	ranges = SortAndMergeRanges(r for r in ranges if r.valIndex != config.defValue)
 	
-	# check if the complex lookup should be used
-	if len(ranges) > 64:
-		MakeLargeLookup(file, ranges, config)
-	else:
-		MakeSmallLookup(file, ranges, config)
+	# check if it is a simple lookup, in which case a code/buffer lookup is enough (low spread/few ranges)
+	if len(ranges) < 24 or ((ranges[-1].end - ranges[0].start + 1) / sum(r.span() for r in ranges)) < 1.75:
+		ranges = InsertDefValues(ranges, config.defValue, basicString, None)
+		return CodeAndBufferLookup(file, ranges, (ranges[0].start == 0), not basicString, config, not basicString)
 
-def WriteEnumString(file, enName, enMap):
+	# check if its a basic string, as otherwise only code-and-buffer lookups will be offered
+	if not basicString:
+		return False
+
+	# check if its an ascii-only range
+	asciiRanges, binaryRanges = SplitRange(ranges, 0x80)
+	if len(binaryRanges) == 0:
+		CodeAndBufferLookup(file, asciiRanges, (asciiRanges[0].start == 0), False, config, False)
+		return True
+	
+	# check if its a binary-search-only range
+	if len(asciiRanges) == 0:
+		BinarySearchLookup(file, binaryRanges, config)
+		return True
+
+	# setup the code and buffer-lookup and binary-search lookup
+	asciiRanges = InsertDefValues(asciiRanges, config.defValue, True, 0x7f)
+	CodeAndBufferLookup(file, asciiRanges, True, True, config.copy(f'{config.fnName}Ascii'), False)
+	BinarySearchLookup(file, binaryRanges, config.copy(f'{config.fnName}BinSearch'))
+
+	# generate the glue code (i.e. the actual function)
+	file.write(f'\tinline constexpr {config.typeName} {config.fnName}(char32_t cp) {{\n')
+	file.write('\t\tif (cp < 0x80)\n')
+	file.write(f'\t\t\treturn {config.spName}::{config.fnName}Ascii(cp);\n')
+	file.write(f'\t\treturn {config.spName}::{config.fnName}BinSearch(cp);\n')
+	file.write('\t}\n')
+	return True
+
+def WriteLookup(file: io.TextIOWrapper, ranges: list[Range], config: Config) -> None:
+	MakeLookup(file, ranges, True, config)
+
+def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
 	# sort the map to an array based on the actual stored integer indices
 	map = sorted(enMap.keys(), key=lambda x: enMap[x])
 
@@ -373,7 +485,7 @@ def WriteEnumString(file, enName, enMap):
 	file.write(",\n".join([f'\t\t{key}' for key in map]))
 	file.write('\n\t};\n')
 
-def BeginFile(file):
+def BeginFile(file: io.TextIOWrapper):
 	file.write('#pragma once\n')
 	file.write('\n')
 	file.write('#include <cinttypes>\n')
@@ -383,7 +495,7 @@ def BeginFile(file):
 	file.write('*/\n')
 	file.write('namespace str::cp::detail {\n')
 
-def EndFile(file):
+def EndFile(file: io.TextIOWrapper):
 	file.write('}\n')
 
 def RemapRanges(ranges: list[Range], oldMap, newMap) -> list[Range]:
@@ -398,18 +510,18 @@ def RemapRanges(ranges: list[Range], oldMap, newMap) -> list[Range]:
 		remapped.append(Range(ranges[i].start, ranges[i].end, newMap[inverse[ranges[i].valIndex]], ranges[i].chars))
 	return remapped
 
+def InvertMap(prefix, map):
+	out = [0] * len(map)
+	for key in map:
+		out[map[key]] = f'{prefix}{key}'
+	return out
 
 
 
 
 
+# remove varName, just use fnName and append to it?
 
-
-# add ability to enforce lookup-map
-# add 'sparse' optimization use another function call
-# => simply convert type-map to another map and again call lookup on it
-# move direct-lookup to MakeCodeLookup and let it decide if map should be used for indexing
-# => decide based on density of values
 
 
 
