@@ -3,9 +3,6 @@ import urllib.request
 import os
 import sys
 
-# ranges: must not overlap, list of range-elements
-# ranges: will automatically be sorted and merged
-
 # a range consists of: (inclusiveStart, inclusiveEnd, valueIndex, chars)
 class Range:
 	def __init__(self, start, end, valIndex, chars = None) -> None:
@@ -27,6 +24,9 @@ class Range:
 		return (left, right)
 	def span(self) -> int:
 		return (self.end - self.start + 1)
+
+# ranges are lists of range-objects, which must not overlap
+# ranges will automatically be sorted and merged with neighboring ranges
 
 # a config must consist of: (fnName, varName, varAccName, typeName, dynLookup, valMap, defValue)
 #	fnName: name of the function
