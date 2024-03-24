@@ -1,4 +1,7 @@
 import io
+import urllib.request
+import os
+import sys
 
 # ranges: must not overlap, list of range-elements
 # ranges: will automatically be sorted and merged
@@ -428,8 +431,10 @@ def WriteEnumString(file: io.TextIOWrapper, enName, enMap):
 
 def WriteComment(file: io.TextIOWrapper, msg: str, indent: bool):
 	if indent:
+		msg = msg.replace('\n', '\n\t*\t')
 		file.write(f'\t/*\n\t*\t{msg}\n\t*/\n')
 	else:
+		msg = msg.replace('\n', '\n*\t')
 		file.write(f'/*\n*\t{msg}\n*/\n')
 
 def BeginFile(file: io.TextIOWrapper):
@@ -437,7 +442,7 @@ def BeginFile(file: io.TextIOWrapper):
 	file.write('\n')
 	file.write('#include <cinttypes>\n')
 	file.write('\n')
-	WriteComment(file, 'This is an automatically generated file and should not be modified', False)
+	WriteComment(file, 'This is an automatically generated file and should not be modified.\nAll data are based on the lastest information provided by the unicode character database.\nSource: https://www.unicode.org/Public/UCD/latest', False)
 	file.write('namespace str::cp::detail {\n')
 
 def EndFile(file: io.TextIOWrapper):
@@ -549,6 +554,30 @@ def InvertMap(prefix: str, map: map) -> map:
 	for key in map:
 		out[map[key]] = f'{prefix}{key}'
 	return out
+
+
+# download all relevant files from the latest release of the ucd (unicode character database: https://www.unicode.org/Public/UCD/latest)
+def DownloadUCDFiles(refreshFiles: bool) -> None:
+	baseURL = 'https://www.unicode.org/Public/UCD/latest'
+	files = {
+		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
+		'PropList.txt': 'ucd/PropList.txt', 
+		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt'
+	}
+	dirPath = './ucd'
+
+	# check if the directory needs to be created
+	if not os.path.isdir(dirPath):
+		os.mkdir(dirPath)
+
+	# download all of the files (only if they should either be refreshed, or do not exist yet)
+	for file in files:
+		url, path = f'{baseURL}/{files[file]}', f'{dirPath}/{file}'
+		if not refreshFiles and os.path.isfile(path):
+			print(f'skipping [{path}] as the file already exists (use --refresh to enforce a new download)')
+			continue
+		print(f'downloading [{url}] to [{path}]...')
+		urllib.request.urlretrieve(url, path)
 
 
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
@@ -683,6 +712,7 @@ def MakeGraphemeTypeMapping():
 
 
 
-
+# check if the files need to be downloaded
+DownloadUCDFiles('--refresh' in sys.argv)
 MakeCodepointTesting()
 MakeGraphemeTypeMapping()

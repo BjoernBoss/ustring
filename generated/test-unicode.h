@@ -3,7 +3,9 @@
 #include <cinttypes>
 
 /*
-*	This is an automatically generated file and should not be modified
+*	This is an automatically generated file and should not be modified.
+*	All data are based on the lastest information provided by the unicode character database.
+*	Source: https://www.unicode.org/Public/UCD/latest
 */
 namespace str::cp::detail {
 	/*
