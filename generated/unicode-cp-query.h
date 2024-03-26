@@ -6,12 +6,24 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source: https://www.unicode.org/Public/UCD/latest
-*	Generated: 2024-03-24 22:11
+*	Generated: 2024-03-26 15:59
 */
 namespace cp::detail::gen {
-	/*
-	*	Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff
-	*/
+	template <class Type, size_t N>
+	inline constexpr size_t BinarySearch(char32_t cp, const Type (&data)[N]) {
+		size_t left = 0, right = N - 1;
+		while (left < right) {
+			size_t center = (left + right + 1) / 2;
+			if (cp < data[center])
+				right = center - 1;
+			else
+				left = center;
+		}
+		return left;
+	}
+
+
+	/* Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff */
 	inline constexpr bool TestUnicode(char32_t cp) {
 		if ((cp >= 0x0d800 && cp <= 0x0dfff) || cp >= 0x110000)
 			return false;
@@ -19,13 +31,8 @@ namespace cp::detail::gen {
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)
-	*/
-	inline constexpr bool AssignedAscii(char32_t cp) {
-		return true;
-	}
-	static constexpr uint16_t AssignedLowSize[338] = {
+	/* Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use) */
+	static constexpr uint16_t AssignedBuf0[338] = {
 		759,  5,  6,  0, 19,396, 37, 49,  2, 54, 26,  5,269, 59,100, 58, 48, 14, 27,  0, 10, 30,  1,235,  7,  1, 21,  6,  0,  3,  8,
 		  1,  3,  0,  1,  4, 24,  2,  5,  1, 21,  6,  1,  1,  1,  0,  4,  1,  2,  0,  3,  0, 16,  2,  8,  2, 21,  6,  1,  4,  9,  2,
 		  2,  0,  3, 11,  6,  2,  7,  1, 21,  6,  1,  4,  8,  1,  2,  2,  1,  4, 17,  1,  5,  2,  3,  1,  0,  1,  1,  2, 11,  4,  2,
@@ -38,7 +45,7 @@ namespace cp::detail::gen {
 		183,202,  1,  0,  4, 58,  9, 55, 69, 11,115, 29, 77, 10, 32, 54, 13,  9,102, 27,  5,  5,  5,  6,  6, 59,125,  9,11171, 22, 48,
 		365,105,  6,  4, 25,  4,  0,  1,  1,124,444, 53,  0, 41, 50, 18,  3,  4,134,  0,189,  5,  5,  5,  2,  6,  6,  4
 	};
-	static constexpr uint16_t AssignedLowStart[338] = {
+	static constexpr uint16_t AssignedBuf1[338] = {
 		 0x0080, 0x037a, 0x0384, 0x038c, 0x038e, 0x03a3, 0x0531, 0x0559, 0x058d, 0x0591, 0x05d0, 0x05ef, 0x0600, 0x070f, 0x074d, 0x07c0, 0x07fd, 0x0830, 0x0840, 0x085e, 0x0860, 0x0870, 0x0890,
 		 0x0898, 0x0985, 0x098f, 0x0993, 0x09aa, 0x09b2, 0x09b6, 0x09bc, 0x09c7, 0x09cb, 0x09d7, 0x09dc, 0x09df, 0x09e6, 0x0a01, 0x0a05, 0x0a0f, 0x0a13, 0x0a2a, 0x0a32, 0x0a35, 0x0a38, 0x0a3c,
 		 0x0a3e, 0x0a47, 0x0a4b, 0x0a51, 0x0a59, 0x0a5e, 0x0a66, 0x0a81, 0x0a85, 0x0a8f, 0x0a93, 0x0aaa, 0x0ab2, 0x0ab5, 0x0abc, 0x0ac7, 0x0acb, 0x0ad0, 0x0ae0, 0x0ae6, 0x0af9, 0x0b01, 0x0b05,
@@ -55,20 +62,7 @@ namespace cp::detail::gen {
 		 0xab01, 0xab09, 0xab11, 0xab20, 0xab28, 0xab30, 0xab70, 0xabf0, 0xac00, 0xd7b0, 0xd7cb, 0xf900, 0xfa70, 0xfb00, 0xfb13, 0xfb1d, 0xfb38, 0xfb3e, 0xfb40, 0xfb43, 0xfb46, 0xfbd3, 0xfd92,
 		 0xfdcf, 0xfdf0, 0xfe20, 0xfe54, 0xfe68, 0xfe70, 0xfe76, 0xfeff, 0xff01, 0xffc2, 0xffca, 0xffd2, 0xffda, 0xffe0, 0xffe8, 0xfff9
 	};
-	inline constexpr bool AssignedLow(char32_t cp) {
-		size_t left = 0, right = 337;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::AssignedLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::AssignedLowStart[left] > gen::AssignedLowSize[left])
-			return false;
-		return true;
-	}
-	static constexpr uint16_t AssignedHighSize[367] = {
+	static constexpr uint16_t AssignedBuf2[367] = {
 		 11, 25, 18,  1, 14, 13,122,  2, 44, 87, 12,  0, 45, 28, 48, 27, 35, 29, 42, 29, 36, 13,157,  9, 35, 35, 39, 51, 11, 14,  6,
 		  1, 10, 14,  6,  1,310, 21,  7,  5, 41,  8,  5,  0, 43,  1,  0, 22, 71,  8, 18,  1, 32, 26,  0, 55, 19, 49,  1,  7,  2, 28,
 		  2,  9,  8, 63, 38, 11, 53, 28, 26, 25,  3,  6, 72, 50, 50, 45,  9, 30, 41,  2,  1, 42, 41, 25, 27, 22, 77, 35, 67,  0, 24,
@@ -82,7 +76,7 @@ namespace cp::detail::gen {
 		  3,  0,  9, 16,  2,  4, 16,  1, 43, 99, 14, 14, 14, 36,173, 28, 43,  8,  1,  5,983, 16, 12,118, 94, 11,  0, 11, 55,  9, 39,
 		 29,  1,339, 13, 12,  8, 45,  6, 13,  8,  8,146, 54,  9,42719,4153,221,5761,7472,621,541,4938,4191,  0, 95,239
 	};
-	static constexpr uint32_t AssignedHighStart[367] = {
+	static constexpr uint32_t AssignedBuf3[367] = {
 		 0x10000, 0x1000d, 0x10028, 0x1003c, 0x1003f, 0x10050, 0x10080, 0x10100, 0x10107, 0x10137, 0x10190, 0x101a0, 0x101d0, 0x10280, 0x102a0, 0x102e0, 0x10300, 0x1032d, 0x10350, 0x10380, 0x1039f, 0x103c8, 0x10400,
 		 0x104a0, 0x104b0, 0x104d8, 0x10500, 0x10530, 0x1056f, 0x1057c, 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10600, 0x10740, 0x10760, 0x10780, 0x10787, 0x107b2, 0x10800, 0x10808, 0x1080a, 0x10837,
 		 0x1083c, 0x1083f, 0x10857, 0x108a7, 0x108e0, 0x108f4, 0x108fb, 0x1091f, 0x1093f, 0x10980, 0x109bc, 0x109d2, 0x10a05, 0x10a0c, 0x10a15, 0x10a19, 0x10a38, 0x10a3f, 0x10a50, 0x10a60, 0x10ac0, 0x10aeb, 0x10b00,
@@ -100,31 +94,19 @@ namespace cp::detail::gen {
 		 0x1f0c1, 0x1f0d1, 0x1f100, 0x1f1e6, 0x1f210, 0x1f240, 0x1f250, 0x1f260, 0x1f300, 0x1f6dc, 0x1f6f0, 0x1f700, 0x1f77b, 0x1f7e0, 0x1f7f0, 0x1f800, 0x1f810, 0x1f850, 0x1f860, 0x1f890, 0x1f8b0, 0x1f900, 0x1fa60,
 		 0x1fa70, 0x1fa80, 0x1fa90, 0x1fabf, 0x1face, 0x1fae0, 0x1faf0, 0x1fb00, 0x1fb94, 0x1fbf0, 0x20000, 0x2a700, 0x2b740, 0x2b820, 0x2ceb0, 0x2ebf0, 0x2f800, 0x30000, 0x31350, 0xe0001, 0xe0020, 0xe0100
 	};
-	inline constexpr bool AssignedHigh(char32_t cp) {
-		size_t left = 0, right = 366;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::AssignedHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::AssignedHighStart[left] > gen::AssignedHighSize[left])
-			return false;
-		return true;
-	}
 	inline constexpr bool TestAssigned(char32_t cp) {
 		if (cp < 0x80)
-			return gen::AssignedAscii(cp);
-		if (cp < 0x10000)
-			return gen::AssignedLow(cp);
-		return gen::AssignedHigh(cp);
+			return true;
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::AssignedBuf1);
+			return (cp - gen::AssignedBuf1[index] <= gen::AssignedBuf0[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::AssignedBuf3);
+		return (cp - gen::AssignedBuf3[index] <= gen::AssignedBuf2[index]);
 	}
 
 
-	/*
-	*	Automatically generated from: [cp <= 0x7f]
-	*/
+	/* Automatically generated from: [cp <= 0x7f] */
 	inline constexpr bool TestAscii(char32_t cp) {
 		if (cp >= U'\u0080')
 			return false;
@@ -132,9 +114,7 @@ namespace cp::detail::gen {
 	}
 
 
-	/*
-	*	Automatically generated from: [a-zA-Z]
-	*/
+	/* Automatically generated from: [a-zA-Z] */
 	inline constexpr bool TestAlpha(char32_t cp) {
 		if ((cp >= U'A' && cp <= U'Z') || (cp >= U'a' && cp <= U'z'))
 			return true;
@@ -142,9 +122,7 @@ namespace cp::detail::gen {
 	}
 
 
-	/*
-	*	Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff
-	*/
+	/* Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff */
 	static constexpr uint8_t RadixBuf0[123] = {
 		255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
 		255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,255,255,255,255,
@@ -153,23 +131,16 @@ namespace cp::detail::gen {
 	};
 	inline constexpr uint8_t GetRadix(char32_t cp) {
 		if (cp >= U'{')
-			return 0xff;
+			return 255;
 		return uint8_t(gen::RadixBuf0[cp]);
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]
-	*/
-	static constexpr uint8_t DigitAsciiBuf0[10] = {
+	/* Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff] */
+	static constexpr uint8_t DigitBuf0[10] = {
 		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9
 	};
-	inline constexpr uint8_t DigitAscii(char32_t cp) {
-		if (cp >= U'0' && cp <= U'9')
-			return uint8_t(gen::DigitAsciiBuf0[cp - 48]);
-		return 0xff;
-	}
-	static constexpr uint8_t DigitLowValue[416] = {
+	static constexpr uint8_t DigitBuf1[416] = {
 		240,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,
 		  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
 		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,
@@ -184,7 +155,7 @@ namespace cp::detail::gen {
 		  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,
 		  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,241,241,241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9
 	};
-	static constexpr uint8_t DigitLowSize[416] = {
+	static constexpr uint8_t DigitBuf2[416] = {
 		  1,  0,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  2,
@@ -199,7 +170,7 @@ namespace cp::detail::gen {
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 	};
-	static constexpr uint16_t DigitLowStart[416] = {
+	static constexpr uint16_t DigitBuf3[416] = {
 		 0x00b2, 0x00b9, 0x00bc, 0x0660, 0x0661, 0x0662, 0x0663, 0x0664, 0x0665, 0x0666, 0x0667, 0x0668, 0x0669, 0x06f0, 0x06f1, 0x06f2, 0x06f3, 0x06f4, 0x06f5, 0x06f6, 0x06f7, 0x06f8, 0x06f9, 0x07c0,
 		 0x07c1, 0x07c2, 0x07c3, 0x07c4, 0x07c5, 0x07c6, 0x07c7, 0x07c8, 0x07c9, 0x0966, 0x0967, 0x0968, 0x0969, 0x096a, 0x096b, 0x096c, 0x096d, 0x096e, 0x096f, 0x09e6, 0x09e7, 0x09e8, 0x09e9, 0x09ea,
 		 0x09eb, 0x09ec, 0x09ed, 0x09ee, 0x09ef, 0x09f4, 0x0a66, 0x0a67, 0x0a68, 0x0a69, 0x0a6a, 0x0a6b, 0x0a6c, 0x0a6d, 0x0a6e, 0x0a6f, 0x0ae6, 0x0ae7, 0x0ae8, 0x0ae9, 0x0aea, 0x0aeb, 0x0aec, 0x0aed,
@@ -219,20 +190,7 @@ namespace cp::detail::gen {
 		 0xaa55, 0xaa56, 0xaa57, 0xaa58, 0xaa59, 0xabf0, 0xabf1, 0xabf2, 0xabf3, 0xabf4, 0xabf5, 0xabf6, 0xabf7, 0xabf8, 0xabf9, 0xf96b, 0xf973, 0xf978, 0xf9b2, 0xf9d1, 0xf9d3, 0xf9fd, 0xff10, 0xff11,
 		 0xff12, 0xff13, 0xff14, 0xff15, 0xff16, 0xff17, 0xff18, 0xff19
 	};
-	inline constexpr uint8_t DigitLow(char32_t cp) {
-		size_t left = 0, right = 415;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::DigitLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::DigitLowStart[left] > gen::DigitLowSize[left])
-			return 0xff;
-		return uint8_t(gen::DigitLowValue[left]);
-	}
-	static constexpr uint8_t DigitHighValue[362] = {
+	static constexpr uint8_t DigitBuf4[362] = {
 		241,241,241,241,241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,241,241,241,241,241,241,241,240,241,241,241,241,
 		241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,240,241,241,241,241,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
 		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,
@@ -246,7 +204,7 @@ namespace cp::detail::gen {
 		  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,
 		  7,  8,  9,241,241,241,241,241,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241
 	};
-	static constexpr uint8_t DigitHighSize[362] = {
+	static constexpr uint8_t DigitBuf5[362] = {
 		 44, 56,  1, 26,  3,  0,  0,  4,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  7,  6,  8,  4,  5,  1, 15, 45,  3,  4,  1,  2,  4,
 		  7,  7,  6,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  8, 21,  9,  3,  6,  8, 10,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 19,
@@ -260,7 +218,7 @@ namespace cp::detail::gen {
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  8,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0, 58,  2,  3, 44, 14, 10,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 	};
-	static constexpr uint32_t DigitHighStart[362] = {
+	static constexpr uint32_t DigitBuf6[362] = {
 		 0x10107, 0x10140, 0x1018a, 0x102e1, 0x10320, 0x10341, 0x1034a, 0x103d1, 0x104a0, 0x104a1, 0x104a2, 0x104a3, 0x104a4, 0x104a5, 0x104a6, 0x104a7, 0x104a8, 0x104a9, 0x10858, 0x10879, 0x108a7, 0x108fb, 0x10916,
 		 0x109bc, 0x109c0, 0x109d2, 0x10a40, 0x10a44, 0x10a7d, 0x10a9d, 0x10aeb, 0x10b58, 0x10b78, 0x10ba9, 0x10cfa, 0x10d30, 0x10d31, 0x10d32, 0x10d33, 0x10d34, 0x10d35, 0x10d36, 0x10d37, 0x10d38, 0x10d39, 0x10e60,
 		 0x10e69, 0x10f1d, 0x10f51, 0x10fc5, 0x11052, 0x1105b, 0x11066, 0x11067, 0x11068, 0x11069, 0x1106a, 0x1106b, 0x1106c, 0x1106d, 0x1106e, 0x1106f, 0x110f0, 0x110f1, 0x110f2, 0x110f3, 0x110f4, 0x110f5, 0x110f6,
@@ -278,31 +236,26 @@ namespace cp::detail::gen {
 		 0x1e2f9, 0x1e4f0, 0x1e4f1, 0x1e4f2, 0x1e4f3, 0x1e4f4, 0x1e4f5, 0x1e4f6, 0x1e4f7, 0x1e4f8, 0x1e4f9, 0x1e8c7, 0x1e950, 0x1e951, 0x1e952, 0x1e953, 0x1e954, 0x1e955, 0x1e956, 0x1e957, 0x1e958, 0x1e959, 0x1ec71,
 		 0x1ecad, 0x1ecb1, 0x1ed01, 0x1ed2f, 0x1f100, 0x1f10b, 0x1fbf0, 0x1fbf1, 0x1fbf2, 0x1fbf3, 0x1fbf4, 0x1fbf5, 0x1fbf6, 0x1fbf7, 0x1fbf8, 0x1fbf9, 0x2f890
 	};
-	inline constexpr uint8_t DigitHigh(char32_t cp) {
-		size_t left = 0, right = 361;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::DigitHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::DigitHighStart[left] > gen::DigitHighSize[left])
-			return 0xff;
-		return uint8_t(gen::DigitHighValue[left]);
-	}
 	inline constexpr uint8_t GetDigit(char32_t cp) {
-		if (cp < 0x80)
-			return gen::DigitAscii(cp);
-		if (cp < 0x10000)
-			return gen::DigitLow(cp);
-		return gen::DigitHigh(cp);
+		if (cp < 0x80) {
+			if (cp >= U'0' && cp <= U'9')
+				return uint8_t(gen::DigitBuf0[cp - 48]);
+			return 255;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::DigitBuf3);
+			if (cp - gen::DigitBuf3[index] > gen::DigitBuf2[index])
+				return 255;
+			return uint8_t(gen::DigitBuf1[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::DigitBuf6);
+		if (cp - gen::DigitBuf6[index] > gen::DigitBuf5[index])
+			return 255;
+		return uint8_t(gen::DigitBuf4[index]);
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode White_Space property
-	*/
+	/* Automatically generated from: Unicode White_Space property */
 	inline constexpr bool TestWhiteSpace(char32_t cp) {
 		if ((cp >= U'\t' && cp <= U'\r') || cp == U' ' || cp == U'\u0085' || cp == U'\u00a0')
 			return true;
@@ -314,9 +267,7 @@ namespace cp::detail::gen {
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)
-	*/
+	/* Automatically generated from: Unicode General_Category is cc (i.e. C0, C1) */
 	inline constexpr bool TestControl(char32_t cp) {
 		if ((cp >= U' ' && cp <= U'~') || cp >= U'\u00a0')
 			return false;
@@ -324,15 +275,8 @@ namespace cp::detail::gen {
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode derived property Alphabetic
-	*/
-	inline constexpr bool LetterAscii(char32_t cp) {
-		if ((cp >= U'A' && cp <= U'Z') || (cp >= U'a' && cp <= U'z'))
-			return true;
-		return false;
-	}
-	static constexpr uint16_t LetterLowSize[417] = {
+	/* Automatically generated from: Unicode derived property Alphabetic */
+	static constexpr uint16_t LetterBuf0[417] = {
 		  0,  0,  0, 22, 30,457, 11,  4,  0,  0,  0,  4,  1,  3,  0,  0,  2,  0, 19, 82,138,165, 37,  0, 40, 13,  0,  1,  1,  0,
 		 26,  3, 10, 55,  6,101,  7,  7,  2,  2,  0, 47,100, 32,  1,  0, 23, 18, 24, 10, 23,  5, 41, 11,  6, 75, 15,  2, 14, 18,
 		  7,  1, 21,  6,  0,  3,  7,  1,  1,  0,  0,  1,  4,  1,  0,  2,  5,  1, 21,  6,  1,  1,  1,  4,  1,  1,  0,  3,  0,  5,
@@ -348,7 +292,7 @@ namespace cp::detail::gen {
 		 67,  0,  5,  0,  2, 32, 34, 28, 50, 11,  0, 15,  4, 54, 13, 22, 68,  0,  0,  2, 15,  3,  5,  5,  5,  6,  6, 42, 13,122,
 		11171, 22, 48,365,105,  6,  4, 11, 12,  4,  0,  1,  1,107,362, 63, 53, 11,  4,134, 25, 25, 88,  5,  5,  5,  2
 	};
-	static constexpr uint16_t LetterLowStart[417] = {
+	static constexpr uint16_t LetterBuf1[417] = {
 		 0x00aa, 0x00b5, 0x00ba, 0x00c0, 0x00d8, 0x00f8, 0x02c6, 0x02e0, 0x02ec, 0x02ee, 0x0345, 0x0370, 0x0376, 0x037a, 0x037f, 0x0386, 0x0388, 0x038c, 0x038e, 0x03a3, 0x03f7, 0x048a, 0x0531, 0x0559,
 		 0x0560, 0x05b0, 0x05bf, 0x05c1, 0x05c4, 0x05c7, 0x05d0, 0x05ef, 0x0610, 0x0620, 0x0659, 0x066e, 0x06d5, 0x06e1, 0x06ed, 0x06fa, 0x06ff, 0x0710, 0x074d, 0x07ca, 0x07f4, 0x07fa, 0x0800, 0x081a,
 		 0x0840, 0x0860, 0x0870, 0x0889, 0x08a0, 0x08d4, 0x08e3, 0x08f0, 0x093d, 0x094e, 0x0955, 0x0971, 0x0985, 0x098f, 0x0993, 0x09aa, 0x09b2, 0x09b6, 0x09bd, 0x09c7, 0x09cb, 0x09ce, 0x09d7, 0x09dc,
@@ -368,20 +312,7 @@ namespace cp::detail::gen {
 		 0xab11, 0xab20, 0xab28, 0xab30, 0xab5c, 0xab70, 0xac00, 0xd7b0, 0xd7cb, 0xf900, 0xfa70, 0xfb00, 0xfb13, 0xfb1d, 0xfb2a, 0xfb38, 0xfb3e, 0xfb40, 0xfb43, 0xfb46, 0xfbd3, 0xfd50, 0xfd92, 0xfdf0,
 		 0xfe70, 0xfe76, 0xff21, 0xff41, 0xff66, 0xffc2, 0xffca, 0xffd2, 0xffda
 	};
-	inline constexpr bool LetterLow(char32_t cp) {
-		size_t left = 0, right = 416;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::LetterLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::LetterLowStart[left] > gen::LetterLowSize[left])
-			return false;
-		return true;
-	}
-	static constexpr uint16_t LetterHighSize[314] = {
+	static constexpr uint16_t LetterBuf2[314] = {
 		 11, 25, 18,  1, 14, 13,122, 52, 28, 48, 31, 29, 42, 29, 35,  7,  4,157, 35, 35, 39, 51, 10, 14,  6,  1, 10, 14,  6,  1,310, 21,
 		  7,  5, 41,  8,  5,  0, 43,  1,  0, 22, 22, 30, 18,  1, 21, 25, 55,  1,  3,  1,  7,  2, 28, 28, 28,  7, 27, 53, 21, 18, 17, 72,
 		 50, 50, 39, 41,  1,  1, 28,  0, 21, 17, 20, 22, 69,  4, 56,  0, 24, 50,  3, 34,  0, 63,  3,  1,  0,  0, 17, 33,  0,  3,  6,  0,
@@ -393,7 +324,7 @@ namespace cp::detail::gen {
 		  6,  0, 29, 43, 27,  6,  3,  1, 14,196, 67,  0,  0,  3, 26,  1,  0,  0,  9,  3,  0,  0,  0,  0,  0,  0,  2,  1,  0,  0,  0,  0,
 		  0,  0,  1,  0,  3,  6,  3,  3,  0,  9, 16,  2,  4, 16, 25, 25, 25,42719,4153,221,5761,7472,621,541,4938,4191
 	};
-	static constexpr uint32_t LetterHighStart[314] = {
+	static constexpr uint32_t LetterBuf3[314] = {
 		 0x10000, 0x1000d, 0x10028, 0x1003c, 0x1003f, 0x10050, 0x10080, 0x10140, 0x10280, 0x102a0, 0x10300, 0x1032d, 0x10350, 0x10380, 0x103a0, 0x103c8, 0x103d1, 0x10400, 0x104b0, 0x104d8, 0x10500, 0x10530, 0x10570,
 		 0x1057c, 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10600, 0x10740, 0x10760, 0x10780, 0x10787, 0x107b2, 0x10800, 0x10808, 0x1080a, 0x10837, 0x1083c, 0x1083f, 0x10860, 0x10880, 0x108e0, 0x108f4,
 		 0x10900, 0x10920, 0x10980, 0x109be, 0x10a00, 0x10a05, 0x10a0c, 0x10a15, 0x10a19, 0x10a60, 0x10a80, 0x10ac0, 0x10ac9, 0x10b00, 0x10b40, 0x10b60, 0x10b80, 0x10c00, 0x10c80, 0x10cc0, 0x10d00, 0x10e80, 0x10eab,
@@ -409,37 +340,23 @@ namespace cp::detail::gen {
 		 0x1ee39, 0x1ee3b, 0x1ee42, 0x1ee47, 0x1ee49, 0x1ee4b, 0x1ee4d, 0x1ee51, 0x1ee54, 0x1ee57, 0x1ee59, 0x1ee5b, 0x1ee5d, 0x1ee5f, 0x1ee61, 0x1ee64, 0x1ee67, 0x1ee6c, 0x1ee74, 0x1ee79, 0x1ee7e, 0x1ee80, 0x1ee8b,
 		 0x1eea1, 0x1eea5, 0x1eeab, 0x1f130, 0x1f150, 0x1f170, 0x20000, 0x2a700, 0x2b740, 0x2b820, 0x2ceb0, 0x2ebf0, 0x2f800, 0x30000, 0x31350
 	};
-	inline constexpr bool LetterHigh(char32_t cp) {
-		size_t left = 0, right = 313;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::LetterHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::LetterHighStart[left] > gen::LetterHighSize[left])
-			return false;
-		return true;
-	}
 	inline constexpr bool TestLetter(char32_t cp) {
-		if (cp < 0x80)
-			return gen::LetterAscii(cp);
-		if (cp < 0x10000)
-			return gen::LetterLow(cp);
-		return gen::LetterHigh(cp);
+		if (cp < 0x80) {
+			if ((cp >= U'A' && cp <= U'Z') || (cp >= U'a' && cp <= U'z'))
+				return true;
+			return false;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::LetterBuf1);
+			return (cp - gen::LetterBuf1[index] <= gen::LetterBuf0[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::LetterBuf3);
+		return (cp - gen::LetterBuf3[index] <= gen::LetterBuf2[index]);
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric
-	*/
-	inline constexpr bool AlNumAscii(char32_t cp) {
-		if ((cp >= U'0' && cp <= U'9') || (cp >= U'A' && cp <= U'Z') || (cp >= U'a' && cp <= U'z'))
-			return true;
-		return false;
-	}
-	static constexpr uint16_t AlNumLowSize[448] = {
+	/* Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric */
+	static constexpr uint16_t AlNumBuf0[448] = {
 		  0,  1,  0,  1,  2, 22, 30,457, 11,  4,  0,  0,  0,  4,  1,  3,  0,  0,  2,  0, 19, 82,138,165, 37,  0, 40, 13,  0,  1,  1,  0,
 		 26,  3, 10, 55, 16,101,  7,  7, 15,  0, 47,100, 42,  1,  0, 23, 18, 24, 10, 23,  5, 41, 11,  6, 75, 15,  2, 14,  9, 18,  7,  1,
 		 21,  6,  0,  3,  7,  1,  1,  0,  0,  1,  4, 11,  5,  0,  2,  5,  1, 21,  6,  1,  1,  1,  4,  1,  1,  0,  3,  0, 15,  2,  8,  2,
@@ -455,7 +372,7 @@ namespace cp::detail::gen {
 		  4, 19, 32,  5, 51, 67,  0,  9,  5,  0, 45, 34, 28, 50, 11, 10, 30, 54, 13,  9, 22, 68,  0,  0,  2, 15,  3,  5,  5,  5,  6,  6,
 		 42, 13,122,  9,11171, 22, 48,365,105,  6,  4, 11, 12,  4,  0,  1,  1,107,362, 63, 53, 11,  4,134,  9, 25, 25, 88,  5,  5,  5,  2
 	};
-	static constexpr uint16_t AlNumLowStart[448] = {
+	static constexpr uint16_t AlNumBuf1[448] = {
 		 0x00aa, 0x00b2, 0x00b5, 0x00b9, 0x00bc, 0x00c0, 0x00d8, 0x00f8, 0x02c6, 0x02e0, 0x02ec, 0x02ee, 0x0345, 0x0370, 0x0376, 0x037a, 0x037f, 0x0386, 0x0388, 0x038c, 0x038e, 0x03a3, 0x03f7, 0x048a,
 		 0x0531, 0x0559, 0x0560, 0x05b0, 0x05bf, 0x05c1, 0x05c4, 0x05c7, 0x05d0, 0x05ef, 0x0610, 0x0620, 0x0659, 0x066e, 0x06d5, 0x06e1, 0x06ed, 0x06ff, 0x0710, 0x074d, 0x07c0, 0x07f4, 0x07fa, 0x0800,
 		 0x081a, 0x0840, 0x0860, 0x0870, 0x0889, 0x08a0, 0x08d4, 0x08e3, 0x08f0, 0x093d, 0x094e, 0x0955, 0x0966, 0x0971, 0x0985, 0x098f, 0x0993, 0x09aa, 0x09b2, 0x09b6, 0x09bd, 0x09c7, 0x09cb, 0x09ce,
@@ -476,20 +393,7 @@ namespace cp::detail::gen {
 		 0xaadb, 0xaae0, 0xaaf2, 0xab01, 0xab09, 0xab11, 0xab20, 0xab28, 0xab30, 0xab5c, 0xab70, 0xabf0, 0xac00, 0xd7b0, 0xd7cb, 0xf900, 0xfa70, 0xfb00, 0xfb13, 0xfb1d, 0xfb2a, 0xfb38, 0xfb3e, 0xfb40,
 		 0xfb43, 0xfb46, 0xfbd3, 0xfd50, 0xfd92, 0xfdf0, 0xfe70, 0xfe76, 0xff10, 0xff21, 0xff41, 0xff66, 0xffc2, 0xffca, 0xffd2, 0xffda
 	};
-	inline constexpr bool AlNumLow(char32_t cp) {
-		size_t left = 0, right = 447;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::AlNumLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::AlNumLowStart[left] > gen::AlNumLowSize[left])
-			return false;
-		return true;
-	}
-	static constexpr uint16_t AlNumHighSize[359] = {
+	static constexpr uint16_t AlNumBuf2[359] = {
 		 11, 25, 18,  1, 14, 13,122, 44, 56,  1, 28, 48, 26, 35, 29, 42, 29, 35,  7,  4,157,  9, 35, 35, 39, 51, 10, 14,  6,  1,
 		 10, 14,  6,  1,310, 21,  7,  5, 41,  8,  5,  0, 43,  1,  0, 22, 30, 37,  8, 18,  1, 32, 25, 55, 19, 49,  1,  7,  2, 28,
 		  8, 30, 31,  7, 27,  4, 53, 21, 26, 25,  6, 72, 50, 50, 45,  9, 30, 41,  1,  1, 39, 21,  3, 17, 27, 22, 69, 29,  4, 56,
@@ -503,7 +407,7 @@ namespace cp::detail::gen {
 		 14,196,  8, 67,  0,  0,  9, 58,  2,  3, 44, 14,  3, 26,  1,  0,  0,  9,  3,  0,  0,  0,  0,  0,  0,  2,  1,  0,  0,  0,
 		  0,  0,  0,  1,  0,  3,  6,  3,  3,  0,  9, 16,  2,  4, 16, 12, 25, 25, 25,  9,42719,4153,221,5761,7472,621,541,4938,4191
 	};
-	static constexpr uint32_t AlNumHighStart[359] = {
+	static constexpr uint32_t AlNumBuf3[359] = {
 		 0x10000, 0x1000d, 0x10028, 0x1003c, 0x1003f, 0x10050, 0x10080, 0x10107, 0x10140, 0x1018a, 0x10280, 0x102a0, 0x102e1, 0x10300, 0x1032d, 0x10350, 0x10380, 0x103a0, 0x103c8, 0x103d1, 0x10400, 0x104a0, 0x104b0, 0x104d8,
 		 0x10500, 0x10530, 0x10570, 0x1057c, 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10600, 0x10740, 0x10760, 0x10780, 0x10787, 0x107b2, 0x10800, 0x10808, 0x1080a, 0x10837, 0x1083c, 0x1083f, 0x10858, 0x10879,
 		 0x108a7, 0x108e0, 0x108f4, 0x108fb, 0x10920, 0x10980, 0x109bc, 0x109d2, 0x10a05, 0x10a0c, 0x10a15, 0x10a19, 0x10a40, 0x10a60, 0x10a80, 0x10ac0, 0x10ac9, 0x10aeb, 0x10b00, 0x10b40, 0x10b58, 0x10b78, 0x10ba9, 0x10c00,
@@ -520,51 +424,28 @@ namespace cp::detail::gen {
 		 0x1ee00, 0x1ee05, 0x1ee21, 0x1ee24, 0x1ee27, 0x1ee29, 0x1ee34, 0x1ee39, 0x1ee3b, 0x1ee42, 0x1ee47, 0x1ee49, 0x1ee4b, 0x1ee4d, 0x1ee51, 0x1ee54, 0x1ee57, 0x1ee59, 0x1ee5b, 0x1ee5d, 0x1ee5f, 0x1ee61, 0x1ee64, 0x1ee67,
 		 0x1ee6c, 0x1ee74, 0x1ee79, 0x1ee7e, 0x1ee80, 0x1ee8b, 0x1eea1, 0x1eea5, 0x1eeab, 0x1f100, 0x1f130, 0x1f150, 0x1f170, 0x1fbf0, 0x20000, 0x2a700, 0x2b740, 0x2b820, 0x2ceb0, 0x2ebf0, 0x2f800, 0x30000, 0x31350
 	};
-	inline constexpr bool AlNumHigh(char32_t cp) {
-		size_t left = 0, right = 358;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::AlNumHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::AlNumHighStart[left] > gen::AlNumHighSize[left])
-			return false;
-		return true;
-	}
 	inline constexpr bool TestAlNum(char32_t cp) {
-		if (cp < 0x80)
-			return gen::AlNumAscii(cp);
-		if (cp < 0x10000)
-			return gen::AlNumLow(cp);
-		return gen::AlNumHigh(cp);
+		if (cp < 0x80) {
+			if ((cp >= U'0' && cp <= U'9') || (cp >= U'A' && cp <= U'Z') || (cp >= U'a' && cp <= U'z'))
+				return true;
+			return false;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::AlNumBuf1);
+			return (cp - gen::AlNumBuf1[index] <= gen::AlNumBuf0[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::AlNumBuf3);
+		return (cp - gen::AlNumBuf3[index] <= gen::AlNumBuf2[index]);
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs
-	*/
+	/* Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs */
 	enum class PrintableType : uint8_t {
 		none,
 		printable,
 		printSpace
 	};
-	inline constexpr gen::PrintableType PrintableAscii(char32_t cp) {
-		if (cp >= U'!' && cp <= U'~')
-			return gen::PrintableType::printable;
-		if (cp == U' ')
-			return gen::PrintableType::printSpace;
-		return gen::PrintableType::none;
-	}
-	inline constexpr gen::PrintableType PrintableLowValue(size_t index) {
-		if ((index >= 0x00001 && index <= 0x000bb) || (index >= 0x000bd && index <= 0x000f5) || index == 0x000f7)
-			return gen::PrintableType::printable;
-		if (index == 0x000f9 || (index >= 0x000fb && index <= 0x00118) || index >= 0x0011a)
-			return gen::PrintableType::printable;
-		return gen::PrintableType::printSpace;
-	}
-	static constexpr uint16_t PrintableLowSize[350] = {
+	static constexpr uint16_t PrintableBuf0[350] = {
 		  0, 11,713,  5,  6,  0, 19,396, 37, 49,  2, 54, 26,  5, 21,191, 47, 58,100, 58, 48, 14, 27,  0, 10, 30, 73,160,  7,  1, 21,  6,
 		  0,  3,  8,  1,  3,  0,  1,  4, 24,  2,  5,  1, 21,  6,  1,  1,  1,  0,  4,  1,  2,  0,  3,  0, 16,  2,  8,  2, 21,  6,  1,  4,
 		  9,  2,  2,  0,  3, 11,  6,  2,  7,  1, 21,  6,  1,  4,  8,  1,  2,  2,  1,  4, 17,  1,  5,  2,  3,  1,  0,  1,  1,  2, 11,  4,
@@ -577,7 +458,7 @@ namespace cp::detail::gen {
 		 47,29292, 54,347,183,202,  1,  0,  4, 58,  9, 55, 69, 11,115, 29, 77, 10, 32, 54, 13,  9,102, 27,  5,  5,  5,  6,  6, 59,125,  9,
 		11171, 22, 48,365,105,  6,  4, 25,  4,  0,  1,  1,124,444, 53,  0, 41, 50, 18,  3,  4,134,189,  5,  5,  5,  2,  6,  6,  1
 	};
-	static constexpr uint16_t PrintableLowStart[350] = {
+	static constexpr uint16_t PrintableBuf1[350] = {
 		 0x00a0, 0x00a1, 0x00ae, 0x037a, 0x0384, 0x038c, 0x038e, 0x03a3, 0x0531, 0x0559, 0x058d, 0x0591, 0x05d0, 0x05ef, 0x0606, 0x061d, 0x06de, 0x0710, 0x074d, 0x07c0, 0x07fd, 0x0830, 0x0840, 0x085e,
 		 0x0860, 0x0870, 0x0898, 0x08e3, 0x0985, 0x098f, 0x0993, 0x09aa, 0x09b2, 0x09b6, 0x09bc, 0x09c7, 0x09cb, 0x09d7, 0x09dc, 0x09df, 0x09e6, 0x0a01, 0x0a05, 0x0a0f, 0x0a13, 0x0a2a, 0x0a32, 0x0a35,
 		 0x0a38, 0x0a3c, 0x0a3e, 0x0a47, 0x0a4b, 0x0a51, 0x0a59, 0x0a5e, 0x0a66, 0x0a81, 0x0a85, 0x0a8f, 0x0a93, 0x0aaa, 0x0ab2, 0x0ab5, 0x0abc, 0x0ac7, 0x0acb, 0x0ad0, 0x0ae0, 0x0ae6, 0x0af9, 0x0b01,
@@ -594,23 +475,7 @@ namespace cp::detail::gen {
 		 0xab01, 0xab09, 0xab11, 0xab20, 0xab28, 0xab30, 0xab70, 0xabf0, 0xac00, 0xd7b0, 0xd7cb, 0xf900, 0xfa70, 0xfb00, 0xfb13, 0xfb1d, 0xfb38, 0xfb3e, 0xfb40, 0xfb43, 0xfb46, 0xfbd3, 0xfd92, 0xfdcf,
 		 0xfdf0, 0xfe20, 0xfe54, 0xfe68, 0xfe70, 0xfe76, 0xff01, 0xffc2, 0xffca, 0xffd2, 0xffda, 0xffe0, 0xffe8, 0xfffc
 	};
-	inline constexpr gen::PrintableType PrintableLow(char32_t cp) {
-		size_t left = 0, right = 349;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::PrintableLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::PrintableLowStart[left] > gen::PrintableLowSize[left])
-			return gen::PrintableType::none;
-		return gen::PrintableLowValue(left);
-	}
-	inline constexpr gen::PrintableType PrintableHighValue(size_t index) {
-		return gen::PrintableType::printable;
-	}
-	static constexpr uint16_t PrintableHighSize[367] = {
+	static constexpr uint16_t PrintableBuf2[367] = {
 		 11, 25, 18,  1, 14, 13,122,  2, 44, 87, 12,  0, 45, 28, 48, 27, 35, 29, 42, 29, 36, 13,157,  9, 35, 35, 39, 51, 11, 14,  6,
 		  1, 10, 14,  6,  1,310, 21,  7,  5, 41,  8,  5,  0, 43,  1,  0, 22, 71,  8, 18,  1, 32, 26,  0, 55, 19, 49,  1,  7,  2, 28,
 		  2,  9,  8, 63, 38, 11, 53, 28, 26, 25,  3,  6, 72, 50, 50, 45,  9, 30, 41,  2,  1, 42, 41, 25, 27, 22, 77, 35, 61,  4, 24,
@@ -624,7 +489,7 @@ namespace cp::detail::gen {
 		  6,  3,  3,  0,  9, 16,  2,  4, 16,  1, 43, 99, 14, 14, 14, 36,173, 28, 43,  8,  1,  5,983, 16, 12,118, 94, 11,  0, 11, 55,
 		  9, 39, 29,  1,339, 13, 12,  8, 45,  6, 13,  8,  8,146, 54,  9,42719,4153,221,5761,7472,621,541,4938,4191,239
 	};
-	static constexpr uint32_t PrintableHighStart[367] = {
+	static constexpr uint32_t PrintableBuf3[367] = {
 		 0x10000, 0x1000d, 0x10028, 0x1003c, 0x1003f, 0x10050, 0x10080, 0x10100, 0x10107, 0x10137, 0x10190, 0x101a0, 0x101d0, 0x10280, 0x102a0, 0x102e0, 0x10300, 0x1032d, 0x10350, 0x10380, 0x1039f, 0x103c8, 0x10400,
 		 0x104a0, 0x104b0, 0x104d8, 0x10500, 0x10530, 0x1056f, 0x1057c, 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10600, 0x10740, 0x10760, 0x10780, 0x10787, 0x107b2, 0x10800, 0x10808, 0x1080a, 0x10837,
 		 0x1083c, 0x1083f, 0x10857, 0x108a7, 0x108e0, 0x108f4, 0x108fb, 0x1091f, 0x1093f, 0x10980, 0x109bc, 0x109d2, 0x10a05, 0x10a0c, 0x10a15, 0x10a19, 0x10a38, 0x10a3f, 0x10a50, 0x10a60, 0x10ac0, 0x10aeb, 0x10b00,
@@ -642,45 +507,39 @@ namespace cp::detail::gen {
 		 0x1f0a0, 0x1f0b1, 0x1f0c1, 0x1f0d1, 0x1f100, 0x1f1e6, 0x1f210, 0x1f240, 0x1f250, 0x1f260, 0x1f300, 0x1f6dc, 0x1f6f0, 0x1f700, 0x1f77b, 0x1f7e0, 0x1f7f0, 0x1f800, 0x1f810, 0x1f850, 0x1f860, 0x1f890, 0x1f8b0,
 		 0x1f900, 0x1fa60, 0x1fa70, 0x1fa80, 0x1fa90, 0x1fabf, 0x1face, 0x1fae0, 0x1faf0, 0x1fb00, 0x1fb94, 0x1fbf0, 0x20000, 0x2a700, 0x2b740, 0x2b820, 0x2ceb0, 0x2ebf0, 0x2f800, 0x30000, 0x31350, 0xe0100
 	};
-	inline constexpr gen::PrintableType PrintableHigh(char32_t cp) {
-		size_t left = 0, right = 366;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::PrintableHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::PrintableHighStart[left] > gen::PrintableHighSize[left])
-			return gen::PrintableType::none;
-		return gen::PrintableHighValue(left);
-	}
 	inline constexpr gen::PrintableType GetPrintable(char32_t cp) {
-		if (cp < 0x80)
-			return gen::PrintableAscii(cp);
-		if (cp < 0x10000)
-			return gen::PrintableLow(cp);
-		return gen::PrintableHigh(cp);
+		if (cp < 0x80) {
+			if (cp >= U'!' && cp <= U'~')
+				return gen::PrintableType::printable;
+			if (cp == U' ')
+				return gen::PrintableType::printSpace;
+			return gen::PrintableType::none;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::PrintableBuf1);
+			if (cp - gen::PrintableBuf1[index] > gen::PrintableBuf0[index])
+				return gen::PrintableType::none;
+			if ((index >= 0x00001 && index <= 0x000bb) || (index >= 0x000bd && index <= 0x000f5) || index == 0x000f7)
+				return gen::PrintableType::printable;
+			if (index == 0x000f9 || (index >= 0x000fb && index <= 0x00118) || index >= 0x0011a)
+				return gen::PrintableType::printable;
+			return gen::PrintableType::printSpace;
+		}
+		size_t index = gen::BinarySearch(cp, gen::PrintableBuf3);
+		if (cp - gen::PrintableBuf3[index] > gen::PrintableBuf2[index])
+			return gen::PrintableType::none;
+		return gen::PrintableType::printable;
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt
-	*/
+	/* Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt */
 	enum class CaseType : uint8_t {
 		none,
 		lowerCase,
 		upperCase,
 		titleCase
 	};
-	inline constexpr gen::CaseType CaseAscii(char32_t cp) {
-		if (cp >= U'a' && cp <= U'z')
-			return gen::CaseType::lowerCase;
-		if (cp >= U'A' && cp <= U'Z')
-			return gen::CaseType::upperCase;
-		return gen::CaseType::none;
-	}
-	static constexpr uint8_t CaseLowValue[1240] = {
+	static constexpr uint8_t CaseBuf0[1240] = {
 		  1,  1,  1,  2,  2,  1,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,
 		  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,
 		  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,
@@ -721,7 +580,7 @@ namespace cp::detail::gen {
 		  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,
 		  1,  2,  1,  2,  1,  2,  1,  1,  1,  2,  1,  2,  1,  1,  2,  1,  1,  1,  1,  1,  1,  1,  2,  1
 	};
-	static constexpr uint8_t CaseLowSize[1240] = {
+	static constexpr uint8_t CaseBuf1[1240] = {
 		  0,  0,  0, 22,  6, 23,  7,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -762,7 +621,7 @@ namespace cp::detail::gen {
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  4,  0,  4,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  3,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  2,  0,  0,  2, 42, 13, 79,  6,  4, 25, 25
 	};
-	static constexpr uint16_t CaseLowStart[1240] = {
+	static constexpr uint16_t CaseBuf2[1240] = {
 		 0x00aa, 0x00b5, 0x00ba, 0x00c0, 0x00d8, 0x00df, 0x00f8, 0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107, 0x0108, 0x0109, 0x010a, 0x010b, 0x010c, 0x010d, 0x010e, 0x010f, 0x0110,
 		 0x0111, 0x0112, 0x0113, 0x0114, 0x0115, 0x0116, 0x0117, 0x0118, 0x0119, 0x011a, 0x011b, 0x011c, 0x011d, 0x011e, 0x011f, 0x0120, 0x0121, 0x0122, 0x0123, 0x0124, 0x0125, 0x0126, 0x0127, 0x0128,
 		 0x0129, 0x012a, 0x012b, 0x012c, 0x012d, 0x012e, 0x012f, 0x0130, 0x0131, 0x0132, 0x0133, 0x0134, 0x0135, 0x0136, 0x0137, 0x0139, 0x013a, 0x013b, 0x013c, 0x013d, 0x013e, 0x013f, 0x0140, 0x0141,
@@ -816,60 +675,44 @@ namespace cp::detail::gen {
 		 0xa7af, 0xa7b0, 0xa7b5, 0xa7b6, 0xa7b7, 0xa7b8, 0xa7b9, 0xa7ba, 0xa7bb, 0xa7bc, 0xa7bd, 0xa7be, 0xa7bf, 0xa7c0, 0xa7c1, 0xa7c2, 0xa7c3, 0xa7c4, 0xa7c8, 0xa7c9, 0xa7ca, 0xa7d0, 0xa7d1, 0xa7d3,
 		 0xa7d5, 0xa7d6, 0xa7d7, 0xa7d8, 0xa7d9, 0xa7f2, 0xa7f5, 0xa7f6, 0xa7f8, 0xab30, 0xab5c, 0xab70, 0xfb00, 0xfb13, 0xff21, 0xff41
 	};
-	inline constexpr gen::CaseType CaseLow(char32_t cp) {
-		size_t left = 0, right = 1239;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::CaseLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::CaseLowStart[left] > gen::CaseLowSize[left])
-			return gen::CaseType::none;
-		return static_cast<gen::CaseType>(gen::CaseLowValue[left]);
-	}
-	static constexpr uint8_t CaseHighValue[90] = {
+	static constexpr uint8_t CaseBuf3[90] = {
 		  2,  1,  2,  1,  2,  2,  2,  2,  1,  1,  1,  1,  1,  1,  1,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  1,  2,  1,  2,
 		  2,  2,  2,  2,  2,  1,  1,  1,  1,  2,  1,  2,  2,  2,  2,  1,  2,  2,  2,  2,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,
 		  2,  1,  2,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1,  2,  2,  2
 	};
-	static constexpr uint8_t CaseHighSize[90] = {
+	static constexpr uint8_t CaseBuf4[90] = {
 		 39, 39, 35, 35, 10, 14,  6,  1, 10, 14,  6,  1,  0,  2, 41,  8, 50, 50, 31, 31, 31, 31, 25, 25, 25,  6, 17, 25, 25,  0,
 		  1,  0,  1,  3,  7,  3,  0,  6, 10, 25, 25,  1,  3,  7,  6, 25,  1,  3,  4,  0,  6, 25, 25, 25, 25, 25, 25, 25, 25, 25,
 		 25, 25, 25, 27, 24, 24,  5, 24, 24,  5, 24, 24,  5, 24, 24,  5, 24, 24,  5,  0,  0,  9, 19,  5, 61, 33, 33, 25, 25, 25
 	};
-	static constexpr uint32_t CaseHighStart[90] = {
+	static constexpr uint32_t CaseBuf5[90] = {
 		 0x10400, 0x10428, 0x104b0, 0x104d8, 0x10570, 0x1057c, 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10780, 0x10783, 0x10787, 0x107b2, 0x10c80, 0x10cc0, 0x118a0, 0x118c0, 0x16e40, 0x16e60, 0x1d400,
 		 0x1d41a, 0x1d434, 0x1d44e, 0x1d456, 0x1d468, 0x1d482, 0x1d49c, 0x1d49e, 0x1d4a2, 0x1d4a5, 0x1d4a9, 0x1d4ae, 0x1d4b6, 0x1d4bb, 0x1d4bd, 0x1d4c5, 0x1d4d0, 0x1d4ea, 0x1d504, 0x1d507, 0x1d50d, 0x1d516, 0x1d51e,
 		 0x1d538, 0x1d53b, 0x1d540, 0x1d546, 0x1d54a, 0x1d552, 0x1d56c, 0x1d586, 0x1d5a0, 0x1d5ba, 0x1d5d4, 0x1d5ee, 0x1d608, 0x1d622, 0x1d63c, 0x1d656, 0x1d670, 0x1d68a, 0x1d6a8, 0x1d6c2, 0x1d6dc, 0x1d6e2, 0x1d6fc,
 		 0x1d716, 0x1d71c, 0x1d736, 0x1d750, 0x1d756, 0x1d770, 0x1d78a, 0x1d790, 0x1d7aa, 0x1d7c4, 0x1d7ca, 0x1d7cb, 0x1df00, 0x1df0b, 0x1df25, 0x1e030, 0x1e900, 0x1e922, 0x1f130, 0x1f150, 0x1f170
 	};
-	inline constexpr gen::CaseType CaseHigh(char32_t cp) {
-		size_t left = 0, right = 89;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::CaseHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::CaseHighStart[left] > gen::CaseHighSize[left])
-			return gen::CaseType::none;
-		return static_cast<gen::CaseType>(gen::CaseHighValue[left]);
-	}
 	inline constexpr gen::CaseType GetCase(char32_t cp) {
-		if (cp < 0x80)
-			return gen::CaseAscii(cp);
-		if (cp < 0x10000)
-			return gen::CaseLow(cp);
-		return gen::CaseHigh(cp);
+		if (cp < 0x80) {
+			if (cp >= U'A' && cp <= U'Z')
+				return gen::CaseType::upperCase;
+			if (cp >= U'a' && cp <= U'z')
+				return gen::CaseType::lowerCase;
+			return gen::CaseType::none;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::CaseBuf2);
+			if (cp - gen::CaseBuf2[index] > gen::CaseBuf1[index])
+				return gen::CaseType::none;
+			return static_cast<gen::CaseType>(gen::CaseBuf0[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::CaseBuf5);
+		if (cp - gen::CaseBuf5[index] > gen::CaseBuf4[index])
+			return gen::CaseType::none;
+		return static_cast<gen::CaseType>(gen::CaseBuf3[index]);
 	}
 
 
-	/*
-	*	Automatically generated from: Unicode General_Category
-	*/
+	/* Automatically generated from: Unicode General_Category */
 	enum class CategoryType : uint8_t {
 		lu,
 		ll,
@@ -902,33 +745,10 @@ namespace cp::detail::gen {
 		co,
 		cn
 	};
-	static constexpr uint8_t CategoryAsciiBuf0[16] = {
+	static constexpr uint8_t CategoryBuf0[16] = {
 		 22, 17, 17, 17, 19, 17, 17, 17, 13, 14, 17, 18, 17, 12, 17, 17
 	};
-	inline constexpr gen::CategoryType CategoryAscii(char32_t cp) {
-		if (cp >= U'A' && cp <= U'Z')
-			return gen::CategoryType::lu;
-		if (cp >= U'a' && cp <= U'z')
-			return gen::CategoryType::ll;
-		if (cp >= U' ' && cp <= U'/')
-			return static_cast<gen::CategoryType>(gen::CategoryAsciiBuf0[cp - 32]);
-		if (cp >= U'0' && cp <= U'9')
-			return gen::CategoryType::nd;
-		if (cp == U'_')
-			return gen::CategoryType::pc;
-		if (cp == U'^' || cp == U'`')
-			return gen::CategoryType::sk;
-		if (cp <= U'\x1f' || cp >= U'\x7f')
-			return gen::CategoryType::cc;
-		if (cp == U'[' || cp == U'{')
-			return gen::CategoryType::ps;
-		if (cp <= U';' || (cp >= U'?' && cp <= U'\\'))
-			return gen::CategoryType::po;
-		if (cp == U']' || cp == U'}')
-			return gen::CategoryType::pe;
-		return gen::CategoryType::sm;
-	}
-	static constexpr uint8_t CategoryLowValue[2526] = {
+	static constexpr uint8_t CategoryBuf1[2526] = {
 		 25, 22, 17, 19, 21, 17, 20, 21,  4, 15, 18, 26, 21, 20, 21, 18, 10, 20,  1, 17, 20, 10,  4, 16, 10, 17,  0, 18,  0,  1, 18,  1,
 		  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,
 		  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,
@@ -1009,7 +829,7 @@ namespace cp::detail::gen {
 		 14, 17, 18, 12, 18, 17, 19, 17,  4,  4, 26, 17, 19, 17, 13, 14, 17, 18, 17, 12, 17,  8, 17, 18, 17,  0, 13, 17, 14, 20, 11, 20,
 		  1, 13, 18, 14, 18, 13, 14, 17, 13, 14, 17,  4,  3,  4,  3,  4,  4,  4,  4,  4, 19, 18, 20, 21, 19, 21, 18, 21, 26, 21
 	};
-	static constexpr uint16_t CategoryLowSize[2526] = {
+	static constexpr uint16_t CategoryBuf2[2526] = {
 		 31,  0,  0,  3,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  1,  0,  0,  0,  0,  2,  0, 22,  0,  6, 23,  0,  7,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -1090,7 +910,7 @@ namespace cp::detail::gen {
 		  0,  2,  0,  0,  2,  0,  0,  1,  4,134,  0,  2,  0,  2,  0,  0,  0,  0,  0,  0,  1,  9,  1,  2,  1, 25,  0,  0,  0,  0,  0,  0,
 		 25,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  9,  0, 44,  1, 30,  5,  5,  5,  2,  1,  0,  0,  0,  1,  0,  3,  1,  2,  1
 	};
-	static constexpr uint16_t CategoryLowStart[2526] = {
+	static constexpr uint16_t CategoryBuf3[2526] = {
 		 0x0080, 0x00a0, 0x00a1, 0x00a2, 0x00a6, 0x00a7, 0x00a8, 0x00a9, 0x00aa, 0x00ab, 0x00ac, 0x00ad, 0x00ae, 0x00af, 0x00b0, 0x00b1, 0x00b2, 0x00b4, 0x00b5, 0x00b6, 0x00b8, 0x00b9, 0x00ba, 0x00bb,
 		 0x00bc, 0x00bf, 0x00c0, 0x00d7, 0x00d8, 0x00df, 0x00f7, 0x00f8, 0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107, 0x0108, 0x0109, 0x010a, 0x010b, 0x010c, 0x010d, 0x010e, 0x010f,
 		 0x0110, 0x0111, 0x0112, 0x0113, 0x0114, 0x0115, 0x0116, 0x0117, 0x0118, 0x0119, 0x011a, 0x011b, 0x011c, 0x011d, 0x011e, 0x011f, 0x0120, 0x0121, 0x0122, 0x0123, 0x0124, 0x0125, 0x0126, 0x0127,
@@ -1198,20 +1018,7 @@ namespace cp::detail::gen {
 		 0xff41, 0xff5b, 0xff5c, 0xff5d, 0xff5e, 0xff5f, 0xff60, 0xff61, 0xff62, 0xff63, 0xff64, 0xff66, 0xff70, 0xff71, 0xff9e, 0xffa0, 0xffc2, 0xffca, 0xffd2, 0xffda, 0xffe0, 0xffe2, 0xffe3, 0xffe4,
 		 0xffe5, 0xffe8, 0xffe9, 0xffed, 0xfff9, 0xfffc
 	};
-	inline constexpr gen::CategoryType CategoryLow(char32_t cp) {
-		size_t left = 0, right = 2525;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::CategoryLowStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::CategoryLowStart[left] > gen::CategoryLowSize[left])
-			return gen::CategoryType::cn;
-		return static_cast<gen::CategoryType>(gen::CategoryLowValue[left]);
-	}
-	static constexpr uint8_t CategoryHighValue[748] = {
+	static constexpr uint8_t CategoryBuf4[748] = {
 		  4,  4,  4,  4,  4,  4,  4, 17, 10, 21,  9, 10, 21, 10, 21, 21, 21, 21,  5,  4,  4,  5, 10,  4, 10,  4,  9,  4,  9,  4,  5,  4,
 		 17,  4,  4, 17,  9,  0,  1,  4,  8,  0,  1,  4,  4, 17,  0,  0,  0,  0,  1,  1,  1,  1,  4,  4,  4,  3,  3,  3,  4,  4,  4,  4,
 		  4,  4, 17, 10,  4, 21, 10,  4, 10,  4,  4, 10,  4, 10, 17,  4, 17,  4, 10,  4, 10, 10,  4,  5,  5,  5,  4,  4,  4,  5,  5, 10,
@@ -1237,7 +1044,7 @@ namespace cp::detail::gen {
 		 21, 21, 21, 21, 20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,  8,  4,  4,
 		  4,  4,  4,  4,  4,  4,  4, 26, 26,  5, 28, 28
 	};
-	static constexpr uint16_t CategoryHighSize[748] = {
+	static constexpr uint16_t CategoryBuf5[748] = {
 		 11, 25, 18,  1, 14, 13,122,  2, 44,  8, 52,  3, 16,  1,  2, 12,  0, 44,  0, 28, 48,  0, 26, 31,  3, 19,  0,  7,  0, 37,  4, 29,
 		  0, 35,  7,  0,  4, 39, 39, 77,  9, 35, 35, 39, 51,  0, 10, 14,  6,  1, 10, 14,  6,  1,310, 21,  7,  5, 41,  8,  5,  0, 43,  1,
 		  0, 22,  0,  7, 22,  1,  6, 30,  8, 18,  1,  4, 21,  5,  0, 25,  0, 55,  1,  1, 15, 45,  0,  2,  1,  3,  3,  2, 28,  2,  0,  8,
@@ -1263,7 +1070,7 @@ namespace cp::detail::gen {
 		  8,  1,  5,250,  4,727, 16, 12,118, 94, 11,  0, 11, 55,  9, 39, 29,  1,339, 13, 12,  8, 45,  6, 13,  8,  8,146, 54,  9,42719,4153,
 		221,5761,7472,621,541,4938,4191,  0, 95,239,65533,65533
 	};
-	static constexpr uint32_t CategoryHighStart[748] = {
+	static constexpr uint32_t CategoryBuf6[748] = {
 		 0x10000, 0x1000d, 0x10028, 0x1003c, 0x1003f, 0x10050, 0x10080, 0x10100, 0x10107, 0x10137, 0x10140, 0x10175, 0x10179, 0x1018a, 0x1018c, 0x10190, 0x101a0, 0x101d0, 0x101fd, 0x10280, 0x102a0, 0x102e0, 0x102e1, 0x10300,
 		 0x10320, 0x1032d, 0x10341, 0x10342, 0x1034a, 0x10350, 0x10376, 0x10380, 0x1039f, 0x103a0, 0x103c8, 0x103d0, 0x103d1, 0x10400, 0x10428, 0x10450, 0x104a0, 0x104b0, 0x104d8, 0x10500, 0x10530, 0x1056f, 0x10570, 0x1057c,
 		 0x1058c, 0x10594, 0x10597, 0x105a3, 0x105b3, 0x105bb, 0x10600, 0x10740, 0x10760, 0x10780, 0x10787, 0x107b2, 0x10800, 0x10808, 0x1080a, 0x10837, 0x1083c, 0x1083f, 0x10857, 0x10858, 0x10860, 0x10877, 0x10879, 0x10880,
@@ -1297,24 +1104,39 @@ namespace cp::detail::gen {
 		 0x1f890, 0x1f8b0, 0x1f900, 0x1fa60, 0x1fa70, 0x1fa80, 0x1fa90, 0x1fabf, 0x1face, 0x1fae0, 0x1faf0, 0x1fb00, 0x1fb94, 0x1fbf0, 0x20000, 0x2a700, 0x2b740, 0x2b820, 0x2ceb0, 0x2ebf0, 0x2f800, 0x30000, 0x31350, 0xe0001,
 		 0xe0020, 0xe0100, 0xf0000, 0x100000
 	};
-	inline constexpr gen::CategoryType CategoryHigh(char32_t cp) {
-		size_t left = 0, right = 747;
-		while (left < right) {
-			size_t center = (left + right + 1) / 2;
-			if (cp < gen::CategoryHighStart[center])
-				right = center - 1;
-			else
-				left = center;
-		}
-		if (cp - gen::CategoryHighStart[left] > gen::CategoryHighSize[left])
-			return gen::CategoryType::cn;
-		return static_cast<gen::CategoryType>(gen::CategoryHighValue[left]);
-	}
 	inline constexpr gen::CategoryType GetCategory(char32_t cp) {
-		if (cp < 0x80)
-			return gen::CategoryAscii(cp);
-		if (cp < 0x10000)
-			return gen::CategoryLow(cp);
-		return gen::CategoryHigh(cp);
+		if (cp < 0x80) {
+			if (cp >= U'A' && cp <= U'Z')
+				return gen::CategoryType::lu;
+			if (cp >= U'a' && cp <= U'z')
+				return gen::CategoryType::ll;
+			if (cp >= U' ' && cp <= U'/')
+				return static_cast<gen::CategoryType>(gen::CategoryBuf0[cp - 32]);
+			if (cp >= U'0' && cp <= U'9')
+				return gen::CategoryType::nd;
+			if (cp == U'_')
+				return gen::CategoryType::pc;
+			if (cp == U'^' || cp == U'`')
+				return gen::CategoryType::sk;
+			if (cp <= U'\x1f' || cp >= U'\x7f')
+				return gen::CategoryType::cc;
+			if (cp == U'[' || cp == U'{')
+				return gen::CategoryType::ps;
+			if (cp <= U';' || (cp >= U'?' && cp <= U'\\'))
+				return gen::CategoryType::po;
+			if (cp == U']' || cp == U'}')
+				return gen::CategoryType::pe;
+			return gen::CategoryType::sm;
+		}
+		if (cp < 0x10000) {
+			size_t index = gen::BinarySearch(cp, gen::CategoryBuf3);
+			if (cp - gen::CategoryBuf3[index] > gen::CategoryBuf2[index])
+				return gen::CategoryType::cn;
+			return static_cast<gen::CategoryType>(gen::CategoryBuf1[index]);
+		}
+		size_t index = gen::BinarySearch(cp, gen::CategoryBuf6);
+		if (cp - gen::CategoryBuf6[index] > gen::CategoryBuf5[index])
+			return gen::CategoryType::cn;
+		return static_cast<gen::CategoryType>(gen::CategoryBuf4[index]);
 	}
 }
