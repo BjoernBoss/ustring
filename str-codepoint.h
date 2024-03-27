@@ -29,7 +29,7 @@ namespace cp {
 	*	lies in a valid unicode-range, only useful to check if code-point returning function failed or succeeded) */
 	inline constexpr bool Valid(char32_t cp) {
 		/* char32_t is guaranteed to be unsigned */
-		return (cp >= std::min<char32_t>({ cp::Empty, cp::Invalid, cp::Incomplete, cp::NotAscii, cp::WriteFailed }));
+		return (cp < std::min<char32_t>({ cp::Empty, cp::Invalid, cp::Incomplete, cp::NotAscii, cp::WriteFailed }));
 	}
 
 	/* number of ascii characters lie within range: [0, 127] */
