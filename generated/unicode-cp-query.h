@@ -1,12 +1,13 @@
 #pragma once
 
 #include <cinttypes>
+#include <utility>
 
 /*
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source: https://www.unicode.org/Public/UCD/latest
-*	Generated: 2024-03-27 02:24
+*	Generated: 2024-03-27 13:58
 */
 namespace cp::detail::gen {
 	template <class Type, size_t N>
@@ -98,14 +99,16 @@ namespace cp::detail::gen {
 		if (cp < 0x80)
 			return true;
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::AssignedBuf1LowStart);
-			var1LowSizeResult = size_t(gen::AssignedBuf0LowSizeCluster[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::AssignedBuf1LowStart);
+			var1LowSizeResult = gen::AssignedBuf0LowSizeCluster[var0LowIndex];
 			if (cp - gen::AssignedBuf1LowStart[var0LowIndex] > var1LowSizeResult)
 				return true;
 			return false;
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::AssignedBuf3HighStart);
-		var3HighSizeResult = size_t(gen::AssignedBuf2HighSizeCluster[var2HighIndex]);
+		uint16_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::AssignedBuf3HighStart);
+		var3HighSizeResult = gen::AssignedBuf2HighSizeCluster[var2HighIndex];
 		if (cp - gen::AssignedBuf3HighStart[var2HighIndex] > var3HighSizeResult)
 			return false;
 		return true;
@@ -137,16 +140,13 @@ namespace cp::detail::gen {
 	};
 	inline constexpr uint8_t GetRadix(char32_t cp) {
 		if (cp < 0x80)
-			return uint8_t(gen::RadixBuf0AsciiCluster[cp]);
+			return gen::RadixBuf0AsciiCluster[cp];
 		return 255;
 	}
 
 
 	/* Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff] */
-	static constexpr uint8_t DigitBuf0AsciiCluster[10] = {
-		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9
-	};
-	static constexpr uint8_t DigitBuf1LowValueCluster[416] = {
+	static constexpr uint8_t DigitBuf0LowValueCluster[416] = {
 		240,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,
 		  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
 		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,
@@ -161,7 +161,7 @@ namespace cp::detail::gen {
 		  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,
 		  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,241,241,241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9
 	};
-	static constexpr uint8_t DigitBuf2LowSize[416] = {
+	static constexpr uint8_t DigitBuf1LowSize[416] = {
 		  1,  0,  2,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  2,
@@ -176,7 +176,7 @@ namespace cp::detail::gen {
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 	};
-	static constexpr uint16_t DigitBuf3LowStart[416] = {
+	static constexpr uint16_t DigitBuf2LowStart[416] = {
 		 0x00b2, 0x00b9, 0x00bc, 0x0660, 0x0661, 0x0662, 0x0663, 0x0664, 0x0665, 0x0666, 0x0667, 0x0668, 0x0669, 0x06f0, 0x06f1, 0x06f2, 0x06f3, 0x06f4, 0x06f5, 0x06f6, 0x06f7, 0x06f8, 0x06f9, 0x07c0,
 		 0x07c1, 0x07c2, 0x07c3, 0x07c4, 0x07c5, 0x07c6, 0x07c7, 0x07c8, 0x07c9, 0x0966, 0x0967, 0x0968, 0x0969, 0x096a, 0x096b, 0x096c, 0x096d, 0x096e, 0x096f, 0x09e6, 0x09e7, 0x09e8, 0x09e9, 0x09ea,
 		 0x09eb, 0x09ec, 0x09ed, 0x09ee, 0x09ef, 0x09f4, 0x0a66, 0x0a67, 0x0a68, 0x0a69, 0x0a6a, 0x0a6b, 0x0a6c, 0x0a6d, 0x0a6e, 0x0a6f, 0x0ae6, 0x0ae7, 0x0ae8, 0x0ae9, 0x0aea, 0x0aeb, 0x0aec, 0x0aed,
@@ -196,7 +196,7 @@ namespace cp::detail::gen {
 		 0xaa55, 0xaa56, 0xaa57, 0xaa58, 0xaa59, 0xabf0, 0xabf1, 0xabf2, 0xabf3, 0xabf4, 0xabf5, 0xabf6, 0xabf7, 0xabf8, 0xabf9, 0xf96b, 0xf973, 0xf978, 0xf9b2, 0xf9d1, 0xf9d3, 0xf9fd, 0xff10, 0xff11,
 		 0xff12, 0xff13, 0xff14, 0xff15, 0xff16, 0xff17, 0xff18, 0xff19
 	};
-	static constexpr uint8_t DigitBuf4HighValueCluster[362] = {
+	static constexpr uint8_t DigitBuf3HighValueCluster[362] = {
 		241,241,241,241,241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,241,241,241,241,241,241,241,240,241,241,241,241,
 		241,241,241,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,240,241,241,241,241,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
 		  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,
@@ -210,7 +210,7 @@ namespace cp::detail::gen {
 		  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241,  0,  1,  2,  3,  4,  5,  6,
 		  7,  8,  9,241,241,241,241,241,240,241,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,241
 	};
-	static constexpr uint8_t DigitBuf5HighSize[362] = {
+	static constexpr uint8_t DigitBuf4HighSize[362] = {
 		 44, 56,  1, 26,  3,  0,  0,  4,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  7,  6,  8,  4,  5,  1, 15, 45,  3,  4,  1,  2,  4,
 		  7,  7,  6,  5,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  8, 21,  9,  3,  6,  8, 10,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 19,
@@ -224,7 +224,7 @@ namespace cp::detail::gen {
 		  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  8,  0,  0,  0,  0,  0,  0,  0,
 		  0,  0,  0, 58,  2,  3, 44, 14, 10,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
 	};
-	static constexpr uint32_t DigitBuf6HighStart[362] = {
+	static constexpr uint32_t DigitBuf5HighStart[362] = {
 		 0x10107, 0x10140, 0x1018a, 0x102e1, 0x10320, 0x10341, 0x1034a, 0x103d1, 0x104a0, 0x104a1, 0x104a2, 0x104a3, 0x104a4, 0x104a5, 0x104a6, 0x104a7, 0x104a8, 0x104a9, 0x10858, 0x10879, 0x108a7, 0x108fb, 0x10916,
 		 0x109bc, 0x109c0, 0x109d2, 0x10a40, 0x10a44, 0x10a7d, 0x10a9d, 0x10aeb, 0x10b58, 0x10b78, 0x10ba9, 0x10cfa, 0x10d30, 0x10d31, 0x10d32, 0x10d33, 0x10d34, 0x10d35, 0x10d36, 0x10d37, 0x10d38, 0x10d39, 0x10e60,
 		 0x10e69, 0x10f1d, 0x10f51, 0x10fc5, 0x11052, 0x1105b, 0x11066, 0x11067, 0x11068, 0x11069, 0x1106a, 0x1106b, 0x1106c, 0x1106d, 0x1106e, 0x1106f, 0x110f0, 0x110f1, 0x110f2, 0x110f3, 0x110f4, 0x110f5, 0x110f6,
@@ -245,21 +245,23 @@ namespace cp::detail::gen {
 	inline constexpr uint8_t GetDigit(char32_t cp) {
 		if (cp < 0x80) {
 			if (cp >= 0x0030 && cp <= 0x0039)
-				return uint8_t(gen::DigitBuf0AsciiCluster[cp - 48]);
+				return uint8_t(cp - 48);
 			return 255;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::DigitBuf3LowStart);
-			var1LowSizeResult = size_t(gen::DigitBuf2LowSize[var0LowIndex]);
-			if (cp - gen::DigitBuf3LowStart[var0LowIndex] > var1LowSizeResult)
+			uint8_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::DigitBuf2LowStart);
+			var1LowSizeResult = gen::DigitBuf1LowSize[var0LowIndex];
+			if (cp - gen::DigitBuf2LowStart[var0LowIndex] > var1LowSizeResult)
 				return 255;
-			return uint8_t(gen::DigitBuf1LowValueCluster[var0LowIndex]);
+			return gen::DigitBuf0LowValueCluster[var0LowIndex];
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::DigitBuf6HighStart);
-		var3HighSizeResult = size_t(gen::DigitBuf5HighSize[var2HighIndex]);
-		if (cp - gen::DigitBuf6HighStart[var2HighIndex] > var3HighSizeResult)
+		uint8_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::DigitBuf5HighStart);
+		var3HighSizeResult = gen::DigitBuf4HighSize[var2HighIndex];
+		if (cp - gen::DigitBuf5HighStart[var2HighIndex] > var3HighSizeResult)
 			return 255;
-		return uint8_t(gen::DigitBuf4HighValueCluster[var2HighIndex]);
+		return gen::DigitBuf3HighValueCluster[var2HighIndex];
 	}
 
 
@@ -358,14 +360,16 @@ namespace cp::detail::gen {
 			return false;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::LetterBuf1LowStart);
-			var1LowSizeResult = size_t(gen::LetterBuf0LowSizeCluster[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::LetterBuf1LowStart);
+			var1LowSizeResult = gen::LetterBuf0LowSizeCluster[var0LowIndex];
 			if (cp - gen::LetterBuf1LowStart[var0LowIndex] > var1LowSizeResult)
 				return false;
 			return true;
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::LetterBuf3HighStart);
-		var3HighSizeResult = size_t(gen::LetterBuf2HighSizeCluster[var2HighIndex]);
+		uint16_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::LetterBuf3HighStart);
+		var3HighSizeResult = gen::LetterBuf2HighSizeCluster[var2HighIndex];
 		if (cp - gen::LetterBuf3HighStart[var2HighIndex] > var3HighSizeResult)
 			return false;
 		return true;
@@ -448,14 +452,16 @@ namespace cp::detail::gen {
 			return false;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::AlNumBuf1LowStart);
-			var1LowSizeResult = size_t(gen::AlNumBuf0LowSizeCluster[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::AlNumBuf1LowStart);
+			var1LowSizeResult = gen::AlNumBuf0LowSizeCluster[var0LowIndex];
 			if (cp - gen::AlNumBuf1LowStart[var0LowIndex] > var1LowSizeResult)
 				return false;
 			return true;
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::AlNumBuf3HighStart);
-		var3HighSizeResult = size_t(gen::AlNumBuf2HighSizeCluster[var2HighIndex]);
+		uint16_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::AlNumBuf3HighStart);
+		var3HighSizeResult = gen::AlNumBuf2HighSizeCluster[var2HighIndex];
 		if (cp - gen::AlNumBuf3HighStart[var2HighIndex] > var3HighSizeResult)
 			return false;
 		return true;
@@ -539,8 +545,9 @@ namespace cp::detail::gen {
 			return gen::PrintableType::none;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::PrintableBuf1LowStart);
-			var1LowSizeResult = size_t(gen::PrintableBuf0LowSizeCluster[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::PrintableBuf1LowStart);
+			var1LowSizeResult = gen::PrintableBuf0LowSizeCluster[var0LowIndex];
 			if (cp - gen::PrintableBuf1LowStart[var0LowIndex] > var1LowSizeResult)
 				return gen::PrintableType::none;
 			if ((var0LowIndex >= 0x0001 && var0LowIndex <= 0x00bb) || (var0LowIndex >= 0x00bd && var0LowIndex <= 0x00f5) || var0LowIndex == 0x00f7)
@@ -549,8 +556,9 @@ namespace cp::detail::gen {
 				return gen::PrintableType::printable;
 			return gen::PrintableType::printSpace;
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::PrintableBuf3HighStart);
-		var3HighSizeResult = size_t(gen::PrintableBuf2HighSizeCluster[var2HighIndex]);
+		uint16_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::PrintableBuf3HighStart);
+		var3HighSizeResult = gen::PrintableBuf2HighSizeCluster[var2HighIndex];
 		if (cp - gen::PrintableBuf3HighStart[var2HighIndex] > var3HighSizeResult)
 			return gen::PrintableType::none;
 		return gen::PrintableType::printable;
@@ -671,14 +679,16 @@ namespace cp::detail::gen {
 			return gen::CaseType::none;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::CaseBuf2LowStart);
-			var1LowSizeResult = size_t(gen::CaseBuf1LowSize[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::CaseBuf2LowStart);
+			var1LowSizeResult = gen::CaseBuf1LowSize[var0LowIndex];
 			if (cp - gen::CaseBuf2LowStart[var0LowIndex] > var1LowSizeResult)
 				return gen::CaseType::lowerCase;
 			return static_cast<gen::CaseType>(gen::CaseBuf0LowValue[var0LowIndex]);
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::CaseBuf5HighStart);
-		var3HighSizeResult = size_t(gen::CaseBuf4HighSizeCluster[var2HighIndex]);
+		uint8_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::CaseBuf5HighStart);
+		var3HighSizeResult = gen::CaseBuf4HighSizeCluster[var2HighIndex];
 		if (cp - gen::CaseBuf5HighStart[var2HighIndex] > var3HighSizeResult)
 			return gen::CaseType::none;
 		return static_cast<gen::CaseType>(gen::CaseBuf3HighValueCluster[var2HighIndex]);
@@ -1074,14 +1084,16 @@ namespace cp::detail::gen {
 			return gen::CategoryType::sm;
 		}
 		if (cp < 0x10000) {
-			size_t var1LowSizeResult = 0, var0LowIndex = gen::BinarySearch(cp, gen::CategoryBuf3LowStart);
-			var1LowSizeResult = size_t(gen::CategoryBuf2LowSizeCluster[var0LowIndex]);
+			uint16_t var1LowSizeResult = 0;
+			size_t var0LowIndex = gen::BinarySearch(cp, gen::CategoryBuf3LowStart);
+			var1LowSizeResult = gen::CategoryBuf2LowSizeCluster[var0LowIndex];
 			if (cp - gen::CategoryBuf3LowStart[var0LowIndex] > var1LowSizeResult)
 				return gen::CategoryType::ll;
 			return static_cast<gen::CategoryType>(gen::CategoryBuf1LowValueCluster[var0LowIndex]);
 		}
-		size_t var3HighSizeResult = 0, var2HighIndex = gen::BinarySearch(cp, gen::CategoryBuf6HighStart);
-		var3HighSizeResult = size_t(gen::CategoryBuf5HighSizeCluster[var2HighIndex]);
+		uint16_t var3HighSizeResult = 0;
+		size_t var2HighIndex = gen::BinarySearch(cp, gen::CategoryBuf6HighStart);
+		var3HighSizeResult = gen::CategoryBuf5HighSizeCluster[var2HighIndex];
 		if (cp - gen::CategoryBuf6HighStart[var2HighIndex] > var3HighSizeResult)
 			return gen::CategoryType::cn;
 		return static_cast<gen::CategoryType>(gen::CategoryBuf4HighValueCluster[var2HighIndex]);
