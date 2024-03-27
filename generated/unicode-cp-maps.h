@@ -7,7 +7,7 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source: https://www.unicode.org/Public/UCD/latest
-*	Generated: 2024-03-27 14:09
+*	Generated: 2024-03-27 15:37
 */
 namespace cp::detail::gen {
 	template <class Type, size_t N>
@@ -136,7 +136,9 @@ namespace cp::detail::gen {
 				var0DataIndex = 96;
 			else if ((cp >= 0x118c0 && cp <= 0x118df) || (cp >= 0x16e60 && cp <= 0x16e7f))
 				var0DataIndex = 3;
-			else if ((cp >= 0x10597 && cp <= 0x105a1) || (cp >= 0x105a3 && cp <= 0x105b1) || (cp >= 0x105b3 && cp <= 0x105b9) || cp == 0x105bb || cp == 0x105bc)
+			else if ((cp >= 0x105a3 && cp <= 0x105b1) || (cp >= 0x10597 && cp <= 0x105a1))
+				var0DataIndex = 97;
+			else if ((cp >= 0x105b3 && cp <= 0x105b9) || cp == 0x105bb || cp == 0x105bc)
 				var0DataIndex = 97;
 			else
 				var0DataIndex = 0;

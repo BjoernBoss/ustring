@@ -512,10 +512,8 @@ class CodeGen:
 				out += f'{varName} <= {last}'
 			elif not checkUpper and i + 1 == len(ranges):
 				out += f'{varName} >= {first}'
-			elif ranges[i].values[0] == 1:
+			elif ranges[i].span() == 1:
 				out += f'{varName} == {first}'
-			elif ranges[i].values[0] == 2:
-				out += f'{varName} == {first} || {varName} == {last}'
 			elif len(ranges) > 1:
 				out += f'({varName} >= {first} && {varName} <= {last})'
 			else:
@@ -640,15 +638,33 @@ class CodeGen:
 			return f'return {accessString};\n'
 		return f'{outVarName} = {accessString};\n'
 	def _singleRangeCode(self, ranges: list[Range], hint: str, tp: LookupType, inVarName: str, outVarName: str|None) -> str:
-		# perform density-clustering to detect what areas might benefit from buffers and allocate the buffers
-		clusters, clusterAccess, clusterShift = self._density(ranges), [], 0
-		for cluster in clusters:
-			ranges, dropped = Ranges.cluster(ranges, Range(cluster[0] - clusterShift, cluster[1] - clusterShift, (0, len(clusterAccess))))
-			clusterShift += len(dropped) - 1
-			clusterInVarName = inVarName
-			if dropped[0].first > 0:
-				clusterInVarName = f'{clusterInVarName} - {dropped[0].first}'
-			clusterAccess.append(self._singleRangeRawBuffer(dropped, f'{hint}Cluster', tp, clusterInVarName, outVarName))
+		# perform density-clustering to detect what areas might benefit from buffers
+		clusters, clusterAccess = self._density(ranges), []
+
+		# construct the cluster-buffer
+		if len(clusters) > 0:
+			clusterShift, clusterData = 0, []
+
+			# iterate over the clusters and remove them from the range and write the data to the buffer
+			for cluster in clusters:
+				ranges, dropped = Ranges.cluster(ranges, Range(cluster[0] - clusterShift, cluster[1] - clusterShift, (0, len(clusterAccess))))
+				clusterShift += len(dropped) - 1
+				offset = len(clusterData) - dropped[0].first
+				clusterData += [r.values[0] for r in dropped for _ in range(r.first, r.last + 1)]
+
+				# setup the index into the buffer
+				clusterAccess.append(inVarName)
+				if offset != 0:
+					clusterAccess[-1] += (' + ' if offset > 0 else ' - ') + f'{abs(offset)}'
+
+			# write the buffer out and patch the access-strings
+			bufferName = self._buffer(f'{hint}Cluster', clusterData, tp)
+			for i in range(len(clusterAccess)):
+				clusterAccess[i] = tp.dynLookup(f'{bufferName}[{clusterAccess[i]}]', False)
+				if outVarName is None:
+					clusterAccess[i] = f'return {clusterAccess[i]};\n'
+				else:
+					clusterAccess[i] = f'{outVarName} = {clusterAccess[i]};\n'
 
 		# analyze the remaining ranges
 		state, active = self._analyze(ranges), { i for i in range(len(ranges)) }
@@ -686,7 +702,7 @@ class CodeGen:
 				lookupCode += selectedValue
 				return lookupCode
 			
-			# iterate over the selected ranges and construct the ranges to be checked (only the actually relevant ranges, and abuse the value as number of chars within the range)
+			# iterate over the selected ranges and construct the ranges to be checked (only the actually relevant ranges; abuse values as char-count)
 			actual: list[Range] = [Range(ranges[selected[0]].first, ranges[selected[0]].last, ranges[selected[0]].span())]
 			for i in range(1, len(selected)):
 				found = False
@@ -702,13 +718,43 @@ class CodeGen:
 			# check if the upper or lower bounds need to be checked
 			checkLower, checkUpper = any(i in active for i in range(selected[0])), any(i in active for i in range(selected[-1] + 1, len(ranges)))
 
+			# reorganize the conditions to have all larger spans at the start
+			sortedActual: list[Range] = []
+			lastSorted = None
+			if not checkLower:
+				sortedActual.append(actual[0])
+				actual = actual[1:]
+			if not checkUpper:
+				lastSorted = actual[-1]
+				actual = actual[:-1]
+
+			# extract all ranges which contain more than two chars
+			sortedActual += sorted([a for a in actual if a.values[0] > 2], key=lambda x: -x.values[0])
+
+			# add all remaining single checks, but sorted in ascending order
+			actual = [a for a in actual if a.values[0] == 1] + [Range(a.first, a.first, 1) for a in actual if a.values[0] == 2] + [Range(a.last, a.last, 1) for a in actual if a.values[0] == 2]
+			sortedActual += sorted(actual, key=lambda x: x.first)
+
+			# add the last element back
+			if lastSorted is not None:
+				sortedActual.append(lastSorted)
+
 			# create the conditional statement (limit its size to prevent overlong lines)
-			index = 0
-			while index < len(actual):
-				count = len(actual) - index
-				count = min(4, (count // 2) if count in range(5, 8) else count)
-				thisLower, thisUpper = (checkLower or index > 0), (checkUpper or index + count < len(actual))
-				lookupCode += ("else if " if statementCount > 0 else "if ") + self._condition(actual[index:index + count], thisLower, thisUpper, inVarName)
+			perceivedSizeRemaining, index = sum((2 if a.values[0] > 1 else 1) for a in sortedActual), 0
+			while index < len(sortedActual):
+				# compute the number of entries to add to the statement to ensure visual consistency with the if-statements
+				if perceivedSizeRemaining > 6:
+					count, perceivedGoal, perceived = 0, min(perceivedSizeRemaining // 2, 6), 0
+					while perceived < perceivedGoal:
+						perceived += (2 if sortedActual[index + count].values[0] > 1 else 1)
+						count += 1
+					perceivedSizeRemaining -= perceived
+				else:
+					perceivedSizeRemaining, count = 0, len(sortedActual) - index
+
+				# check if the bounds of this statement need to be checked and construct the code for it
+				thisLower, thisUpper = (checkLower or index > 0), (checkUpper or index + count < len(sortedActual))
+				lookupCode += ("else if " if statementCount > 0 else "if ") + self._condition(sortedActual[index:index + count], thisLower, thisUpper, inVarName)
 				if StrHelp.multiLines(selectedValue):
 					lookupCode += ' {\n' + StrHelp.indent(selectedValue) + '}\n'
 				else:
@@ -1162,6 +1208,6 @@ def MakeGraphemeTypeMapping():
 # check if the files need to be downloaded
 DownloadUCDFiles('--refresh' in sys.argv)
 
-# MakeCodepointQuery()
+MakeCodepointQuery()
 MakeCodepointMaps()
 # MakeGraphemeTypeMapping()
