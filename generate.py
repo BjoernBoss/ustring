@@ -2,10 +2,11 @@ import urllib.request
 import os
 import sys
 import datetime
+import math
 
 # ranges are lists of range-objects, which must be sorted and must not overlap/neighbor each other if same type
 #	=> use Ranges.fromRawList to sort and merge an arbitrary list of Range objects
-# ranges map [first-last] to an integer [>= 0]
+# ranges map [first-last] to a non-empty list of integers
 # invariant for ranges: (first >= 0) and (first <= last) and (last <= 2**32 - 1)
 
 class Range:
@@ -64,16 +65,19 @@ class LookupType:
 		out._default = defValue
 		return out
 	@staticmethod
-	def listType(defValue: int, intType: list[int]) -> 'LookupType':
-		smallest, largest = min(intType), max(intType)
-
+	def rangeType(defValue: int, lower: int, upper: int) -> 'LookupType':
 		# lookup the smallest suitable type to be used
 		for i in [8, 16, 32]:
-			if smallest >= 0 and largest <= 2**i - 1:
+			if lower >= 0 and upper <= 2**i - 1:
 				return LookupType.intType(defValue, f'uint{i}_t')
-			elif smallest >= -2**(i - 1) and largest <= 2**(i - 1) - 1:
+			elif lower >= -2**(i - 1) and upper <= 2**(i - 1) - 1:
 				return LookupType.intType(defValue, f'int{i}_t')
 		raise RuntimeError('No datatype suitable for buffer found')
+	@staticmethod
+	def listType(defValue: int, intList: list[int]) -> 'LookupType':
+		if len(intList) == 0:
+			return LookupType.rangeType(defValue, 0, 0)
+		return LookupType.rangeType(defValue, min(intList), max(intList))
 	@staticmethod
 	def enumType(name: str, defValue: str, values: list[str]) -> 'LookupType':
 		out = LookupType()
@@ -129,6 +133,12 @@ class LookupType:
 				return 'uint16_t'
 			return 'uint8_t'
 		raise RuntimeError(f'Unknown kind [{self._kind}] encountered')
+	def bufferSize(self) -> int:
+		typeName = self.bufferType()
+		for i in [8, 16, 32]:
+			if typeName == f'int{i}_t' or typeName == f'uint{i}_t':
+				return i // 8
+		raise RuntimeError(f'Unsupported buffer-type [{typeName}] encountered')
 	def bufferTypeBounds(self) -> tuple[int, int]:
 		typeName = self.bufferType()
 		for i in [8, 16, 32]:
@@ -189,7 +199,7 @@ class Ranges:
 				break
 			aFirst, aLast = (Range.RangeLast, Range.RangeLast) if aNext is None else (aNext.first, aNext.last)
 			bFirst, bLast = (Range.RangeLast, Range.RangeLast) if bNext is None else (bNext.first, bNext.last)
-			
+
 			# find the starting value to be used
 			first = max(nextProcessed, min(aFirst, bFirst))
 
@@ -199,7 +209,7 @@ class Ranges:
 				last = aFirst - 1
 			if first < bFirst and last >= bFirst and bNext is not None:
 				last = bFirst - 1
-			
+
 			# invoke the callback and add the next range to the output
 			val = fn(aNext.values if aFirst <= first else None, bNext.values if bFirst <= first else None)
 			if val is not None:
@@ -223,7 +233,7 @@ class Ranges:
 			return b
 		if b is None:
 			return a
-		
+
 		# perform merge to trigger an exception on invalid merges
 		return Range(0, 0, a).merge(Range(0, 0, b)).values
 	@staticmethod
@@ -337,7 +347,7 @@ class Ranges:
 	def complement(a: list[Range]) -> list[Range]:
 		out: list[Range] = []
 		lastEnd = Range.RangeFirst - 1
-		
+
 		# invert the range including between 0 and the range
 		for i in range(len(a)):
 			if a[i].values != (1,):
@@ -358,147 +368,84 @@ class Ranges:
 				Ranges._appOrMerge(out, Range(i, i, assignValue(i, r.values)))
 		return out
 
-class GeneratedFile:
-	def __init__(self, path: str, addBinSearch: bool) -> None:
-		self._path = path
-		self._file = None
-		self._addBinSearch = addBinSearch
-		self._hadFirstBlock = False
-		self._atStartOfLine = False
-		self._indented = False
-	def __enter__(self) -> 'GeneratedFile':
-		self._file = open(self._path, mode='w', encoding='ascii')
-		self._atStartOfLine = True
-
-		# write the file header
-		self.writeln('#pragma once')
-		self.writeln('')
-		self.writeln('#include <cinttypes>')
-		self.writeln('#include <utility>')
-		self.writeln('')
-		self._writeComment('This is an automatically generated file and should not be modified.\n'
-				  + 'All data are based on the lastest information provided by the unicode character database.\n'
-				  + 'Source: https://www.unicode.org/Public/UCD/latest\n'
-				  + f'Generated: {datetime.datetime.today().strftime('%Y-%m-%d %H:%M')}', False)
-		self.writeln('namespace cp::detail::gen {')
-		self._indented = True
-
-		# check if the binary search template should be added
-		if not self._addBinSearch:
-			return self
-		self._hadFirstBlock = True
-		self.writeln('template <class Type, size_t N>')
-		self.writeln('inline constexpr size_t BinarySearch(char32_t cp, const Type (&data)[N]) {')
-		self.writeln('\tsize_t left = 0, right = N - 1;')
-		self.writeln('\twhile (left < right) {')
-		self.writeln('\t\tsize_t center = (left + right + 1) / 2;')
-		self.writeln('\t\tif (cp < data[center])')
-		self.writeln('\t\t\tright = center - 1;')
-		self.writeln('\t\telse')
-		self.writeln('\t\t\tleft = center;')
-		self.writeln('\t}')
-		self.writeln('\treturn left;')
-		self.writeln('}')
-		return self
-	def __exit__(self, *args) -> None:
-		if self._file is not None:
-			self._file.write('}\n')
-			self._file.close()
-		self._file = None
-		return False
-	def _writeComment(self, msg: str, blockHeader: bool) -> None:
-		if blockHeader:
-			msg = msg.replace('\n', '\n\t*\t')
-			self._file.write(f'\t/* {msg} */\n')
-		else:
-			msg = msg.replace('\n', '\n*\t')
-			self._file.write(f'/*\n*\t{msg}\n*/\n')
-	def beginBlock(self, msg: str) -> None:
-		# ensure an indentation of two newlines to the last block
-		if not self._atStartOfLine:
-			self._file.write('\n')
-		if self._hadFirstBlock:
-			self._file.write('\n\n')
-		self._hadFirstBlock = True
-		self._writeComment(msg, True)
-	def write(self, msg: str) -> None:
-		if len(msg) == 0:
-			return
-		
-		# check if the last text ended in a new-line and add the indentation (only if the next line is not empty)
-		if self._atStartOfLine and msg[0] != '\n' and self._indented:
-			self._file.write('\t')
-
-		# construct the indented string
-		if self._indented:
-			msg = StrHelp.indent(msg, 1, False)
-		
-		# write the indented string out and check if it ended in a newline
-		self._file.write(msg)
-		self._atStartOfLine = (msg[-1] == '\n')
-	def writeln(self, msg: str) -> None:
-		self.write(f'{msg}\n')
-	def binSearch(self, data: str) -> str:
-		if not self._addBinSearch:
-			raise RuntimeError('BinarySearch has not been created')
-		return f'gen::BinarySearch(cp, {data})'
-
 class CodeGen:
-	# final stored size will be smaller by one as sizes of 0 cannot exist
-	MaxBinarySearchSize = 0x10000
+	ListConsideredSparse = 0.3
+	IndirectBufferShiftTests = [0, 1, 2, 3, 4, 5, 6, 7]
+	IndirectBufferNestingLevel = 4
+	IndirectBufferMinSize = 128
+	LookupAsCodeIfLEQRanges = 96
+	CodeGenDensityThreshold = 1 / 2.5
+	DensityMinClusterSize = 8
+	SeparateAsciiRanges = 48
+	MaxBinarySearchValueSize = 0x10000
 
-	ThresholdDensity = 1.0 / 2.0
-	ThresholdClusterSize = 8
-	MaxRangesUntilDedicatedUpper = 48
-	MaxRangesUntilDedicatedAscii = 8
-	NestedBinSearch = False
-	ListConsideredSparse = 0.5
-
-	def __init__(self, file: GeneratedFile, blockName: str, desc: str) -> None:
+	def __init__(self, file: 'GeneratedFile', blockName: str, desc: str) -> None:
+		# global data
 		self._file = file
 		self._file.beginBlock(desc)
-		self._blockName = blockName
+		self._block = blockName
+		self._frames = []
 		self._varIndex = 0
-		self._bufIndex = 0
-		self._inBinSearch = 0
+		self._buffers: list[tuple[str, list[int], LookupType]] = []
 
-	def _buffer(self, hint: str, data: list[int], tp: LookupType|None) -> str:
-		# check if the type should be determined to fit the data
-		if tp is None:
-			tp = LookupType.listType(0, data)
+		# affected by frames
+		self._code = ''
+		self._hint = ''
+		self._inVar = ''
+		self._outTo = ''
+		self._type = None
 
-		# otherwise check if the type is suited for the data
-		else:
-			lowerBound, upperBound = tp.bufferTypeBounds()
-			if any(d < lowerBound or d > upperBound for d in data):
-				raise RuntimeError(f'Type [{tp.typeName()}] is not suited for data')
+	def _pushContext(self, tp: LookupType, inVarName: str, outWriteTo: str, hint: str) -> None:
+		self._frames.append((self._type, self._code, self._hint, self._inVar, self._outTo))
+		self._type = tp
+		self._code = ''
+		self._hint += hint
+		self._inVar = inVarName
+		self._outTo = outWriteTo
+	def _popContext(self) -> str:
+		code = self._code
+		self._type, self._code, self._hint, self._inVar, self._outTo = self._frames.pop()
+		return code
+	def _writeBuffers(self) -> None:
+		for (name, data, tp) in self._buffers:
+			# slightly align the count to get a closer resembles of rectangles
+			valsPerLine = 24
+			estimatedLines = (len(data) + valsPerLine - 1) // valsPerLine
+			valsPerLine = (len(data) + estimatedLines - 1) // estimatedLines
 
-		# construct the buffer-name
-		name = f'{self._blockName}Buf{self._bufIndex}{hint}'
-		self._bufIndex += 1
+			# select the formatting precision based on the type
+			btUnsigned = (tp.bufferType() == 'uint8_t')
+			btSigned = (tp.bufferType() == 'int8_t')
 
-		# check if the values should be written as hex (if more than a quarter of the values are larger than 256)
-		printAsHex = (sum(1 for d in data if d >= 256) * 4 > len(data))
+			# write the header, data, and trailer out
+			self._file.write(f'static constexpr {tp.bufferType()} {name}[{len(data)}] = {{\n\t')
+			for i in range(len(data)):
+				if i > 0:
+					self._file.write(f',{"\n\t" if (i % valsPerLine) == 0 else ""}')
+				if btUnsigned:
+					self._file.write(f' {data[i]:#04x}')
+				elif btSigned:
+					self._file.write(f' {data[i]: #05x}')
+				else:
+					self._file.write(f' {data[i]: #07x}')
+			self._file.writeln('\n};')
 
-		# slightly align the count to get a closer resembles of rectangles
-		valsPerLine = 24 if printAsHex else 32
-		estimatedLines = (len(data) + valsPerLine - 1) // valsPerLine
-		valsPerLine = (len(data) + estimatedLines - 1) // estimatedLines
-	
-		# write the header and the data out
-		self._file.write(f'static constexpr {tp.bufferType()} {name}[{len(data)}] = {{\n\t')
-		for i in range(len(data)):
-			if i > 0:
-				self._file.write(f',{"\n\t" if (i % valsPerLine) == 0 else ""}')
-			self._file.write(f' {data[i]:#06x}' if printAsHex else f'{data[i]:3}')
+	def _value(self, val: int) -> str:
+		return f'{val:#06x}'
+	def _addBuffer(self, data: list[int], tp: LookupType, hint: str) -> str:
+		# check if the type is suited for the data
+		lowerBound, upperBound = tp.bufferTypeBounds()
+		if any(d < lowerBound or d > upperBound for d in data):
+			raise RuntimeError(f'Type [{tp.typeName()}] is not suited for data')
 
-		# close the buffer-string and return the access name
-		self._file.writeln('\n};')
+		# setup the buffer name and define it
+		name = f'{self._block}Buf{len(self._buffers)}{self._hint}{hint}'
+		self._buffers.append((name, data, tp))
 		return f'gen::{name}'
-	def _varName(self, hint: str) -> str:
-		out = f'var{self._varIndex}{hint}'
+	def _addVar(self, hint: str) -> str:
+		name = f'var{self._varIndex}{self._hint}{hint}'
 		self._varIndex += 1
-		return out
+		return name
 	def _condition(self, ranges: list[Range], checkLower: bool, checkUpper: bool, varName: str) -> str:
 		out = '('
 
@@ -506,8 +453,8 @@ class CodeGen:
 		for i in range(len(ranges)):
 			if i > 0:
 				out += ' || '
-				
-			first, last = f'{ranges[i].first:#06x}', f'{ranges[i].last:#06x}'
+
+			first, last = self._value(ranges[i].first), self._value(ranges[i].last)
 			if not checkLower and i == 0:
 				out += f'{varName} <= {last}'
 			elif not checkUpper and i + 1 == len(ranges):
@@ -519,7 +466,8 @@ class CodeGen:
 			else:
 				out += f'{varName} >= {first} && {varName} <= {last}'
 		return out + ')'
-	def _density(self, ranges: list[Range]) -> list[tuple[int, int]]:
+
+	def _density(self, ranges: list[Range], densityThreshold: float, minClusterSize: int) -> list[tuple[int, int]]:
 		# initialize the cluster-map [(first, last, ranges, chars)]
 		clusters = []
 		for i in range(len(ranges)):
@@ -536,7 +484,7 @@ class CodeGen:
 					bestDensity = density
 
 			# check if the pair can be merged or if the threshold has not been reached
-			if bestDensity < CodeGen.ThresholdDensity:
+			if bestDensity < densityThreshold:
 				break
 			l, r = clusters[best], clusters[best + 1]
 			clusters[best] = (l[0], r[1], l[2] + r[2], l[3] + r[3])
@@ -545,7 +493,7 @@ class CodeGen:
 		# remove all clusters, which either did not reach the density or chars threshold
 		index = 0
 		while index < len(clusters):
-			if clusters[index][3] >= CodeGen.ThresholdClusterSize and (clusters[index][2] / clusters[index][3]) >= CodeGen.ThresholdDensity:
+			if clusters[index][3] >= minClusterSize and (clusters[index][2] / clusters[index][3]) >= densityThreshold:
 				index += 1
 			else:
 				clusters = clusters[:index] + clusters[index + 1:]
@@ -559,87 +507,102 @@ class CodeGen:
 				out[ranges[i].values] = []
 			out[ranges[i].values].append(i)
 		return out
-	def _rangeFromList(self, data: list) -> list[Range]:
+	def _rangeFromList(self, data: list[int]) -> list[Range]:
 		return Ranges.fromRawList([Range(i, i, data[i]) for i in range(len(data))])
 
-	def _singleRangeBinarySearch(self, ranges: list[Range], hint: str, tp: LookupType, inVarName: str, outVarName: str|None) -> str:
+	def _binarySearchLookup(self, data: list[int], tp: LookupType, inVarName: str, outWriteTo: str, hint: str, bufMaxNesting: int, bufShiftTests: list[int], bufMinIndSize: int) -> str:
+		self._pushContext(tp, inVarName, outWriteTo, hint)
+		self._indirectBuffer(self._rangeFromList(data), bufMaxNesting, bufShiftTests, bufMinIndSize)
+		return self._popContext()
+	def _binarySearch(self, ranges: list[Range], maxBinSearchSize: int, bufMaxNesting: int, bufShiftTests: list[int], bufMinIndSize: int) -> None:
 		defValue = None
-		
+
 		# check if the last value will be the default value (due to the size-constraints, any too large last-values can produce exeedingly many values)
-		if (ranges[-1].span() // CodeGen.MaxBinarySearchSize) >= len(ranges):
+		if (ranges[-1].span() // maxBinSearchSize) >= len(ranges):
 			defValue = ranges[-1].values
-			ranges = ranges[:-1] + [Range(ranges[-1].first, ranges[-1].first + CodeGen.MaxBinarySearchSize - 1, defValue)]
+			ranges = ranges[:-1] + [Range(ranges[-1].first, ranges[-1].first + maxBinSearchSize - 1, defValue)]
 
 		# update the ranges to adhere to the size-constraints
-		ranges: list[Range] = Ranges.limitSize(ranges, CodeGen.MaxBinarySearchSize)
+		ranges: list[Range] = Ranges.limitSize(ranges, maxBinSearchSize)
 
-		# lookup the base value to be used as default and filter it from the ranges
+		# lookup the base value to be used as default and filter it from the ranges (dont filter the first-most value, as it is necessary to be an element in the binary search-buffer)
 		counts = self._analyze(ranges)
 		if defValue is None:
 			for value in counts:
 				if defValue is None or len(counts[defValue]) < len(counts[value]):
 					defValue = value
-		ranges = Ranges.filter(ranges, defValue)
-	
-		# check if there are more than two values, in which case a lookup for the values is required
-		indexVar, lookupValueCode = self._varName(f'{hint}Index'), None
-		if len(counts) > 2:
-			tempRanges = self._rangeFromList([r.values for r in ranges])
-			lookupValueCode = self._singleRangeLookup(tempRanges, f'{hint}Value', tp, indexVar, outVarName)
-		elif outVarName is None:
-			lookupValueCode = f'return {tp.staticLookup(ranges[0].values[0])};\n'
-		else:
-			lookupValueCode = f'{outVarName} = {tp.staticLookup(ranges[0].values[0])};\n'
+		ranges = ranges[0:1] + Ranges.filter(ranges[1:], defValue)
 
-		# create the lookup code for the ranges sizes (store the size smaller by 1 to allow 65536 to be written)
-		lookupSizeOutVar = self._varName(f'{hint}SizeResult')
+		# setup the initial state of the variables required
+		leftVarName, rightVarName = self._addVar('Left'), self._addVar('Right')
+		centerVarName, sizeVarName = self._addVar('Center'), self._addVar('Size')
+
+		# check if there are more than two values, in which case a lookup for the values is required and otherwise return any value from the range
+		if len(counts) > 2:
+			getValueCode = self._binarySearchLookup([r.values[0] for r in ranges], self._type, leftVarName, self._outTo, 'Value', bufMaxNesting, bufShiftTests, bufMinIndSize)
+			if StrHelp.multiLines(getValueCode):
+				getValueCode = f' {{\n{StrHelp.indent(getValueCode)}}}\n'
+			else:
+				getValueCode = f'\n\t{getValueCode}'
+		else:
+			getValueCode = f'\n\t{self._outTo} {self._type.staticLookup(ranges[0].values[0])};\n'
+
+		# create the lookup code for the ranges sizes (store the size smaller by 1 as a size cannot be 0)
 		sizeBufferList = [r.span() - 1 for r in ranges]
-		sizeBufferType = LookupType.listType(0, sizeBufferList)
-		lookupSizeCode = self._singleRangeLookup(self._rangeFromList(sizeBufferList), f'{hint}Size', sizeBufferType, indexVar, lookupSizeOutVar)
+		sizeBufferType = LookupType.listType(-1, sizeBufferList)
+		getSizeCode = self._binarySearchLookup(sizeBufferList, sizeBufferType, leftVarName, f'{sizeVarName} =', 'Size', bufMaxNesting, bufShiftTests, bufMinIndSize)
 
 		# write the buffer for the first-values out (must be a buffer, as it will be passed
-		# to the binary-search and will hopefully be complex enough to require a binary-search)
-		firstBufferName = self._buffer(f'{hint}Start', [r.first for r in ranges], None)
+		# to the binary-search and will hopefully be complex enough to require a binary-search, and ensure all values are smaller than maxBinSearchSize)
+		startBufferList = [(r.first - ranges[0].first) % maxBinSearchSize for r in ranges]
+		startBufferType = LookupType.listType(-1, startBufferList)
+		startBufferName = self._addBuffer(startBufferList, startBufferType, 'Start')
 
-		# setup the code to perform the binary-search (check input-var greater than size, as size is reduced by one)
-		findValue = f'{sizeBufferType.typeName()} { lookupSizeOutVar} = 0;\n'
-		findValue += f'size_t {indexVar} = {self._file.binSearch(firstBufferName)};\n'
-		
+		# setup the start-buffer offset list and allocate it
+		tempStartBufferOffsets = self._rangeFromList([(r.first - ranges[0].first) // maxBinSearchSize for r in ranges])
+		startBufferOffsets = []
+		for i in range(len(tempStartBufferOffsets)):
+			# add all starts (both the actual, and fill all intermediate holes with the same start)
+			diff: int = (1 if i == 0 else tempStartBufferOffsets[i].values[0] - tempStartBufferOffsets[i - 1].values[0])
+			startBufferOffsets += [tempStartBufferOffsets[i].first] * diff
+		startBufferOffsets.append(tempStartBufferOffsets[-1].last + 1)
+		startBufferOffsetName = self._addBuffer(startBufferOffsets, LookupType.listType(0, startBufferOffsets), 'Offset')
+
+		# add the initial code to offset the input-var correctly
+		if ranges[0].first > 0:
+			self._code += f'{self._inVar} -= {self._value(ranges[0].first)};\n\n'
+
+		# add the code to compute the left and right edge of the binary search
+		self._code += f'{sizeBufferType.typeName()} {sizeVarName} = 0;\n'
+		self._code += f'size_t {leftVarName} = std::min<size_t>({self._inVar} / {self._value(maxBinSearchSize)}, {len(startBufferOffsets) - 2});\n'
+		self._code += f'size_t {rightVarName} = {startBufferOffsetName}[{leftVarName} + 1] - 1;\n'
+		self._code += f'{leftVarName} = {startBufferOffsetName}[{leftVarName}];\n'
+		self._code += '\n'
+
+		# add the code to perform the binary search
+		self._code += f'while ({leftVarName} < {rightVarName}) {{\n'
+		self._code += f'\tsize_t {centerVarName} = ({leftVarName} + {rightVarName} + 1) / 2;\n'
+		self._code += f'\tif ({self._inVar} < {startBufferName}[{centerVarName}])\n'
+		self._code += f'\t\t{rightVarName} = {centerVarName} - 1;\n'
+		self._code += f'\telse\n'
+		self._code += f'\t\t{leftVarName} = {centerVarName};\n'
+		self._code += f'}}\n'
+		self._code += '\n'
+
 		# add the code to fetch the size
-		findValue += lookupSizeCode
+		self._code += getSizeCode
+		self._code += '\n'
 
-		# add the negative size condition
-		findValue += f'if ({inVarName} - {firstBufferName}[{indexVar}] > {lookupSizeOutVar})\n'
-		if outVarName is None:
-			findValue += f'\treturn {tp.staticLookup(defValue[0])};\n'
-		else:
-			findValue += f'\t{outVarName} = {tp.staticLookup(defValue[0])};\n'
+		# add the negative size condition (check input-var greater than size, as size is reduced by one)
+		self._code += f'if ({self._inVar} - {startBufferName}[{leftVarName}] > {sizeVarName})\n'
+		self._code += f'\t{self._outTo} {self._type.staticLookup(defValue[0])};\n'
 
 		# add the code to perform the value-lookup
-		if outVarName is None:
-			findValue += lookupValueCode
-		elif StrHelp.multiLines(lookupValueCode):
-			findValue += 'else {\n' + StrHelp.indent(lookupValueCode) + '}\n'
-		else:
-			findValue += f'else\n\t{lookupValueCode}'
-		return findValue
-	def _singleRangeRawBuffer(self, ranges: list[Range], hint: str, tp: LookupType, inVarName: str, outVarName: str|None) -> str:
-		# check if the buffer is a one-to-one mapping and can just be ignored
-		if all(ranges[i].span() == 1 and ranges[i].values[0] == i for i in range(len(ranges))):
-			accessString = tp.dynLookup(inVarName, True)
+		self._code += 'else' + getValueCode
 
-		# create the buffer to be written out and setup the access string
-		else:
-			bufName = self._buffer(hint, [r.values[0] for r in ranges for _ in range(r.first, r.last + 1)], tp)
-			accessString = tp.dynLookup(f'{bufName}[{inVarName}]', False)
-
-		# return the final assignment/return string
-		if outVarName is None:
-			return f'return {accessString};\n'
-		return f'{outVarName} = {accessString};\n'
-	def _singleRangeCode(self, ranges: list[Range], hint: str, tp: LookupType, inVarName: str, outVarName: str|None) -> str:
+	def _ifElseClusters(self, ranges: list[Range], densityThreshold: float, minClusterSize: int) -> None:
 		# perform density-clustering to detect what areas might benefit from buffers
-		clusters, clusterAccess = self._density(ranges), []
+		clusters, clusterAccess = self._density(ranges, densityThreshold, minClusterSize), []
 
 		# construct the cluster-buffer
 		if len(clusters) > 0:
@@ -653,27 +616,23 @@ class CodeGen:
 				clusterData += [r.values[0] for r in dropped for _ in range(r.first, r.last + 1)]
 
 				# setup the index into the buffer
-				clusterAccess.append(inVarName)
+				clusterAccess.append(self._inVar)
 				if offset != 0:
-					clusterAccess[-1] += (' + ' if offset > 0 else ' - ') + f'{abs(offset)}'
+					clusterAccess[-1] += (' + ' if offset > 0 else ' - ') + f'{self._value(abs(offset))}'
 
 			# write the buffer out and patch the access-strings
-			bufferName = self._buffer(f'{hint}Cluster', clusterData, tp)
+			bufferName = self._addBuffer(clusterData, self._type, 'Cluster')
 			for i in range(len(clusterAccess)):
-				clusterAccess[i] = tp.dynLookup(f'{bufferName}[{clusterAccess[i]}]', False)
-				if outVarName is None:
-					clusterAccess[i] = f'return {clusterAccess[i]};\n'
-				else:
-					clusterAccess[i] = f'{outVarName} = {clusterAccess[i]};\n'
+				clusterAccess[i] = self._type.dynLookup(f'{bufferName}[{clusterAccess[i]}]', False)
+				clusterAccess[i] = f'{self._outTo} {clusterAccess[i]};\n'
 
 		# analyze the remaining ranges
 		state, active = self._analyze(ranges), { i for i in range(len(ranges)) }
 
 		# iterate until all ranges have been processed/inserted
-		lookupCode, statementCount = '', -1
+		statementCount = -1
 		while True:
-			if outVarName is not None:
-				statementCount += 1
+			statementCount += 1
 
 			# look for the ranges with the largest number of characters, which consists of the fewest number of ranges
 			bestValues, bestRanges, bestChars = None, 0, 0
@@ -693,15 +652,15 @@ class CodeGen:
 			if len(bestValues) > 1:
 				selectedValue = clusterAccess[bestValues[1]]
 			else:
-				selectedValue = ('return' if outVarName is None else f'{outVarName} =') + f' {tp.staticLookup(bestValues[0])};\n'
-			
+				selectedValue = f'{self._outTo} {self._type.staticLookup(bestValues[0])};\n'
+
 			# check if these were the last ranges
 			if len(active) == 0:
 				if statementCount > 0:
-					lookupCode += 'else\n\t'
-				lookupCode += selectedValue
-				return lookupCode
-			
+					self._code += 'else\n\t'
+				self._code += selectedValue
+				return
+
 			# iterate over the selected ranges and construct the ranges to be checked (only the actually relevant ranges; abuse values as char-count)
 			actual: list[Range] = [Range(ranges[selected[0]].first, ranges[selected[0]].last, ranges[selected[0]].span())]
 			for i in range(1, len(selected)):
@@ -754,28 +713,249 @@ class CodeGen:
 
 				# check if the bounds of this statement need to be checked and construct the code for it
 				thisLower, thisUpper = (checkLower or index > 0), (checkUpper or index + count < len(sortedActual))
-				lookupCode += ("else if " if statementCount > 0 else "if ") + self._condition(sortedActual[index:index + count], thisLower, thisUpper, inVarName)
+				self._code += ("else if " if statementCount > 0 else "if ") + self._condition(sortedActual[index:index + count], thisLower, thisUpper, self._inVar)
 				if StrHelp.multiLines(selectedValue):
-					lookupCode += ' {\n' + StrHelp.indent(selectedValue) + '}\n'
+					self._code += ' {\n' + StrHelp.indent(selectedValue) + '}\n'
 				else:
-					lookupCode += '\n' + StrHelp.indent(selectedValue)
+					self._code += '\n' + StrHelp.indent(selectedValue)
 				index += count
-	def _singleRangeLookup(self, ranges: list[Range], hint: str, tp: LookupType, inVarName: str, outVarName: str|None) -> str:
-		if any(len(r.values) != 1 for r in ranges):
-			raise RuntimeError('Integer ranges must map exactly to a single value')
-		
-		# check if this is a simple lookup, as code lookup otherwise does not make sense (simple: low spread/few ranges)
-		rangeCoveredChars, actualRangeChars = (ranges[-1].last - ranges[0].first + 1), sum(r.span() for r in ranges)
-		if len(ranges) < 40 or (rangeCoveredChars <= 1.75 * actualRangeChars and rangeCoveredChars <= 3.0 * len(ranges)):
-			return self._singleRangeCode(ranges, hint, tp, inVarName, outVarName)
-		
-		# check if a binary search can be performed or if a buffer-lookup should be done
-		if self._inBinSearch == 0 or CodeGen.NestedBinSearch:
-			self._inBinSearch += 1
-			out = self._singleRangeBinarySearch(ranges, hint, tp, inVarName, outVarName)
-			self._inBinSearch -= 1
-			return out
-		return self._singleRangeRawBuffer(ranges, hint, tp, inVarName, outVarName)
+
+	def _tryIndirectBuffer(self, ranges: list[Range], shift: int) -> tuple[list[int], list[int]]:
+		indexBuffer: list[int] = []
+		dataBuffer: list[int] = []
+		indexMap: map = {}
+
+		# check if this is a simple access (i.e. no indirection), in which case only a data-buffer is returned
+		if shift == 0:
+			dataBuffer = [r.values[0] for r in ranges for _ in range(r.first, r.last + 1)]
+			return (dataBuffer, indexBuffer)
+		count, rangeIndex = (1 << shift), 0
+
+		# iterate over the data and split them up and populate the indices-map
+		for i in range(ranges[0].first, ranges[-1].last + 1, count):
+			listPackage = []
+
+			# fetch the next data from the range from [i : i + count]
+			for j in range(count):
+				if rangeIndex >= len(ranges):
+					listPackage.append(0)
+				else:
+					listPackage.append(ranges[rangeIndex].values[0])
+					if i + j == ranges[rangeIndex].last:
+						rangeIndex += 1
+			tuplePackage = tuple(listPackage)
+
+			# lookup the new index for the package and assign it
+			if tuplePackage not in indexMap:
+				indexMap[tuplePackage] = len(indexMap)
+				dataBuffer += listPackage
+			indexBuffer.append(indexMap[tuplePackage])
+		return (dataBuffer, indexBuffer)
+	def _setupIndirectBuffers(self, ranges: list[Range], tp: LookupType, nestingLevel: int, shiftList: list[int], minIndirectSize: int) -> list[tuple[int, list[int], list[int]]]:
+		# (shift-count, dataBuffer, indexBuffer)
+		out: list[tuple[int, list[int], list[int]]] = []
+		outMemoryCost: int = 0
+
+		# try all variations and find the least memory-intensive break
+		for i in shiftList:
+			# try the next direct combination
+			dataBuffer, indexBuffer = self._tryIndirectBuffer(ranges, i)
+			indexType: LookupType = LookupType.rangeType(0, 0, (len(dataBuffer) // (1 << i)) - 1)
+
+			# setup the temporary result
+			tempOut = [(i, dataBuffer, indexBuffer)]
+			tempMemoryCost: int = len(dataBuffer) * tp.bufferSize() + len(indexBuffer) * indexType.bufferSize()
+
+			# check if the index-buffer can be split further (ignore direct buffers as they are equivalent to the primitive selection)
+			if nestingLevel > 0 and i > 0 and len(indexBuffer) > minIndirectSize:
+				nested = self._setupIndirectBuffers(self._rangeFromList(indexBuffer), indexType, nestingLevel - 1, shiftList, minIndirectSize)
+
+				# compute the cost of the nested result
+				nestCost: int = 0
+				for (_, datBuffer, idxBuffer) in nested:
+					nestCost += LookupType.listType(0, datBuffer).bufferSize() * len(datBuffer)
+					nestCost += LookupType.listType(0, idxBuffer).bufferSize() * len(idxBuffer)
+
+				# check if the nested result is cheaper than the current index buffer
+				if nested[0][0] > 0 and nestCost < len(indexBuffer) * indexType.bufferSize():
+					tempOut = [(i, dataBuffer, [])] + nested
+					tempMemoryCost = len(dataBuffer) * tp.bufferSize() + nestCost
+
+			# check if the new found solution results in a smaller memory footprint
+			if len(out) == 0 or tempMemoryCost < outMemoryCost:
+				out = tempOut
+				outMemoryCost = tempMemoryCost
+		return out
+	def _indirectBuffer(self, ranges: list[Range], nestingLevel: int, shiftList: list[int], minIndirectSize: int) -> None:
+		lowerClipped, upperClipped = False, False
+
+		# check if the range needs to be clipped to prevent too large buffers
+		if len(ranges) > 2:
+			leftEdgeSpan, rightEdgeSpan, centerSpan = ranges[0].span(), ranges[-1].span(), (ranges[-1].first - 1) - (ranges[0].last + 1)
+			lowerClipped = (leftEdgeSpan >= centerSpan)
+			upperClipped = (rightEdgeSpan >= centerSpan)
+
+		# setup the clipped ranges and extract the type for the buffer to be used (dont use the type itself to ensure minimal size)
+		clippedRanges = ranges[(1 if lowerClipped else 0): (-1 if upperClipped else len(ranges))]
+		bufType: LookupType = LookupType.rangeType(0, min(r.values[0] for r in clippedRanges), max(r.values[0] for r in clippedRanges))
+
+		# check if the bounds need to be checked
+		if lowerClipped:
+			self._code += f'if ({self._inVar} <= {self._value(ranges[0].last)})\n'
+			self._code += f'\t{self._outTo} {self._type.staticLookup(ranges[0].values[0])};\n'
+		if upperClipped:
+			self._code += ('else ' if lowerClipped else '') + f'if ({self._inVar} >= {self._value(ranges[-1].first)})\n'
+			self._code += f'\t{self._outTo} {self._type.staticLookup(ranges[-1].values[0])};\n'
+
+		# add the else-block opening
+		indent = ''
+		if lowerClipped or upperClipped:
+			self._code += 'else {\n'
+			indent = '\t'
+
+		# select the list of shifts, data-buffers, index-buffers
+		indirections = self._setupIndirectBuffers(clippedRanges, bufType, nestingLevel, shiftList, minIndirectSize)
+
+		# setup the small and large index buffer as well as the mapping to the corresponding slots
+		indexMap: map = {}
+		smIndexData, lgIndexData = [], []
+		for i in range(len(indirections)):
+			_, datBuffer, idxBuffer = indirections[i]
+
+			# write the data to the buffer
+			if LookupType.listType(0, datBuffer).bufferSize() == 1:
+				indexMap[(i, True)] = (len(smIndexData), True)
+				smIndexData += datBuffer
+			else:
+				indexMap[(i, True)] = (len(lgIndexData), False)
+				lgIndexData += datBuffer
+
+			# write the index to the buffer
+			if len(idxBuffer) > 0:
+				if LookupType.listType(0, idxBuffer).bufferSize() == 1:
+					indexMap[(i, False)] = (len(smIndexData), True)
+					smIndexData += idxBuffer
+				else:
+					indexMap[(i, False)] = (len(lgIndexData), False)
+					lgIndexData += idxBuffer
+			else:
+				indexMap[(i, False)] = (0, None)
+
+		# check if the index buffer(s) need to be allocated and the index-variable
+		indexBufNameSm, indexBufNameLg, indexVarName = '', '', ''
+		if len(smIndexData) > 0:
+			indexBufNameSm = self._addBuffer(smIndexData, LookupType.listType(0, smIndexData), ('IndData' if len(lgIndexData) == 0 else 'IndSmall'))
+		if len(lgIndexData) > 0:
+			indexBufNameLg = self._addBuffer(lgIndexData, LookupType.listType(0, lgIndexData), ('IndData' if len(smIndexData) == 0 else 'IndLarge'))
+		if smIndexData != '' or lgIndexData != '':
+			indexVarName = self._addVar('Index')
+
+		# compute the initial total shift to be applied to the input variable
+		shiftSum: int = sum(ind[0] for ind in indirections)
+
+		# iterate over the indirections and apply them to the index-variable
+		for i in range(len(indirections) - 1, -1, -1):
+			shift = indirections[i][0]
+			dataOffset, dataSmall = indexMap[(i, True)]
+			indexOffset, indexSmall = indexMap[(i, False)]
+
+			# setup the initial lookup variable
+			indexLookupVar, indexLookupAddBrackets = indexVarName, False
+			if i + 1 == len(indirections):
+				indexLookupAddBrackets = clippedRanges[0].first > 0
+				indexLookupVar = (f'{self._inVar} - {self._value(clippedRanges[0].first)}' if indexLookupAddBrackets else self._inVar)
+			indexLookupCode = indexLookupVar
+			if indexLookupAddBrackets:
+				indexLookupVar = f'({indexLookupVar})'
+
+			# setup the actual lookup of the index (if no index is defined, the index-variable already holds the index from the previous indirection)
+			if indexSmall is not None:
+				if shiftSum > 0:
+					if indexLookupAddBrackets:
+						indexLookupCode = f'({indexLookupCode})'
+					indexLookupCode += f' >> {shiftSum}'
+					indexLookupAddBrackets = True
+				if indexOffset > 0:
+					if indexLookupAddBrackets:
+						indexLookupCode = f'({indexLookupCode})'
+					indexLookupCode = f'{self._value(indexOffset)} + {indexLookupCode}'
+				indexLookupCode = f'{indexBufNameSm if indexSmall else indexBufNameLg}[{indexLookupCode}]'
+			shiftSum -= shift
+
+			# add the final operation to compute the final index into the data-buffer for the current indirection
+			if shift > 0:
+				if shiftSum > 0:
+					indexLookupVar = f'({indexLookupVar} >> {shiftSum})'
+				indexLookupCode = f'({indexLookupCode} << {shift}) + ({indexLookupVar} & {(1 << shift) - 1:#04x})'
+
+			# add the final memory lookup (i.e. the 'data')
+			if dataOffset > 0:
+				indexLookupCode = f'{indexBufNameSm if dataSmall else indexBufNameLg}[{indexLookupCode} + {dataOffset:#04x}]'
+			else:
+				indexLookupCode = f'{indexBufNameSm if dataSmall else indexBufNameLg}[{indexLookupCode}]'
+
+			# add the line to the produced code, as well as the final dynamic lookup
+			if i == 0:
+				self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexLookupCode, False)};\n'
+			elif i + 1 == len(indirections):
+				self._code += f'{indent}size_t {indexVarName} = {indexLookupCode};\n'
+			else:
+				self._code += f'{indent}{indexVarName} = {indexLookupCode};\n'
+
+		# add the closing indentation
+		if lowerClipped or upperClipped:
+			self._code += '}\n'
+
+	def _lookupRanges(self, ranges: list[Range], tp: LookupType, addIndentation: bool, inVarName: str, outWriteTo: str, hint: str) -> str:
+		# check if the range is empty or trivial and nothing needs to be done
+		if len(ranges) == 0:
+			return f'{"\n\t" if addIndentation else ""}{outWriteTo} {tp.staticLookup(tp.defValue())};\n'
+		if len(ranges) == 1:
+			return f'{"\n\t" if addIndentation else ""}{outWriteTo} {tp.staticLookup(ranges[0].values[0])};\n'
+
+		# setup the new context for the execution
+		self._pushContext(tp, inVarName, outWriteTo, hint)
+
+		# check if a code-lookup makes sense (i.e. few ranges)
+		if len(ranges) <= CodeGen.LookupAsCodeIfLEQRanges:
+			self._ifElseClusters(ranges, CodeGen.CodeGenDensityThreshold, CodeGen.DensityMinClusterSize)
+
+		# either perform a binary search or use indirect buffers (currently: indirect-buffers have a lower memory-footprint and fewer memory accesses)
+		else:
+			self._indirectBuffer(ranges, CodeGen.IndirectBufferNestingLevel, CodeGen.IndirectBufferShiftTests, CodeGen.IndirectBufferMinSize)
+			# self._binarySearch(ranges, CodeGen.MaxBinarySearchValueSize, CodeGen.IndirectBufferNestingLevel, CodeGen.IndirectBufferShiftTests, CodeGen.IndirectBufferMinSize)
+
+		# fetch the produced code
+		lookupCode: str = self._popContext()
+
+		# check if brackets need to be added
+		if addIndentation:
+			if StrHelp.multiLines(lookupCode):
+				lookupCode = ' {\n' + StrHelp.indent(lookupCode) + '}\n'
+			else:
+				lookupCode = '\n\t' + lookupCode
+		return lookupCode
+	def _fullRangeLookup(self, ranges: list[Range], tp: LookupType, inVarName: str, outVarName: str|None) -> str:
+		# initialize the out variable-name
+		if outVarName is None:
+			outVarName = 'return'
+		else:
+			outVarName += ' ='
+		lookupCode = ''
+
+		# check if the entire ranges should be handled as a single lookup
+		if len(ranges) < CodeGen.SeparateAsciiRanges or ranges[-1].first <= 0x80:
+			return self._lookupRanges(ranges, tp, False, inVarName, outVarName, '')
+
+		# add the ascii lookup
+		lookupCode += f'if ({inVarName} < 0x80)'
+		asciiRanges, upperRanges = Ranges.split(ranges, 0x80)
+		lookupCode += self._lookupRanges(asciiRanges, tp, True, inVarName, outVarName, 'Ascii')
+
+		# add the remaining lookup code
+		lookupCode += 'else'
+		lookupCode += self._lookupRanges(upperRanges, tp, True, inVarName, outVarName, '')
+		return lookupCode
 
 	def addEnum(self, enum: LookupType) -> None:
 		# write the enum out
@@ -784,58 +964,29 @@ class CodeGen:
 		self._file.writeln('};')
 	def intFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
 		print(f'Creating integer-lookup {fnName}...')
-
-		# validate the ranges and fill it
 		Ranges.wellFormed(ranges)
+
+		# fill all holes compared to the entire valid range with the default value
 		ranges = Ranges.fill(ranges, lookupType.defValue(), Range.RangeFirst, Range.RangeLast)
 
-		# break the ranges into three parts [ascii][0x80 - 0xffff][0x10000 - ...] (ascii for fast common performance,
-		# [0x80 - 0xffff] to allow a binary search to potentially fit all start indices into 16-bit, and the rest)
-		asciiRanges, ranges = Ranges.split(ranges, 0x80)
-		lowerRanges, upperRanges = Ranges.split(ranges, 0x10000)
-
-		# check if the upper ranges are trivial, in which case they can be merged (only merge with ascii-range,
-		# if only a single range exists, as it might otherwise still benefit from separate handling)
-		if len(lowerRanges) + len(upperRanges) < CodeGen.MaxRangesUntilDedicatedUpper or len(lowerRanges) == 1 or len(upperRanges) == 1:
-			lowerRanges, upperRanges = ranges, []
-		if len(asciiRanges) + len(lowerRanges) < CodeGen.MaxRangesUntilDedicatedAscii:
-			asciiRanges, lowerRanges = [], Ranges.union(asciiRanges, ranges)
-
-		# create the lookup code for the three ranges
-		asciiCode = ('' if len(asciiRanges) == 0 else self._singleRangeLookup(asciiRanges, 'Ascii', lookupType, 'cp', None))
-		lowerCode = ('' if len(lowerRanges) == 0 else self._singleRangeLookup(lowerRanges, 'Low', lookupType, 'cp', None))
-		higherCode = ('' if len(upperRanges) == 0 else self._singleRangeLookup(upperRanges, 'High', lookupType, 'cp', None))
-
-		# patch the lookup code with the corresponding conditions
-		if asciiCode != '' and (lowerCode != '' or higherCode != ''):
-			if StrHelp.multiLines(asciiCode):
-				asciiCode = f'if (cp < 0x80) {{\n{StrHelp.indent(asciiCode)}}}\n'
-			else:
-				asciiCode = f'if (cp < 0x80)\n{StrHelp.indent(asciiCode)}'
-		if lowerCode != '' and higherCode != '':
-			if StrHelp.multiLines(lowerCode):
-				lowerCode = f'if (cp < 0x10000) {{\n{StrHelp.indent(lowerCode)}}}\n'
-			else:
-				lowerCode = f'if (cp < 0x10000)\n{StrHelp.indent(lowerCode)}'
+		# generate the lookup-code and write the final buffers out
+		lookupCode: str = self._fullRangeLookup(ranges, lookupType, 'cp', None)
+		self._writeBuffers()
 
 		# generate the actual function and insert the final code
 		self._file.writeln(f'inline constexpr {lookupType.typeName()} {fnName}(char32_t cp) {{')
-		if asciiCode != '':
-			self._file.write(StrHelp.indent(asciiCode))
-		if lowerCode != '':
-			self._file.write(StrHelp.indent(lowerCode))
-		if higherCode != '':
-			self._file.write(StrHelp.indent(higherCode))
+		self._file.write(StrHelp.indent(lookupCode))
 		self._file.writeln('}')
 	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
 		print(f'Creating list-lookup {fnName}...')
-
-		# validate the ranges and fill it
 		Ranges.wellFormed(ranges)
+
+		# fill the entire valid range with the default value (must be done before setting up the
+		#	data-buffer as the default-value will otherwise not be written to the data-buffer)
 		ranges = Ranges.fill(ranges, lookupType.defValue(), Range.RangeFirst, Range.RangeLast)
 
-		# check if a sparse buffer should be created (data-buffer contains either single value, or null, followed by
-		#	size, followed by values; null-value also needs special encoding) or simply write size, and data out
+		# check if a sparse buffer should be created for the map (data-buffer contains either single value, or null
+		#	followed by size followed by values; null-value also needs special encoding) or simply write size, and data out
 		sparseBuffer = (sum(1 for r in ranges if len(r.values) > 1) <= len(ranges) * CodeGen.ListConsideredSparse)
 
 		# create the data buffer for the ranges and remap the ranges to indices into the data-buffer
@@ -856,58 +1007,18 @@ class CodeGen:
 			# map the range to the index into the value buffer
 			ranges[i] = Range(ranges[i].first, ranges[i].last, dataIndex[values])
 
-		# write the data buffer out
-		dataBufferName = self._buffer('Data', dataBuffer, lookupType)
+		# define the actual data-buffer and allocate the index-variable to be used
+		dataBufferName: str = self._addBuffer(dataBuffer, lookupType, 'Data')
+		indexVarName: str = self._addVar('Index')
 
-		# break the ranges into three parts [ascii][0x80 - 0xffff][0x10000 - ...] (ascii for fast common performance,
-		# [0x80 - 0xffff] to allow a binary search to potentially fit all start indices into 16-bit, and the rest)
-		asciiRanges, ranges = Ranges.split(ranges, 0x80)
-		lowerRanges, upperRanges = Ranges.split(ranges, 0x10000)
+		# generate the lookup-code and write the final buffers out
+		lookupCode: str = self._fullRangeLookup(ranges, LookupType.rangeType(0, 0, len(dataIndex) - 1), 'cp', indexVarName)
+		self._writeBuffers()
 
-		# check if the upper ranges are trivial, in which case they can be merged (only merge with ascii-range,
-		# if only a single range exists, as it might otherwise still benefit from separate handling)
-		if len(lowerRanges) + len(upperRanges) < CodeGen.MaxRangesUntilDedicatedUpper or len(lowerRanges) == 1 or len(upperRanges) == 1:
-			lowerRanges, upperRanges = ranges, []
-		if len(asciiRanges) + len(lowerRanges) < CodeGen.MaxRangesUntilDedicatedAscii:
-			asciiRanges, lowerRanges = [], Ranges.union(asciiRanges, ranges)
-
-		# create the lookup code for the three ranges
-		indexVarName = self._varName('DataIndex')
-		asciiCode = ('' if len(asciiRanges) == 0 else self._singleRangeLookup(asciiRanges, 'Ascii', lookupType, 'cp', indexVarName))
-		lowerCode = ('' if len(lowerRanges) == 0 else self._singleRangeLookup(lowerRanges, 'Low', lookupType, 'cp', indexVarName))
-		upperCode = ('' if len(upperRanges) == 0 else self._singleRangeLookup(upperRanges, 'High', lookupType, 'cp', indexVarName))
-
-		# patch the lookup code with the corresponding conditions
-		if asciiCode != '' and (lowerCode != '' or upperCode != ''):
-			if StrHelp.multiLines(asciiCode):
-				asciiCode = f'if (cp < 0x80) {{\n{StrHelp.indent(asciiCode)}}}\n'
-			else:
-				asciiCode = f'if (cp < 0x80)\n{StrHelp.indent(asciiCode)}'
-		if lowerCode != '' and upperCode != '':
-			if StrHelp.multiLines(lowerCode):
-				lowerCode = ('else ' if asciiCode != '' else '') + f'if (cp < 0x10000) {{\n{StrHelp.indent(lowerCode)}}}\n'
-			else:
-				lowerCode = ('else ' if asciiCode != '' else '') + f'if (cp < 0x10000)\n{StrHelp.indent(lowerCode)}'
-		if upperCode != '':
-			if StrHelp.multiLines(upperCode):
-				upperCode = f'else {{\n{StrHelp.indent(upperCode)}}}\n'
-			else:
-				upperCode = f'else\n{StrHelp.indent(upperCode)}'
-		elif lowerCode != '':
-			if StrHelp.multiLines(lowerCode):
-				lowerCode = f'else {{\n{StrHelp.indent(lowerCode)}}}\n'
-			else:
-				lowerCode = f'else\n{StrHelp.indent(lowerCode)}'
-
-		# generate the actual function and index evaluation
+		# generate the actual function and insert the generated code
 		self._file.writeln(f'inline constexpr std::pair<size_t, const {lookupType.typeName()}*> {fnName}(char32_t cp) {{')
 		self._file.writeln(f'\tsize_t {indexVarName} = 0;')
-		if asciiCode != '':
-			self._file.write(StrHelp.indent(asciiCode))
-		if lowerCode != '':
-			self._file.write(StrHelp.indent(lowerCode))
-		if upperCode != '':
-			self._file.write(StrHelp.indent(upperCode))
+		self._file.write(StrHelp.indent(lookupCode))
 
 		# add the logic to extract the size and data
 		if sparseBuffer:
@@ -917,6 +1028,72 @@ class CodeGen:
 		else:
 			self._file.writeln(f'\treturn {{ size_t({dataBufferName}[{indexVarName}]), {dataBufferName} + {indexVarName} + 1 }};')
 		self._file.writeln('}')
+
+class GeneratedFile:
+	def __init__(self, path: str) -> None:
+		self._path = path
+		self._file = None
+		self._hadFirstBlock = False
+		self._atStartOfLine = False
+		self._indented = False
+	def __enter__(self) -> 'GeneratedFile':
+		self._file = open(self._path, mode='w', encoding='ascii')
+		self._atStartOfLine = True
+
+		# write the file header
+		self.writeln('#pragma once')
+		self.writeln('')
+		self.writeln('#include <cinttypes>')
+		self.writeln('#include <utility>')
+		self.writeln('#include <algorithm>')
+		self.writeln('')
+		self._writeComment('This is an automatically generated file and should not be modified.\n'
+				  + 'All data are based on the lastest information provided by the unicode character database.\n'
+				  + 'Source: https://www.unicode.org/Public/UCD/latest\n'
+				  + f'Generated: {datetime.datetime.today().strftime('%Y-%m-%d %H:%M')}', False)
+		self.writeln('namespace cp::detail::gen {')
+		self._indented = True
+		return self
+	def __exit__(self, *args) -> None:
+		if self._file is not None:
+			self._file.write('}\n')
+			self._file.close()
+		self._file = None
+		return False
+	def _writeComment(self, msg: str, blockHeader: bool) -> None:
+		if blockHeader:
+			msg = msg.replace('\n', '\n\t*\t')
+			self._file.write(f'\t/* {msg} */\n')
+		else:
+			msg = msg.replace('\n', '\n*\t')
+			self._file.write(f'/*\n*\t{msg}\n*/\n')
+	def beginBlock(self, msg: str) -> None:
+		# ensure an indentation of two newlines to the last block
+		if not self._atStartOfLine:
+			self._file.write('\n')
+		if self._hadFirstBlock:
+			self._file.write('\n\n')
+		self._hadFirstBlock = True
+		self._writeComment(msg, True)
+	def write(self, msg: str) -> None:
+		if len(msg) == 0:
+			return
+
+		# check if the last text ended in a new-line and add the indentation (only if the next line is not empty)
+		if self._atStartOfLine and msg[0] != '\n' and self._indented:
+			self._file.write('\t')
+
+		# construct the indented string
+		if self._indented:
+			msg = StrHelp.indent(msg, 1, False)
+
+		# write the indented string out and check if it ended in a newline
+		self._file.write(msg)
+		self._atStartOfLine = (msg[-1] == '\n')
+	def writeln(self, msg: str) -> None:
+		self.write(f'{msg}\n')
+	def next(self, blockName: str, desc: str) -> CodeGen:
+		return CodeGen(self, blockName, desc)
 
 class ParsedFile:
 	def _parseLine(self, line: str) -> None:
@@ -943,7 +1120,7 @@ class ParsedFile:
 		return [missing, int(begin, 16), int(last, 16), fields]
 	def _parseFile(self, path: str, legacyRanges: bool) -> None:
 		print(f'Parsing [{path}]...')
-		
+
 		# open the file for reading and iterate over its lines
 		with open(path, 'r', encoding='utf-8') as file:
 			legacyState = None
@@ -1012,7 +1189,7 @@ class ParsedFile:
 				if default != None:
 					raise RuntimeError('Multiple default values encountered')
 				default = valIndex
-			
+
 			# add the range to the list
 			else:
 				ranges.append(Range(begin, last, valIndex))
@@ -1023,6 +1200,8 @@ class ParsedFile:
 
 		# sanitize and organize the ranges
 		return Ranges.fromRawList(ranges), default
+
+
 
 
 
@@ -1049,17 +1228,6 @@ def DownloadUCDFiles(refreshFiles: bool) -> None:
 		print(f'downloading [{url}] to [{path}]...')
 		urllib.request.urlretrieve(url, path)
 
-
-
-
-
-# indirection optimization possible? i.e. buf1[buf0[data >> 4] ...]
-# expand all paths and create cost estimations and then pick implementation based on costs
-
-
-
-
-
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
 def MakeCodepointQuery():
 	# parse the relevant files
@@ -1068,60 +1236,60 @@ def MakeCodepointQuery():
 	propList = ParsedFile('generated/ucd/PropList.txt', False)
 
 	# write all lookup functions to the file
-	with GeneratedFile('generated/unicode-cp-query.h', True) as file:
+	with GeneratedFile('generated/unicode-cp-query.h') as file:
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
-		_gen: CodeGen = CodeGen(file, 'Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
+		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
 		_gen.intFunction('TestUnicode', LookupType.boolType(), unicodeRanges)
 
 		# write the assigned-test to the file
 		assignedRanges = unicodeData.filter(2, lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
-		_gen: CodeGen = CodeGen(file, 'Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
+		_gen: CodeGen = file.next('Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
 		_gen.intFunction('TestAssigned', LookupType.boolType(), assignedRanges)
 
 		# write the ascii-test to the file
 		asciiRanges = [Range(0, 0x7f, 1)]
-		_gen: CodeGen = CodeGen(file, 'Ascii', 'Automatically generated from: [cp <= 0x7f]')
+		_gen: CodeGen = file.next('Ascii', 'Automatically generated from: [cp <= 0x7f]')
 		_gen.intFunction('TestAscii', LookupType.boolType(), asciiRanges)
-		
+
 		# write the alpha-test to the file
 		alphaRanges = Ranges.fromRawList([Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)])
-		_gen: CodeGen = CodeGen(file, 'Alpha', 'Automatically generated from: [a-zA-Z]')
+		_gen: CodeGen = file.next('Alpha', 'Automatically generated from: [a-zA-Z]')
 		_gen.intFunction('TestAlpha', LookupType.boolType(), alphaRanges)
 
 		# write the radix-getter to the file
 		radixRanges = Ranges.fromRawList([Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)])
-		_gen: CodeGen = CodeGen(file, 'Radix', 'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff')
+		_gen: CodeGen = file.next('Radix', 'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff')
 		_gen.intFunction('GetRadix', LookupType.intType(0xff, 'uint8_t'), radixRanges)
-	
+
 		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
 		digitRanges = unicodeData.filter(8, lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
 		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf0 if fs[6] != '' else None), True)
 		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf1 if fs[7] != '' else None), True)
-		_gen: CodeGen = CodeGen(file, 'Digit', 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]')
+		_gen: CodeGen = file.next('Digit', 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]')
 		_gen.intFunction('GetDigit', LookupType.intType(0xff, 'uint8_t'), digitRanges)
 
 		# write the whitespace-test to the file (https://www.unicode.org/reports/tr44/#White_Space)
 		whiteSpaceRanges = propList.filter(1, lambda fs: None if fs[0] != 'White_Space' else 1)
-		_gen: CodeGen = CodeGen(file, 'WhiteSpace', 'Automatically generated from: Unicode White_Space property')
+		_gen: CodeGen = file.next('WhiteSpace', 'Automatically generated from: Unicode White_Space property')
 		_gen.intFunction('TestWhiteSpace', LookupType.boolType(), whiteSpaceRanges)
 
 		# write the control-test to the file (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		controlRanges = unicodeData.filter(2, lambda fs: None if fs[1] != 'Cc' else 1)
-		_gen: CodeGen = CodeGen(file, 'Control', 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)')
+		_gen: CodeGen = file.next('Control', 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)')
 		_gen.intFunction('TestControl', LookupType.boolType(), controlRanges)
 
 		# write the letter-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic)
 		letterRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
-		_gen: CodeGen = CodeGen(file, 'Letter', 'Automatically generated from: Unicode derived property Alphabetic')
+		_gen: CodeGen = file.next('Letter', 'Automatically generated from: Unicode derived property Alphabetic')
 		_gen.intFunction('TestLetter', LookupType.boolType(), letterRanges)
 
 		# write the alpha-num-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic + https://www.unicode.org/reports/tr44/#Numeric_Type)
 		alnumRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
 		alnumRanges = Ranges.union(alnumRanges, unicodeData.filter(8, lambda fs: 1 if fs[7] != '' else None))
-		_gen: CodeGen = CodeGen(file, 'AlNum', 'Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric')
+		_gen: CodeGen = file.next('AlNum', 'Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric')
 		_gen.intFunction('TestAlNum', LookupType.boolType(), alnumRanges)
-		
+
 		# write the printable-enum to the file (https://en.wikipedia.org/wiki/Graphic_character)
 		printableFilterMap = { 
 			'Lu': 1, 'Ll': 1, 'Lt': 1, 'Lm': 1, 'Lo': 1, 'Mn': 1, 'Mc': 1, 'Me': 1, 'Nd': 1, 'Nl': 1, 'No': 1,
@@ -1130,7 +1298,7 @@ def MakeCodepointQuery():
 		}
 		printableRanges = unicodeData.filter(2, lambda fs: printableFilterMap[fs[1]] if fs[1] in printableFilterMap else None)
 		_enum: LookupType = LookupType.enumType('PrintableType', 'none', ['none', 'printable', 'printSpace'])
-		_gen: CodeGen = CodeGen(file, 'Printable', 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs')
+		_gen: CodeGen = file.next('Printable', 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs')
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetPrintable', _enum, printableRanges)
 
@@ -1139,7 +1307,7 @@ def MakeCodepointQuery():
 		caseRanges = derivedProperties.filter(1, lambda fs: caseFilterMap[fs[0]] if fs[0] in caseFilterMap else None)
 		caseRanges = Ranges.union(caseRanges, unicodeData.filter(2, lambda fs: 3 if fs[1] == 'Lt' else None))
 		_enum: LookupType = LookupType.enumType('CaseType', 'none', ['none', 'lowerCase', 'upperCase', 'titleCase'])
-		_gen: CodeGen = CodeGen(file, 'Case', 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt')
+		_gen: CodeGen = file.next('Case', 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt')
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCase', _enum, caseRanges)
 
@@ -1151,23 +1319,22 @@ def MakeCodepointQuery():
 		}
 		categoryRanges = unicodeData.filter(2, lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
 		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn' ])
-		_gen: CodeGen = CodeGen(file, 'Category', 'Automatically generated from: Unicode General_Category')
+		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCategory', _enum, categoryRanges)
 
 def MakeCodepointMaps():
 	# parse the relevant files
 	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
-	
+
 	# write all maps functions to the file
-	with GeneratedFile('generated/unicode-cp-maps.h', True) as file:
+	with GeneratedFile('generated/unicode-cp-maps.h') as file:
 		# write the uppercase-mapping to the file
 		upperRanges = unicodeData.filter(12, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
 		upperRanges = Ranges.translate(upperRanges, lambda i, v: v[0] - i)
-		_gen: CodeGen = CodeGen(file, 'Uppercase', '...')
-		_gen.listFunction('MapUppercase', LookupType.intType(0, 'int32_t'), upperRanges)
+		_gen: CodeGen = file.next('UpperCase', '...')
+		_gen.listFunction('MapUpperCase', LookupType.intType(0, 'int32_t'), upperRanges)
 
-		
 		pass
 
 
@@ -1189,18 +1356,18 @@ def MakeGraphemeTypeMapping():
 	ranges, defValue = ExtractProperties(graphemeBreakProperty, 0, graphemeEnumMap, True, True)
 	if defValue != graphemeEnumMap['other']:
 		raise RuntimeError('Default grapheme-value is expected to be [other]')
-	
+
 	# parse the emoji-data.txt file to extract the Extended_Pictographic property
 	ranges += ExtractProperties(emojiData, 0, { 'extended_pictographic': graphemeEnumMap['extended_pictographic'] }, False, False)[0]
 
 	# open the output file and generate the code into it
 	with open('grapheme-type.h', 'w', encoding='ascii') as file:
 		BeginFile(file)
-		
+
 		# write the grapheme-enum to the file
 		WriteEnumString(file, graphemeEnumName, graphemeEnumMap)
 		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'gen::Grapheme', f'gen::{graphemeEnumName}', f'static_cast<gen::{graphemeEnumName}>', InvertMap(f'gen::{graphemeEnumName}::', graphemeEnumMap), 0))
-		
+
 		EndFile(file)
 
 
