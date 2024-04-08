@@ -2,7 +2,7 @@ import urllib.request
 import os
 import sys
 import datetime
-import math
+import re
 
 # ranges are lists of range-objects, which must be sorted and must not overlap/neighbor each other if same type
 #	=> use Ranges.fromRawList to sort and merge an arbitrary list of Range objects
@@ -43,6 +43,8 @@ class Range:
 		return (self.last + 1 == other.first or self.first - 1 == other.last)
 	def overlap(self, other: 'Range') -> bool:
 		return (self.last >= other.first and self.first <= other.last)
+	def distant(self, other: 'Range') -> bool:
+		return (self.last + 1 < other.first or self.first - 1 > other.last)
 
 class LookupType:
 	def __init__(self) -> None:
@@ -50,20 +52,41 @@ class LookupType:
 		self._typeName = ''
 		self._values = []
 		self._default = 0
+		self._min = 0
+		self._max = 0
 	@staticmethod
 	def boolType() -> 'LookupType':
 		out = LookupType()
 		out._kind = 'bool'
 		out._typeName = 'bool'
 		out._default = 0
+		out._min = 0
+		out._max = 1
 		return out
 	@staticmethod
-	def intType(defValue: int, intType: str) -> 'LookupType':
+	def selfIntType(defValue: int, intType: str, minValue: int, maxValue: int) -> 'LookupType':
 		out = LookupType()
 		out._kind = 'int'
 		out._typeName = intType
 		out._default = defValue
+		out._min = minValue
+		out._max = maxValue
 		return out
+	@staticmethod
+	def intType(defValue: int, intType: str) -> 'LookupType':
+		if intType == 'uint8_t':
+			return LookupType.selfIntType(defValue, intType, 0, 2**8 - 1)
+		elif intType == 'int8_t':
+			return LookupType.selfIntType(defValue, intType, -2**(8 - 1), 2**(8 - 1) - 1)
+		elif intType == 'uint16_t':
+			return LookupType.selfIntType(defValue, intType, 0, 2**16 - 1)
+		elif intType == 'int16_t':
+			return LookupType.selfIntType(defValue, intType, -2**(16 - 1), 2**(16 - 1) - 1)
+		elif intType == 'uint32_t':
+			return LookupType.selfIntType(defValue, intType, 0, 2**32 - 1)
+		elif intType == 'int32_t':
+			return LookupType.selfIntType(defValue, intType, -2**(32 - 1), 2**(32 - 1) - 1)
+		raise RuntimeError(f'Unknown integer type [{intType}] encountered')
 	@staticmethod
 	def rangeType(defValue: int, lower: int, upper: int) -> 'LookupType':
 		# lookup the smallest suitable type to be used
@@ -79,7 +102,13 @@ class LookupType:
 			return LookupType.rangeType(defValue, 0, 0)
 		return LookupType.rangeType(defValue, min(intList), max(intList))
 	@staticmethod
-	def enumType(name: str, defValue: str, values: list[str]) -> 'LookupType':
+	def enumType(name: str, defValue: str, values: list[str]|dict) -> 'LookupType':
+		if type(values) == dict:
+			values, tMap = [None] * len(values), values
+			for k in tMap:
+				values[tMap[k]] = k
+			if any(v is None for v in values):
+				raise RuntimeError('Non-continuous enum-dictionary encountered')
 		out = LookupType()
 		out._kind = 'enum'
 		out._typeName = f'{name}'
@@ -87,6 +116,8 @@ class LookupType:
 		out._default = values.index(defValue)
 		if len(out._values) == 0:
 			raise RuntimeError(f'Enum [{name}] must not be empty')
+		out._min = 0
+		out._max = len(values) - 1
 		return out
 
 	def typeName(self, raw: bool = False) -> str:
@@ -109,11 +140,11 @@ class LookupType:
 		if self._kind == 'enum':
 			return f'gen::{self._typeName}::{self._values[index]}'
 		raise RuntimeError(f'Unknown kind [{self._kind}] encountered')
-	def dynLookup(self, varName: str, forceCast: bool) -> str:
+	def dynLookup(self, varName: str) -> str:
 		if self._kind == 'bool':
 			return f'({varName} != 0)'
 		if self._kind == 'int':
-			return (f'{self._typeName}({varName})' if forceCast else f'{varName}')
+			return f'{self._typeName}({varName})'
 		if self._kind == 'enum':
 			return f'static_cast<gen::{self._typeName}>({varName})'
 		raise RuntimeError(f'Unknown kind [{self._kind}] encountered')
@@ -147,6 +178,10 @@ class LookupType:
 			elif typeName == f'uint{i}_t':
 				return [0, 2**i - 1]
 		raise RuntimeError(f'Unsupported buffer-type [{typeName}] encountered')
+	def validValue(self, value: int) -> bool:
+		if self._kind not in ['bool', 'enum', 'int']:
+			raise RuntimeError(f'Unknown kind [{self._kind}] encountered')
+		return (value >= self._min and value <= self._max)
 
 class StrHelp:
 	@staticmethod
@@ -179,6 +214,63 @@ class Ranges:
 			out[-1] = out[-1].merge(other)
 		else:
 			out.append(other)
+	@staticmethod
+	def _conflictAppOrMerge(out: list[Range], other: Range, conflictHandler) -> None:
+		# check if a simple append can be performed
+		if len(out) == 0 or out[-1].distant(other):
+			out.append(other)
+			return
+
+		# check if the ranges are neighbors and can be merged
+		if out[-1].neighbors(other):
+			if out[-1].values == other.values:
+				out[-1] = out[-1].merge(other)
+			else:
+				out.append(other)
+			return
+
+		# check if the overlap is trivial, in which case a normal merge will be performed
+		if out[-1].values == other.values:
+			out[-1] = out[-1].merge(other)
+			return
+
+		# pop all conflicting ranges
+		confCount = 1
+		while confCount < len(out) and out[-confCount - 1].last >= other.first:
+			confCount += 1
+		conflict = out[-confCount:]
+		for _ in range(confCount):
+			out.pop()
+
+		# remove any initial non-conflicting region
+		if conflict[0].first < other.first:
+			leading, conflict[0] = conflict[0].split(other.first - conflict[0].first)
+			out.append(leading)
+
+		# iterate over the conflicting range and process it
+		otherRemaining: Range|None = other
+		while len(conflict) > 0 and otherRemaining is not None:
+			# extract the left and right conflicting range
+			if conflict[0].span() == otherRemaining.span():
+				left, right, conflict, otherRemaining = conflict[0], otherRemaining, [], None
+			elif conflict[0].span() < otherRemaining.span():
+				left, conflict = conflict[0], conflict[1:]
+				right, otherRemaining = other.split(left.span())
+			else:
+				left, conflict[0] = conflict[0].split(otherRemaining.span())
+				right, otherRemaining = otherRemaining, None
+
+			# check if the conflict is trivial or left the handler process it
+			if left.values == right.values:
+				out.append(left.merge(right))
+			else:
+				out.append(Range(left.first, left.last, conflictHandler(left.values, right.values)))
+
+		# append the remainder to the output
+		for c in conflict:
+			out.append(c)
+		if otherRemaining is not None:
+			out.append(otherRemaining)
 	@staticmethod
 	def _setIteration(a: list[Range], b: list[Range], binaryOp: bool, fn) -> list[Range]:
 		if binaryOp and (any(_a.values != (1,) for _a in a) or any(_b.values != (1,) for _b in b)):
@@ -223,11 +315,6 @@ class Ranges:
 				bNext = None
 		return out
 	@staticmethod
-	def _anyUnionOperationFavFirst(a: tuple[int]|None, b: tuple[int]|None) -> tuple[int]|None:
-		if a is None:
-			return b
-		return a
-	@staticmethod
 	def _unionOperation(a: tuple[int]|None, b: tuple[int]|None) -> tuple[int]|None:
 		if a is None:
 			return b
@@ -246,6 +333,13 @@ class Ranges:
 		if b is None:
 			return a
 		return None
+	@staticmethod
+	def _conflictUnionOperation(a: tuple[int]|None, b: tuple[int]|None, conflictHandler) -> tuple[int]|None:
+		if a is None:
+			return b
+		if b is None:
+			return a
+		return conflictHandler(a, b)
 
 	@staticmethod
 	def fromRawList(ranges: list[Range]) -> list[Range]:
@@ -258,12 +352,28 @@ class Ranges:
 			Ranges._appOrMerge(out, r)
 		return out
 	@staticmethod
-	def wellFormed(ranges: list[Range]) -> None:
+	def fromConflictingRawList(ranges: list[Range], conflictHandler) -> list[Range]:
+		# sort the ranges
+		ranges = sorted(ranges, key=lambda r : r.first)
+
+		# merge any neighboring/overlapping ranges of the same type and let the handler process conflicting overlaps
+		out: list[Range] = []
+		for r in ranges:
+			Ranges._conflictAppOrMerge(out, r, conflictHandler)
+		return out
+	@staticmethod
+	def wellFormed(ranges: list[Range], lookupType: LookupType) -> None:
+		# check if the default-type can be held by the type
+		if not lookupType.validValue(lookupType.defValue()):
+			raise RuntimeError('Invalid default-value for type encountered')
 		for i in range(len(ranges)):
 			if i > 0 and ranges[i - 1].first > ranges[i].first:
 				raise RuntimeError('Order of ranges violation encountered')
 			if i > 0 and ranges[i - 1].last + 1 > ranges[i].first:
 				raise RuntimeError('Overlapping ranges encountered')
+			for v in ranges[i].values:
+				if not lookupType.validValue(v):
+					raise RuntimeError('Invalid value for type encountered')
 	@staticmethod
 	def split(ranges: list[Range], startOfOther: int) -> tuple[list[Range], list[Range]]:
 		left: list[Range] = []
@@ -330,10 +440,8 @@ class Ranges:
 		return out, ranges[cluster.first:cluster.last + 1]
 
 	@staticmethod
-	def merge(a: list[Range], b: list[Range], inFavorOfA: bool) -> list[Range]:
-		if inFavorOfA:
-			return Ranges._setIteration(a, b, False, Ranges._anyUnionOperationFavFirst)
-		return Ranges._setIteration(b, a, False, Ranges._anyUnionOperationFavFirst)
+	def merge(a: list[Range], b: list[Range], conflictHandler) -> list[Range]:
+		return Ranges._setIteration(a, b, False, lambda a, b: Ranges._conflictUnionOperation(a, b, conflictHandler))
 	@staticmethod
 	def union(a: list[Range], b: list[Range]) -> list[Range]:
 		return Ranges._setIteration(a, b, False, Ranges._unionOperation)
@@ -371,7 +479,7 @@ class Ranges:
 class CodeGen:
 	ListConsideredSparse = 0.3
 	IndirectBufferShiftTests = [0, 1, 2, 3, 4, 5, 6, 7]
-	IndirectBufferNestingLevel = 4
+	IndirectBufferNestingLevel = 3
 	IndirectBufferMinSize = 128
 	LookupAsCodeIfLEQRanges = 96
 	CodeGenDensityThreshold = 1 / 2.5
@@ -500,8 +608,8 @@ class CodeGen:
 
 		# transform the clusters to the required output format (will be sorted as the algorithm does not reorder them)
 		return [(clusters[i][0], clusters[i][1]) for i in range(len(clusters))]
-	def _analyze(self, ranges: list[Range]) -> map:
-		out = {}
+	def _analyze(self, ranges: list[Range]) -> dict[list[int], list[int]]:
+		out: dict[list[int], list[int]] = {}
 		for i in range(len(ranges)):
 			if ranges[i].values not in out:
 				out[ranges[i].values] = []
@@ -623,7 +731,7 @@ class CodeGen:
 			# write the buffer out and patch the access-strings
 			bufferName = self._addBuffer(clusterData, self._type, 'Cluster')
 			for i in range(len(clusterAccess)):
-				clusterAccess[i] = self._type.dynLookup(f'{bufferName}[{clusterAccess[i]}]', False)
+				clusterAccess[i] = self._type.dynLookup(f'{bufferName}[{clusterAccess[i]}]')
 				clusterAccess[i] = f'{self._outTo} {clusterAccess[i]};\n'
 
 		# analyze the remaining ranges
@@ -723,7 +831,7 @@ class CodeGen:
 	def _tryIndirectBuffer(self, ranges: list[Range], shift: int) -> tuple[list[int], list[int]]:
 		indexBuffer: list[int] = []
 		dataBuffer: list[int] = []
-		indexMap: map = {}
+		indexMap: dict[tuple, int] = {}
 
 		# check if this is a simple access (i.e. no indirection), in which case only a data-buffer is returned
 		if shift == 0:
@@ -816,91 +924,81 @@ class CodeGen:
 		# select the list of shifts, data-buffers, index-buffers
 		indirections = self._setupIndirectBuffers(clippedRanges, bufType, nestingLevel, shiftList, minIndirectSize)
 
-		# setup the small and large index buffer as well as the mapping to the corresponding slots
-		indexMap: map = {}
-		smIndexData, lgIndexData = [], []
+		# setup the small and large buffer as well as the mapping to the corresponding slots
+		indexMap: dict[int|None, tuple[int, bool]] = {}
+		smBufferData, lgBufferData = [], []
 		for i in range(len(indirections)):
 			_, datBuffer, idxBuffer = indirections[i]
 
 			# write the data to the buffer
 			if LookupType.listType(0, datBuffer).bufferSize() == 1:
-				indexMap[(i, True)] = (len(smIndexData), True)
-				smIndexData += datBuffer
+				indexMap[i] = (len(smBufferData), True)
+				smBufferData += datBuffer
 			else:
-				indexMap[(i, True)] = (len(lgIndexData), False)
-				lgIndexData += datBuffer
+				indexMap[i] = (len(lgBufferData), False)
+				lgBufferData += datBuffer
 
-			# write the index to the buffer
+			# write the index to the buffer (there can only exist one index-buffer)
 			if len(idxBuffer) > 0:
 				if LookupType.listType(0, idxBuffer).bufferSize() == 1:
-					indexMap[(i, False)] = (len(smIndexData), True)
-					smIndexData += idxBuffer
+					indexMap[None] = (len(smBufferData), True)
+					smBufferData += idxBuffer
 				else:
-					indexMap[(i, False)] = (len(lgIndexData), False)
-					lgIndexData += idxBuffer
-			else:
-				indexMap[(i, False)] = (0, None)
+					indexMap[None] = (len(lgBufferData), False)
+					lgBufferData += idxBuffer
 
-		# check if the index buffer(s) need to be allocated and the index-variable
-		indexBufNameSm, indexBufNameLg, indexVarName = '', '', ''
-		if len(smIndexData) > 0:
-			indexBufNameSm = self._addBuffer(smIndexData, LookupType.listType(0, smIndexData), ('IndData' if len(lgIndexData) == 0 else 'IndSmall'))
-		if len(lgIndexData) > 0:
-			indexBufNameLg = self._addBuffer(lgIndexData, LookupType.listType(0, lgIndexData), ('IndData' if len(smIndexData) == 0 else 'IndLarge'))
-		if smIndexData != '' or lgIndexData != '':
-			indexVarName = self._addVar('Index')
+		# check if the buffer(s) need to be allocated
+		smBufferName, lgBufferName = '', ''
+		if len(smBufferData) > 0:
+			smBufferName = self._addBuffer(smBufferData, LookupType.listType(0, smBufferData), ('IndData' if len(lgBufferData) == 0 else 'IndSmall'))
+		if len(lgBufferData) > 0:
+			lgBufferName = self._addBuffer(lgBufferData, LookupType.listType(0, lgBufferData), ('IndData' if len(smBufferData) == 0 else 'IndLarge'))
 
-		# compute the initial total shift to be applied to the input variable
+		# allocate and initialize the in-var
+		inVarName = self._addVar('In')
+		self._code += f'{indent}size_t {inVarName} = {self._inVar}'
+		if clippedRanges[0].first > 0:
+			self._code += f' - {self._value(clippedRanges[0].first)}'
+		self._code += ';\n'
+
+		# compute the initial total shift to be applied to the input variable and progressively reduced
 		shiftSum: int = sum(ind[0] for ind in indirections)
+
+		# check if its only a single direct lookup
+		if shiftSum == 0:
+			indexLookupCode = f'{smBufferName if len(smBufferName) > 0 else lgBufferName}[{inVarName}]'
+			self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexLookupCode)};\n'
+			if lowerClipped or upperClipped:
+				self._code += '}\n'
+			return
+
+		# add the initial (and only) index lookup, as all other indices will be computed and looked up from the data-buffer
+		indexVarName = self._addVar('Index')
+		indexLookupCode = f'{inVarName} >> {shiftSum}'
+		if indexMap[None][0] > 0:
+			indexLookupCode = f'{self._value(indexMap[None][0])} + ({indexLookupCode})'
+		self._code += f'{indent}size_t {indexVarName} = {smBufferName if indexMap[None][1] else lgBufferName}[{indexLookupCode}];\n'
 
 		# iterate over the indirections and apply them to the index-variable
 		for i in range(len(indirections) - 1, -1, -1):
 			shift = indirections[i][0]
-			dataOffset, dataSmall = indexMap[(i, True)]
-			indexOffset, indexSmall = indexMap[(i, False)]
+			dataOffset, dataSmall = indexMap[i]
 
-			# setup the initial lookup variable
-			indexLookupVar, indexLookupAddBrackets = indexVarName, False
-			if i + 1 == len(indirections):
-				indexLookupAddBrackets = clippedRanges[0].first > 0
-				indexLookupVar = (f'{self._inVar} - {self._value(clippedRanges[0].first)}' if indexLookupAddBrackets else self._inVar)
-			indexLookupCode = indexLookupVar
-			if indexLookupAddBrackets:
-				indexLookupVar = f'({indexLookupVar})'
-
-			# setup the actual lookup of the index (if no index is defined, the index-variable already holds the index from the previous indirection)
-			if indexSmall is not None:
-				if shiftSum > 0:
-					if indexLookupAddBrackets:
-						indexLookupCode = f'({indexLookupCode})'
-					indexLookupCode += f' >> {shiftSum}'
-					indexLookupAddBrackets = True
-				if indexOffset > 0:
-					if indexLookupAddBrackets:
-						indexLookupCode = f'({indexLookupCode})'
-					indexLookupCode = f'{self._value(indexOffset)} + {indexLookupCode}'
-				indexLookupCode = f'{indexBufNameSm if indexSmall else indexBufNameLg}[{indexLookupCode}]'
+			# add the operation to compute the index into the data-buffer for the current indirection
 			shiftSum -= shift
+			indexLookupCode = (f'({inVarName} >> {shiftSum})' if shiftSum > 0 else inVarName)
+			indexLookupCode = f'({indexVarName} << {shift}) + ({indexLookupCode} & {(1 << shift) - 1:#04x})'
 
-			# add the final operation to compute the final index into the data-buffer for the current indirection
-			if shift > 0:
-				if shiftSum > 0:
-					indexLookupVar = f'({indexLookupVar} >> {shiftSum})'
-				indexLookupCode = f'({indexLookupCode} << {shift}) + ({indexLookupVar} & {(1 << shift) - 1:#04x})'
-
-			# add the final memory lookup (i.e. the 'data')
+			# add the memory lookup (i.e. the 'data')
 			if dataOffset > 0:
-				indexLookupCode = f'{indexBufNameSm if dataSmall else indexBufNameLg}[{indexLookupCode} + {dataOffset:#04x}]'
+				indexLookupCode = f'{smBufferName if dataSmall else lgBufferName}[{indexLookupCode} + {dataOffset:#04x}]'
 			else:
-				indexLookupCode = f'{indexBufNameSm if dataSmall else indexBufNameLg}[{indexLookupCode}]'
+				indexLookupCode = f'{smBufferName if dataSmall else lgBufferName}[{indexLookupCode}]'
 
 			# add the line to the produced code, as well as the final dynamic lookup
+			self._code += f'{indent}{indexVarName} = {indexLookupCode};\n'
 			if i == 0:
-				self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexLookupCode, False)};\n'
-			elif i + 1 == len(indirections):
-				self._code += f'{indent}size_t {indexVarName} = {indexLookupCode};\n'
-			else:
-				self._code += f'{indent}{indexVarName} = {indexLookupCode};\n'
+				self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexVarName)};\n'
 
 		# add the closing indentation
 		if lowerClipped or upperClipped:
@@ -964,7 +1062,7 @@ class CodeGen:
 		self._file.writeln('};')
 	def intFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
 		print(f'Creating integer-lookup {fnName}...')
-		Ranges.wellFormed(ranges)
+		Ranges.wellFormed(ranges, lookupType)
 
 		# fill all holes compared to the entire valid range with the default value
 		ranges = Ranges.fill(ranges, lookupType.defValue(), Range.RangeFirst, Range.RangeLast)
@@ -979,7 +1077,7 @@ class CodeGen:
 		self._file.writeln('}')
 	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
 		print(f'Creating list-lookup {fnName}...')
-		Ranges.wellFormed(ranges)
+		Ranges.wellFormed(ranges, lookupType)
 
 		# fill the entire valid range with the default value (must be done before setting up the
 		#	data-buffer as the default-value will otherwise not be written to the data-buffer)
@@ -1030,8 +1128,10 @@ class CodeGen:
 		self._file.writeln('}')
 
 class GeneratedFile:
-	def __init__(self, path: str) -> None:
+	def __init__(self, path: str, version: str, date: str) -> None:
 		self._path = path
+		self._date = date
+		self._version = version
 		self._file = None
 		self._hadFirstBlock = False
 		self._atStartOfLine = False
@@ -1050,7 +1150,8 @@ class GeneratedFile:
 		self._writeComment('This is an automatically generated file and should not be modified.\n'
 				  + 'All data are based on the lastest information provided by the unicode character database.\n'
 				  + 'Source: https://www.unicode.org/Public/UCD/latest\n'
-				  + f'Generated: {datetime.datetime.today().strftime('%Y-%m-%d %H:%M')}', False)
+				  + f'Generated on: {self._date}\n'
+				  + f'Generated from version: {self._version}', False)
 		self.writeln('namespace cp::detail::gen {')
 		self._indented = True
 		return self
@@ -1152,13 +1253,15 @@ class ParsedFile:
 	def __init__(self, path: str, legacyRanges: bool) -> None:
 		self._parsed: list[tuple[int, int, bool, list[str]]] = []
 		self._parseFile(path, legacyRanges)
-	def filter(self, relevantFields: int, assignValue) -> list[Range]:
+	def filter(self, relevantFields: int, assignValue, failIfNotFound: bool = False, conflictHandler = None) -> list[Range]:
 		ranges: list[Range] = []
 
 		# iterate over the parsed lines and match them against the callback
 		for (begin, last, _, fields) in self._parsed:
 			# check if the line can be ignored
 			if len(fields) < relevantFields:
+				if failIfNotFound:
+					raise RuntimeError(f'Invalid range [{begin:#06x} - {last:#06x}] encountered in filter')
 				continue
 
 			# fetch the assigned value and check if the entry is to be ignored
@@ -1167,8 +1270,10 @@ class ParsedFile:
 				ranges.append(Range(begin, last, value))
 
 		# sanitize and cleanup the found ranges
-		return Ranges.fromRawList(ranges)
-	def extractAll(self, fieldCount: int, relevantField: int, valueMap: map) -> tuple[list[Range], int]:
+		if conflictHandler is None:
+			return Ranges.fromRawList(ranges)
+		return Ranges.fromConflictingRawList(ranges, conflictHandler)
+	def extractAll(self, fieldCount: int, relevantField: int, valueMap: dict[str, int]) -> tuple[list[Range], int]:
 		default, ranges = None, []
 
 		# iterate over the parsed lines and validate them and extract the range-objects
@@ -1201,17 +1306,15 @@ class ParsedFile:
 		# sanitize and organize the ranges
 		return Ranges.fromRawList(ranges), default
 
-
-
-
-
-# download all relevant files from the latest release of the ucd (unicode character database: https://www.unicode.org/Public/UCD/latest)
-def DownloadUCDFiles(refreshFiles: bool) -> None:
+# download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
+def DownloadUCDFiles(refreshFiles: bool) -> str:
 	baseURL = 'https://www.unicode.org/Public/UCD/latest'
 	files = {
+		'ReadMe.txt': 'ReadMe.txt',
 		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
 		'PropList.txt': 'ucd/PropList.txt', 
-		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt'
+		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt',
+		'SpecialCasing.txt': 'ucd/SpecialCasing.txt'
 	}
 	dirPath = './generated/ucd'
 
@@ -1228,15 +1331,23 @@ def DownloadUCDFiles(refreshFiles: bool) -> None:
 		print(f'downloading [{url}] to [{path}]...')
 		urllib.request.urlretrieve(url, path)
 
+	# fetch the version from the read-me
+	with open('generated/ucd/ReadMe.txt', 'r') as f:
+		fileContent = f.read()
+	version = re.findall('Version ([0-9]+(\\.[0-9]+)*) of the Unicode Standard', fileContent)
+	if len(version) != 1:
+		raise RuntimeError('Unable to extract the version')
+	return version[0][0]
+
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
-def MakeCodepointQuery():
+def MakeCodepointQuery(generatedVersion, generatedDateTime):
 	# parse the relevant files
 	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
 	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
 	propList = ParsedFile('generated/ucd/PropList.txt', False)
 
 	# write all lookup functions to the file
-	with GeneratedFile('generated/unicode-cp-query.h') as file:
+	with GeneratedFile('generated/unicode-cp-query.h', generatedVersion, generatedDateTime) as file:
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
@@ -1264,8 +1375,8 @@ def MakeCodepointQuery():
 
 		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
 		digitRanges = unicodeData.filter(8, lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
-		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf0 if fs[6] != '' else None), True)
-		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf1 if fs[7] != '' else None), True)
+		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf0 if fs[6] != '' else None), lambda a, b: a)
+		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf1 if fs[7] != '' else None), lambda a, b: a)
 		_gen: CodeGen = file.next('Digit', 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]')
 		_gen.intFunction('GetDigit', LookupType.intType(0xff, 'uint8_t'), digitRanges)
 
@@ -1323,19 +1434,87 @@ def MakeCodepointQuery():
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCategory', _enum, categoryRanges)
 
-def MakeCodepointMaps():
+# MapUpperCase, MapLowerCase, MapTitleCase
+def _ExpandSpecialCaseMap(conditions: dict[str, int], values: str, condition: str) -> tuple[int]|None:
+	valueList: list[int] = []
+
+	# parse the list of values (-1 if empty, which indicates a removal of the codepoint)
+	if values == '':
+		valueList = [-1]
+	else:
+		valueList = [int(u, 16) for u in values.split(' ')]
+
+	# prepare the condition-string and ensure it is defined
+	if condition == '':
+		condition = 'none'
+	condition = '_'.join(condition.split(' ')).lower()
+	if condition not in conditions:
+		conditions[condition] = len(conditions)
+	
+	# return the final tuple
+	return tuple([conditions[condition], len(valueList)] + valueList)
+def _HandleSpecialCaseConflicts(a: tuple[int], b: tuple[int], condOnDiff: int|None = None) -> tuple[int]:
+	# check if the right side is a diff-value, in which case the condition needs to be inserted inbetween
+	if condOnDiff is not None:
+		return a + (condOnDiff, b[0])
+	return a + b
+def MakeCodepointMaps(generatedVersion, generatedDateTime):
 	# parse the relevant files
 	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
+	specialCasing = ParsedFile('generated/ucd/SpecialCasing.txt', False)
 
 	# write all maps functions to the file
-	with GeneratedFile('generated/unicode-cp-maps.h') as file:
-		# write the uppercase-mapping to the file
-		upperRanges = unicodeData.filter(12, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
-		upperRanges = Ranges.translate(upperRanges, lambda i, v: v[0] - i)
-		_gen: CodeGen = file.next('UpperCase', '...')
+	with GeneratedFile('generated/unicode-cp-maps.h', generatedVersion, generatedDateTime) as file:
+		# setup the condition-map enum and populate it based on the special case casing and add the last-value (perform filter on special-casing before
+		# remainder, as it overshadows the default values; 'sorted' is guaranteed to be stable, and therefore the order between found ranges will be preserved)
+		upperRangesConditions = { 'none': 0, 'diff': 1 }
+		upperRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(upperRangesConditions, fs[2], fs[3]), True, _HandleSpecialCaseConflicts)
+		upperRangesConditions['_last'] = len(upperRangesConditions)
+
+		# setup the simple uppercase mapping and offset all values to be the difference to itself
+		simpleUpperRanges = unicodeData.filter(12, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
+		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda i, v: v[0] - i)
+
+		# perform the merging of the special and simple upper ranges (upper-ranges must be left, to ensure conflicts will have the conditions before the default-handling)
+		upperRanges = Ranges.merge(upperRanges, simpleUpperRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, upperRangesConditions['diff']))
+
+		# write the uppercase-mapping and enum to the file
+		_gen: CodeGen = file.next('UpperCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addEnum(LookupType.enumType('UCCondition', 'none', upperRangesConditions))
 		_gen.listFunction('MapUpperCase', LookupType.intType(0, 'int32_t'), upperRanges)
 
-		pass
+		# same as upper-case, just for lower-case
+		lowerRangesConditions = { 'none': 0, 'diff': 1 }
+		lowerRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(lowerRangesConditions, fs[0], fs[3]), True, _HandleSpecialCaseConflicts)
+		lowerRangesConditions['_last'] = len(lowerRangesConditions)
+		simpleLowerRanges = unicodeData.filter(13, lambda fs: int(fs[12], 16) if fs[12] != '' else None)
+		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda i, v: v[0] - i)
+		lowerRanges = Ranges.merge(lowerRanges, simpleLowerRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, lowerRangesConditions['diff']))
+		_gen: CodeGen = file.next('LowerCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addEnum(LookupType.enumType('LCCondition', 'none', lowerRangesConditions))
+		_gen.listFunction('MapLowerCase', LookupType.intType(0, 'int32_t'), lowerRanges)
+
+		# same as upper-case, just for title-case
+		titleRangesConditions = { 'none': 0, 'diff': 1 }
+		titleRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(titleRangesConditions, fs[1], fs[3]), True, _HandleSpecialCaseConflicts)
+		titleRangesConditions['_last'] = len(titleRangesConditions)
+		simpleTitleRanges = unicodeData.filter(14, lambda fs: int(fs[13], 16) if fs[13] != '' else None)
+		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda i, v: v[0] - i)
+		titleRanges = Ranges.merge(titleRanges, simpleTitleRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, titleRangesConditions['diff']))
+		_gen: CodeGen = file.next('TitleCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addEnum(LookupType.enumType('TCCondition', 'none', titleRangesConditions))
+		_gen.listFunction('MapTitleCase', LookupType.intType(0, 'int32_t'), titleRanges)
+
+# check if the files need to be downloaded and extract the version and date-time
+generatedVersion = DownloadUCDFiles('--refresh' in sys.argv)
+generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
+
+# generate the actual files
+MakeCodepointQuery(generatedVersion, generatedDateTime)
+MakeCodepointMaps(generatedVersion, generatedDateTime)
+
+
+
 
 
 # ToLower (?)
@@ -1370,11 +1549,4 @@ def MakeGraphemeTypeMapping():
 
 		EndFile(file)
 
-
-
-# check if the files need to be downloaded
-DownloadUCDFiles('--refresh' in sys.argv)
-
-MakeCodepointQuery()
-MakeCodepointMaps()
 # MakeGraphemeTypeMapping()
