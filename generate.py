@@ -1055,6 +1055,10 @@ class CodeGen:
 		lookupCode += self._lookupRanges(upperRanges, tp, True, inVarName, outVarName, '')
 		return lookupCode
 
+	def addConstInt(self, type: LookupType, name: str, value: int) -> None:
+		value = hex(value)[2:]
+		value = '0' * (type.bufferSize() * 2 - len(value)) + value
+		self._file.writeln(f'{type.typeName()} {name} = 0x{value};')
 	def addEnum(self, enum: LookupType) -> None:
 		# write the enum out
 		self._file.write(f'enum class {enum.typeName(True)} : {enum.bufferType()} {{\n\t')
@@ -1127,11 +1131,17 @@ class CodeGen:
 			self._file.writeln(f'\treturn {{ size_t({dataBufferName}[{indexVarName}]), {dataBufferName} + {indexVarName} + 1 }};')
 		self._file.writeln('}')
 
+class GenerateConfig:
+	def __init__(self, url: str, version: str, date: str, includes: list[str]) -> None:
+		self.url = url
+		self.version = version
+		self.date = date
+		self.includes = includes
+
 class GeneratedFile:
-	def __init__(self, path: str, version: str, date: str) -> None:
+	def __init__(self, path: str, config: GenerateConfig) -> None:
 		self._path = path
-		self._date = date
-		self._version = version
+		self._config = config
 		self._file = None
 		self._hadFirstBlock = False
 		self._atStartOfLine = False
@@ -1143,15 +1153,14 @@ class GeneratedFile:
 		# write the file header
 		self.writeln('#pragma once')
 		self.writeln('')
-		self.writeln('#include <cinttypes>')
-		self.writeln('#include <utility>')
-		self.writeln('#include <algorithm>')
+		for include in self._config.includes:
+			self.writeln(f'#include <{include}>')
 		self.writeln('')
 		self._writeComment('This is an automatically generated file and should not be modified.\n'
 				  + 'All data are based on the lastest information provided by the unicode character database.\n'
-				  + 'Source: https://www.unicode.org/Public/UCD/latest\n'
-				  + f'Generated on: {self._date}\n'
-				  + f'Generated from version: {self._version}', False)
+				  + f'Source URL: {self._config.url}\n'
+				  + f'Generated on: {self._config.date}\n'
+				  + f'Generated from version: {self._config.version}', False)
 		self.writeln('namespace cp::detail::gen {')
 		self._indented = True
 		return self
@@ -1307,8 +1316,7 @@ class ParsedFile:
 		return Ranges.fromRawList(ranges), default
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
-def DownloadUCDFiles(refreshFiles: bool) -> str:
-	baseURL = 'https://www.unicode.org/Public/UCD/latest'
+def DownloadUCDFiles(refreshFiles: bool, url: str) -> str:
 	files = {
 		'ReadMe.txt': 'ReadMe.txt',
 		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
@@ -1324,7 +1332,7 @@ def DownloadUCDFiles(refreshFiles: bool) -> str:
 
 	# download all of the files (only if they should either be refreshed, or do not exist yet)
 	for file in files:
-		url, path = f'{baseURL}/{files[file]}', f'{dirPath}/{file}'
+		url, path = f'{url}/{files[file]}', f'{dirPath}/{file}'
 		if not refreshFiles and os.path.isfile(path):
 			print(f'skipping [{path}] as the file already exists (use --refresh to enforce a new download)')
 			continue
@@ -1340,14 +1348,14 @@ def DownloadUCDFiles(refreshFiles: bool) -> str:
 	return version[0][0]
 
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
-def MakeCodepointQuery(generatedVersion, generatedDateTime):
+def MakeCodepointQuery(config: GenerateConfig):
 	# parse the relevant files
 	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
 	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
 	propList = ParsedFile('generated/ucd/PropList.txt', False)
 
 	# write all lookup functions to the file
-	with GeneratedFile('generated/unicode-cp-query.h', generatedVersion, generatedDateTime) as file:
+	with GeneratedFile('generated/unicode-cp-query.h', config) as file:
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
@@ -1434,84 +1442,142 @@ def MakeCodepointQuery(generatedVersion, generatedDateTime):
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCategory', _enum, categoryRanges)
 
-# MapUpperCase, MapLowerCase, MapTitleCase
-def _ExpandSpecialCaseMap(conditions: dict[str, int], values: str, condition: str) -> tuple[int]|None:
-	valueList: list[int] = []
-
-	# parse the list of values (-1 if empty, which indicates a removal of the codepoint)
-	if values == '':
-		valueList = [-1]
-	else:
-		valueList = [int(u, 16) for u in values.split(' ')]
-
+# MapCase
+def _ExpandSpecialCaseMap(conditions: dict[str, int], lowerFlag: int, upperFlag: int, titleFlag: int, lower: str, title: str, upper: str, condition: str) -> tuple[int]:
 	# prepare the condition-string and ensure it is defined
 	if condition == '':
 		condition = 'none'
 	condition = '_'.join(condition.split(' ')).lower()
 	if condition not in conditions:
 		conditions[condition] = len(conditions)
-	
-	# return the final tuple
-	return tuple([conditions[condition], len(valueList)] + valueList)
-def _HandleSpecialCaseConflicts(a: tuple[int], b: tuple[int], condOnDiff: int|None = None) -> tuple[int]:
-	# check if the right side is a diff-value, in which case the condition needs to be inserted inbetween
-	if condOnDiff is not None:
-		return a + (condOnDiff, b[0])
+
+	# transform the strings to integers
+	lowerValues: list[int] = ([] if lower == '' else [int(u, 16) for u in lower.split(' ')])
+	upperValues: list[int] = ([] if upper == '' else [int(u, 16) for u in upper.split(' ')])
+	titleValues: list[int] = ([] if title == '' else [int(u, 16) for u in title.split(' ')])
+
+	# construct the output tuple as list of first the lower, then upper, then title values
+	return tuple([conditions[condition] | lowerFlag, len(lowerValues)] + lowerValues
+				+ [conditions[condition] | upperFlag, len(upperValues)] + upperValues
+				+ [conditions[condition] | titleFlag, len(titleValues)] + titleValues)
+def _TranslateSpecialCaseMap(cIndex: int, values: tuple[int]) -> tuple[int]:
+	index, out = 0, []
+
+	# skip all conditions and only offset all actual values by the character
+	while index < len(values):
+		out.append(values[index])
+		out.append(values[index + 1])
+		for i in range(index + 1, index + 1 + values[index + 1]):
+			out.append(values[i] - cIndex)
+		index += 2 + values[index + 1]
+	return tuple(out)
+def _TranslateSimpleCaseValue(nullCondition: int, tpFlag: int, negativeFlag: int, bitsOfValue: int, value: int) -> tuple[int]:
+	# check if the value can fit into a single cell
+	if abs(value) <= bitsOfValue:
+		return (abs(value) | tpFlag | (0 if value >= 0 else negativeFlag),)
+
+	# add the null-condition and the entire value (negative-flag only necessary for single-cell values)
+	return (nullCondition | tpFlag, 1, value)
+def _HandleSpecialOrConflict(a: tuple[int], b: tuple[int]) -> tuple[int]:
+	return (a[0] | b[0],) + a[1:]
+def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: int, negativeFlag: int, bitsOfValue: int) -> tuple[int]:
+	# check if the values are the same and only differ by the type-flats
+	if len(a) == 1 and len(b) == 1 and ((a[0] ^ b[0]) & ~typeFlags) == 0:
+		return (a[0] | b[0],)
+
+	# check if any of the values is a single cell, in which case it must be expanded to the null-condition
+	if len(a) == 1:
+		a = (nullCondition | (a[0] & ~(bitsOfValue | negativeFlag)), 1, -(a[0] & bitsOfValue) if (a[0] & negativeFlag) else (a[0] & bitsOfValue))
+	if len(b) == 1:
+		b = (nullCondition | (b[0] & ~(bitsOfValue | negativeFlag)), 1, -(b[0] & bitsOfValue) if (b[0] & negativeFlag) else (b[0] & bitsOfValue))
 	return a + b
-def MakeCodepointMaps(generatedVersion, generatedDateTime):
+def MakeCodepointMaps(config: GenerateConfig):
 	# parse the relevant files
 	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
 	specialCasing = ParsedFile('generated/ucd/SpecialCasing.txt', False)
+	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
+	propList = ParsedFile('generated/ucd/PropList.txt', False)
 
 	# write all maps functions to the file
-	with GeneratedFile('generated/unicode-cp-maps.h', generatedVersion, generatedDateTime) as file:
-		# setup the condition-map enum and populate it based on the special case casing and add the last-value (perform filter on special-casing before
-		# remainder, as it overshadows the default values; 'sorted' is guaranteed to be stable, and therefore the order between found ranges will be preserved)
-		upperRangesConditions = { 'none': 0, 'diff': 1 }
-		upperRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(upperRangesConditions, fs[2], fs[3]), True, _HandleSpecialCaseConflicts)
-		upperRangesConditions['_last'] = len(upperRangesConditions)
+	with GeneratedFile('generated/unicode-cp-maps.h', config) as file:
+		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
+		flagIsNegative = 0x4000_0000
+		flagIsCased = 0x2000_0000
+		flagIsIgnorable = 0x1000_0000
+		flagIsSoftDotted = 0x0800_0000
+		flagCombClass0 = 0x0400_0000
+		flagCombClass230 = 0x0200_0000
+		flagIsLower = 0x0100_0000
+		flagIsUpper = 0x0080_0000
+		flagIsTitle = 0x0040_0000
+		flagIs0049 = 0x0020_0000
+		flagIs0307 = 0x0010_0000
+		bitsOfValue = 0x000f_ffff
 
-		# setup the simple uppercase mapping and offset all values to be the difference to itself
-		simpleUpperRanges = unicodeData.filter(12, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
-		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda i, v: v[0] - i)
+		# extract all attributes and merge them together
+		propertyMask = derivedProperties.filter(1, lambda fs: flagIsCased if fs[0] == 'Cased' else None)
+		propertyMask = Ranges.merge(propertyMask, derivedProperties.filter(1, lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, propList.filter(1, lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0 if fs[2] == '0' else None), _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass230 if fs[2] == '230' else None), _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, [Range(0x0049, 0x0049, flagIs0049), Range(0x0307, 0x0307, flagIs0307)], _HandleSpecialOrConflict)
 
-		# perform the merging of the special and simple upper ranges (upper-ranges must be left, to ensure conflicts will have the conditions before the default-handling)
-		upperRanges = Ranges.merge(upperRanges, simpleUpperRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, upperRangesConditions['diff']))
+		# extract all special casing rules (as 'sorted' is stable, values are guaranteed to be ordered by appearance)
+		caseConditions = { 'none': 0 }
+		specialRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(caseConditions, flagIsLower, flagIsUpper, flagIsTitle, fs[0], fs[1], fs[2], fs[3]), True, lambda a, b: _MergeCaseMap(a, b, 0, 0, 0, 0))
+		specialRanges = Ranges.translate(specialRanges, _TranslateSpecialCaseMap)
+		caseConditions['_last'] = len(caseConditions)
+		if len(caseConditions) > bitsOfValue:
+			raise RuntimeError('Conditions overflow values')
 
-		# write the uppercase-mapping and enum to the file
-		_gen: CodeGen = file.next('UpperCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
-		_gen.addEnum(LookupType.enumType('UCCondition', 'none', upperRangesConditions))
-		_gen.listFunction('MapUpperCase', LookupType.intType(0, 'int32_t'), upperRanges)
+		# extract all simple lower-case mappings
+		simpleLowerRanges = unicodeData.filter(14, lambda fs: int(fs[12], 16) if fs[12] != '' else None)
+		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsLower, flagIsNegative, bitsOfValue, v[0] - c))
 
-		# same as upper-case, just for lower-case
-		lowerRangesConditions = { 'none': 0, 'diff': 1 }
-		lowerRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(lowerRangesConditions, fs[0], fs[3]), True, _HandleSpecialCaseConflicts)
-		lowerRangesConditions['_last'] = len(lowerRangesConditions)
-		simpleLowerRanges = unicodeData.filter(13, lambda fs: int(fs[12], 16) if fs[12] != '' else None)
-		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda i, v: v[0] - i)
-		lowerRanges = Ranges.merge(lowerRanges, simpleLowerRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, lowerRangesConditions['diff']))
-		_gen: CodeGen = file.next('LowerCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
-		_gen.addEnum(LookupType.enumType('LCCondition', 'none', lowerRangesConditions))
-		_gen.listFunction('MapLowerCase', LookupType.intType(0, 'int32_t'), lowerRanges)
+		# extract all simple upper-case mappings
+		simpleUpperRanges = unicodeData.filter(14, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
+		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsUpper, flagIsNegative, bitsOfValue, v[0] - c))
 
-		# same as upper-case, just for title-case
-		titleRangesConditions = { 'none': 0, 'diff': 1 }
-		titleRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(titleRangesConditions, fs[1], fs[3]), True, _HandleSpecialCaseConflicts)
-		titleRangesConditions['_last'] = len(titleRangesConditions)
+		# extract all simple title-case mappings
 		simpleTitleRanges = unicodeData.filter(14, lambda fs: int(fs[13], 16) if fs[13] != '' else None)
-		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda i, v: v[0] - i)
-		titleRanges = Ranges.merge(titleRanges, simpleTitleRanges, lambda a, b: _HandleSpecialCaseConflicts(a, b, titleRangesConditions['diff']))
-		_gen: CodeGen = file.next('TitleCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
-		_gen.addEnum(LookupType.enumType('TCCondition', 'none', titleRangesConditions))
-		_gen.listFunction('MapTitleCase', LookupType.intType(0, 'int32_t'), titleRanges)
+		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsTitle, flagIsNegative, bitsOfValue, v[0] - c))
+
+		# merge the simple values together
+		simpleRanges = Ranges.merge(simpleLowerRanges, simpleUpperRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
+		simpleRanges = Ranges.merge(simpleRanges, simpleTitleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
+
+		# merge the special ranges and simple ranges together (special-ranges before simple-ranges to preserve order in reconstructed final ranges) and combine the properties into it
+		caseRanges = Ranges.merge(specialRanges, simpleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
+		caseRanges = Ranges.merge(caseRanges, propertyMask, _HandleSpecialOrConflict)
+
+		# write the case-mapping and enum to the file
+		caseType: LookupType = LookupType.intType(0, 'int32_t')
+		_gen: CodeGen = file.next('MapCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addConstInt(caseType, 'FlagIsNegative', flagIsNegative)
+		_gen.addConstInt(caseType, 'FlagIsCased', flagIsCased)
+		_gen.addConstInt(caseType, 'FlagIsIgnorable', flagIsIgnorable)
+		_gen.addConstInt(caseType, 'FlagIsSoftDotted', flagIsSoftDotted)
+		_gen.addConstInt(caseType, 'FlagCombClass0', flagCombClass0)
+		_gen.addConstInt(caseType, 'FlagCombClass230', flagCombClass230)
+		_gen.addConstInt(caseType, 'FlagIsLower', flagIsLower)
+		_gen.addConstInt(caseType, 'FlagIsUpper', flagIsUpper)
+		_gen.addConstInt(caseType, 'FlagIsTitle', flagIsTitle)
+		_gen.addConstInt(caseType, 'FlagIs0049', flagIs0049)
+		_gen.addConstInt(caseType, 'FlagIs0307', flagIs0307)
+		_gen.addConstInt(caseType, 'BitsOfPayload', bitsOfValue)
+		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
+		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
+
 
 # check if the files need to be downloaded and extract the version and date-time
-generatedVersion = DownloadUCDFiles('--refresh' in sys.argv)
+generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
+generatedVersion = DownloadUCDFiles('--refresh' in sys.argv, generatedURLOrigin)
 generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
+generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generatedDateTime, ['cinttypes', 'utility', 'algorithm'])
 
 # generate the actual files
-MakeCodepointQuery(generatedVersion, generatedDateTime)
-MakeCodepointMaps(generatedVersion, generatedDateTime)
+MakeCodepointQuery(generatedConfig)
+MakeCodepointMaps(generatedConfig)
 
 
 

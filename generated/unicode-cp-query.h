@@ -7,8 +7,8 @@
 /*
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
-*	Source: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2024-04-08 22:08
+*	Source URL: https://www.unicode.org/Public/UCD/latest
+*	Generated on: 2024-04-09 02:16
 *	Generated from version: 15.1.0
 */
 namespace cp::detail::gen {
