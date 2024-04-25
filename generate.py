@@ -956,7 +956,7 @@ class CodeGen:
 
 		# allocate and initialize the in-var
 		inVarName = self._addVar('In')
-		self._code += f'{indent}size_t {inVarName} = {self._inVar}'
+		self._code += f'{indent}size_t {inVarName} = size_t({self._inVar})'
 		if clippedRanges[0].first > 0:
 			self._code += f' - {self._value(clippedRanges[0].first)}'
 		self._code += ';\n'
@@ -1058,7 +1058,7 @@ class CodeGen:
 	def addConstInt(self, type: LookupType, name: str, value: int) -> None:
 		value = hex(value)[2:]
 		value = '0' * (type.bufferSize() * 2 - len(value)) + value
-		self._file.writeln(f'{type.typeName()} {name} = 0x{value};')
+		self._file.writeln(f'static constexpr {type.typeName()} {name} = 0x{value};')
 	def addEnum(self, enum: LookupType) -> None:
 		# write the enum out
 		self._file.write(f'enum class {enum.typeName(True)} : {enum.bufferType()} {{\n\t')
@@ -1460,17 +1460,19 @@ def _ExpandSpecialCaseMap(conditions: dict[str, int], lowerFlag: int, upperFlag:
 	return tuple([conditions[condition] | lowerFlag, len(lowerValues)] + lowerValues
 				+ [conditions[condition] | upperFlag, len(upperValues)] + upperValues
 				+ [conditions[condition] | titleFlag, len(titleValues)] + titleValues)
-def _TranslateSpecialCaseMap(cIndex: int, values: tuple[int]) -> tuple[int]:
-	index, out = 0, []
+def _TranslateSpecialCaseMap(cIndex: int, values: tuple[int], nullCondition: int, bitsOfValue: int) -> tuple[int]:
+	index, out, nulls = 0, [], []
 
-	# skip all conditions and only offset all actual values by the character
+	# skip all conditions and only offset all actual values by the character and separate the null-conditions out to append them in the end
 	while index < len(values):
-		out.append(values[index])
-		out.append(values[index + 1])
-		for i in range(index + 1, index + 1 + values[index + 1]):
-			out.append(values[i] - cIndex)
+		to = (nulls if (values[index] & bitsOfValue) == nullCondition else out)
+
+		to.append(values[index])
+		to.append(values[index + 1])
+		for i in range(index + 2, index + 2 + values[index + 1]):
+			to.append(values[i] - cIndex)
 		index += 2 + values[index + 1]
-	return tuple(out)
+	return tuple(out + nulls)
 def _TranslateSimpleCaseValue(nullCondition: int, tpFlag: int, negativeFlag: int, bitsOfValue: int, value: int) -> tuple[int]:
 	# check if the value can fit into a single cell
 	if abs(value) <= bitsOfValue:
@@ -1480,6 +1482,64 @@ def _TranslateSimpleCaseValue(nullCondition: int, tpFlag: int, negativeFlag: int
 	return (nullCondition | tpFlag, 1, value)
 def _HandleSpecialOrConflict(a: tuple[int], b: tuple[int]) -> tuple[int]:
 	return (a[0] | b[0],) + a[1:]
+def _TranslateCleanupCaseMap(values: tuple[int], lowerFlag: int, upperFlag: int, titleFlag: int, nullCondition: int, bitsOfValue: int) -> tuple[int]:
+	if len(values) == 1:
+		return values
+	indices, modified = [0], [v for v in values]
+
+	# setup the list of all indices of the starting conditions
+	while True:
+		next = indices[-1] + values[indices[-1] + 1] + 2
+		if next >= len(values):
+			break
+		indices.append(next)
+
+	# iterate over the conditions in reverse and clear all flags for conditions, for which the upcoming default already results in the same value
+	lowerDef, upperDef, titleDef = [0], [0], [0]
+	for i in range(len(indices) - 1, -1, -1):
+		iValues = modified[indices[i] + 2:indices[i] + 2 + modified[indices[i] + 1]]
+
+		# iterate over the flags and check if they can be removed from the current index
+		for f, d in [(lowerFlag, lowerDef), (upperFlag, upperDef), (titleFlag, titleDef)]:
+			if (modified[indices[i]] & f) == 0:
+				continue
+			if iValues == d:
+				modified[indices[i]] ^= f
+
+		# update the default values for all null-conditions and clear the current condition-bits for
+		# all upcoming values, as this is a null-condition and will therefore be true at all times
+		if (modified[indices[i]] & bitsOfValue) == nullCondition:
+			for j in range(i + 1, len(indices)):
+				modified[indices[j]] &= ~(modified[indices[i]] & (lowerFlag | upperFlag | titleFlag))
+			if (modified[indices[i]] & lowerFlag) != 0:
+				lowerDef = iValues
+			if (modified[indices[i]] & upperFlag) != 0:
+				upperDef = iValues
+			if (modified[indices[i]] & titleFlag) != 0:
+				titleDef = iValues
+
+		# null the default-values as they will not be reached anymore
+		else:
+			if (modified[indices[i]] & lowerFlag) != 0:
+				lowerDef = None
+			if (modified[indices[i]] & upperFlag) != 0:
+				upperDef = None
+			if (modified[indices[i]] & titleFlag) != 0:
+				titleDef = None
+
+	# remove all indices, which have empty casing-flags, and merge neighboring similar types
+	out, last, typeFlags = [], None, (lowerFlag | upperFlag | titleFlag)
+	for index in indices:
+		if (modified[index] & typeFlags) == 0:
+			continue
+		iValues = modified[index:index + 2 + modified[index + 1]]
+		
+		# check if the value is identical to the last value (except for the type-flags)
+		if last is not None and out[last + 2:] == iValues[2:] and (out[last] & ~typeFlags) == (modified[index] & ~typeFlags):
+			out[last] |= (modified[index] & typeFlags)
+		else:
+			last, out = len(out), out + iValues
+	return tuple(out)
 def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: int, negativeFlag: int, bitsOfValue: int) -> tuple[int]:
 	# check if the values are the same and only differ by the type-flats
 	if len(a) == 1 and len(b) == 1 and ((a[0] ^ b[0]) & ~typeFlags) == 0:
@@ -1505,7 +1565,7 @@ def MakeCodepointMaps(config: GenerateConfig):
 		flagIsCased = 0x2000_0000
 		flagIsIgnorable = 0x1000_0000
 		flagIsSoftDotted = 0x0800_0000
-		flagCombClass0 = 0x0400_0000
+		flagCombClass0or230 = 0x0400_0000
 		flagCombClass230 = 0x0200_0000
 		flagIsLower = 0x0100_0000
 		flagIsUpper = 0x0080_0000
@@ -1518,14 +1578,16 @@ def MakeCodepointMaps(config: GenerateConfig):
 		propertyMask = derivedProperties.filter(1, lambda fs: flagIsCased if fs[0] == 'Cased' else None)
 		propertyMask = Ranges.merge(propertyMask, derivedProperties.filter(1, lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), _HandleSpecialOrConflict)
 		propertyMask = Ranges.merge(propertyMask, propList.filter(1, lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), _HandleSpecialOrConflict)
-		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0 if fs[2] == '0' else None), _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0or230 if (fs[2] == '0' or fs[2] == '230') else None), _HandleSpecialOrConflict)
 		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass230 if fs[2] == '230' else None), _HandleSpecialOrConflict)
 		propertyMask = Ranges.merge(propertyMask, [Range(0x0049, 0x0049, flagIs0049), Range(0x0307, 0x0307, flagIs0307)], _HandleSpecialOrConflict)
 
 		# extract all special casing rules (as 'sorted' is stable, values are guaranteed to be ordered by appearance)
 		caseConditions = { 'none': 0 }
 		specialRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(caseConditions, flagIsLower, flagIsUpper, flagIsTitle, fs[0], fs[1], fs[2], fs[3]), True, lambda a, b: _MergeCaseMap(a, b, 0, 0, 0, 0))
-		specialRanges = Ranges.translate(specialRanges, _TranslateSpecialCaseMap)
+
+		# sanitize and cleanup the special ranges, as all none-conditions must lie in the end, as conditions are more relevant, if they match
+		specialRanges = Ranges.translate(specialRanges, lambda c, v: _TranslateSpecialCaseMap(c, v, caseConditions['none'], bitsOfValue))
 		caseConditions['_last'] = len(caseConditions)
 		if len(caseConditions) > bitsOfValue:
 			raise RuntimeError('Conditions overflow values')
@@ -1546,8 +1608,10 @@ def MakeCodepointMaps(config: GenerateConfig):
 		simpleRanges = Ranges.merge(simpleLowerRanges, simpleUpperRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
 		simpleRanges = Ranges.merge(simpleRanges, simpleTitleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
 
-		# merge the special ranges and simple ranges together (special-ranges before simple-ranges to preserve order in reconstructed final ranges) and combine the properties into it
+		# merge the special ranges and simple ranges together (special-ranges before simple-ranges to preserve order in
+		# reconstructed final ranges) and clean the ranges up to remove irrelevant conditions and combine the properties into it
 		caseRanges = Ranges.merge(specialRanges, simpleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
+		caseRanges = Ranges.translate(caseRanges, lambda _, v: _TranslateCleanupCaseMap(v, flagIsLower, flagIsUpper, flagIsTitle, caseConditions['none'], bitsOfValue))
 		caseRanges = Ranges.merge(caseRanges, propertyMask, _HandleSpecialOrConflict)
 
 		# write the case-mapping and enum to the file
@@ -1557,7 +1621,7 @@ def MakeCodepointMaps(config: GenerateConfig):
 		_gen.addConstInt(caseType, 'FlagIsCased', flagIsCased)
 		_gen.addConstInt(caseType, 'FlagIsIgnorable', flagIsIgnorable)
 		_gen.addConstInt(caseType, 'FlagIsSoftDotted', flagIsSoftDotted)
-		_gen.addConstInt(caseType, 'FlagCombClass0', flagCombClass0)
+		_gen.addConstInt(caseType, 'FlagCombClass0or230', flagCombClass0or230)
 		_gen.addConstInt(caseType, 'FlagCombClass230', flagCombClass230)
 		_gen.addConstInt(caseType, 'FlagIsLower', flagIsLower)
 		_gen.addConstInt(caseType, 'FlagIsUpper', flagIsUpper)

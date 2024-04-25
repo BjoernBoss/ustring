@@ -4,6 +4,8 @@
 #include "generated/unicode-cp-query.h"
 
 #include <algorithm>
+#include <string>
+#include <limits>
 
 /*
 *	CodePoint is identical to char32_t and thereby utf-32
@@ -17,6 +19,7 @@ namespace cp {
 	*		=> if source is completed, return value will never be incomplete and at least one character will be consumed
 	*	NotAscii: Read-ascii encountered a non-ascii character
 	*	WriteFailed: Transcoding a character decoded it successfully from the source but could not encode it to the destination
+	*	EndOfTokens: Used to notify transformers/streams about the end being reached
 	*/
 	static constexpr char32_t Success = char32_t(0);
 	static constexpr char32_t Empty = char32_t(-1);
@@ -24,12 +27,13 @@ namespace cp {
 	static constexpr char32_t Incomplete = char32_t(-3);
 	static constexpr char32_t NotAscii = char32_t(-4);
 	static constexpr char32_t WriteFailed = char32_t(-5);
+	static constexpr char32_t EndOfTokens = char32_t(-6);
 
 	/* check if the codepoint is a defined error-codepoint, excluding cp::Success (does not check if the codepoint itself
 	*	lies in a valid unicode-range, only useful to check if code-point returning function failed or succeeded) */
 	inline constexpr bool Valid(char32_t cp) {
 		/* char32_t is guaranteed to be unsigned */
-		return (cp < std::min<char32_t>({ cp::Empty, cp::Invalid, cp::Incomplete, cp::NotAscii, cp::WriteFailed }));
+		return (cp < std::min<char32_t>({ cp::Empty, cp::Invalid, cp::Incomplete, cp::NotAscii, cp::WriteFailed, cp::EndOfTokens }));
 	}
 
 	/* number of ascii characters lie within range: [0, 127] */

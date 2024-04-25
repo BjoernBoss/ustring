@@ -8,7 +8,7 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source URL: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2024-04-09 02:16
+*	Generated on: 2024-04-25 20:50
 *	Generated from version: 15.1.0
 */
 namespace cp::detail::gen {
@@ -181,7 +181,7 @@ namespace cp::detail::gen {
 			if (cp >= 0xe01f0)
 				return false;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::AssignedBuf0IndData[0x0c44 + (var0In >> 11)];
 				var1Index = gen::AssignedBuf0IndData[(var1Index << 4) + ((var0In >> 7) & 0x0f) + 0x984];
 				var1Index = gen::AssignedBuf0IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x324];
@@ -310,7 +310,7 @@ namespace cp::detail::gen {
 			if (cp >= 0x2f891)
 				return 255;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::DigitBuf1IndData[0x05ac + (var0In >> 11)];
 				var1Index = gen::DigitBuf1IndData[(var1Index << 4) + ((var0In >> 7) & 0x0f) + 0x43c];
 				var1Index = gen::DigitBuf1IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x1cc];
@@ -490,7 +490,7 @@ namespace cp::detail::gen {
 			if (cp >= 0x323b0)
 				return false;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::LetterBuf0IndData[0x0b80 + (var0In >> 10)];
 				var1Index = gen::LetterBuf0IndData[(var1Index << 3) + ((var0In >> 7) & 0x07) + 0x9b0];
 				var1Index = gen::LetterBuf0IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x3c0];
@@ -654,7 +654,7 @@ namespace cp::detail::gen {
 			if (cp >= 0x323b0)
 				return false;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::AlNumBuf0IndData[0x0c10 + (var0In >> 10)];
 				var1Index = gen::AlNumBuf0IndData[(var1Index << 3) + ((var0In >> 7) & 0x07) + 0xa38];
 				var1Index = gen::AlNumBuf0IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x3d8];
@@ -839,7 +839,7 @@ namespace cp::detail::gen {
 			if (cp >= 0xe01f0)
 				return gen::PrintableType::none;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::PrintableBuf0IndData[0x0c78 + (var0In >> 11)];
 				var1Index = gen::PrintableBuf0IndData[(var1Index << 4) + ((var0In >> 7) & 0x0f) + 0x9c8];
 				var1Index = gen::PrintableBuf0IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x348];
@@ -936,7 +936,7 @@ namespace cp::detail::gen {
 			if (cp >= 0x1f18a)
 				return gen::CaseType::none;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::CaseBuf0IndData[0x0558 + (var0In >> 10)];
 				var1Index = gen::CaseBuf0IndData[(var1Index << 3) + ((var0In >> 7) & 0x07) + 0x4a0];
 				var1Index = gen::CaseBuf0IndData[(var1Index << 3) + ((var0In >> 4) & 0x07) + 0x2d8];
@@ -1402,7 +1402,7 @@ namespace cp::detail::gen {
 			if (cp >= 0x10fffe)
 				return gen::CategoryType::cn;
 			else {
-				size_t var0In = cp - 0x0080;
+				size_t var0In = size_t(cp) - 0x0080;
 				size_t var1Index = gen::CategoryBuf1IndSmall[0x1a10 + (var0In >> 11)];
 				var1Index = gen::CategoryBuf1IndSmall[(var1Index << 4) + ((var0In >> 7) & 0x0f) + 0x16e0];
 				var1Index = gen::CategoryBuf2IndLarge[(var1Index << 3) + ((var0In >> 4) & 0x07)];
