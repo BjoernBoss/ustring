@@ -1291,7 +1291,7 @@ class ParsedFile:
 			if len(fields) < fieldCount:
 				raise RuntimeError(f'Too few fields in line [{begin:06x} - {last:06x}]')
 				continue
-			field = fields[relevantField].lower()
+			field = fields[relevantField]
 
 			# check if the value is well defined
 			if field not in valueMap:
@@ -1316,13 +1316,15 @@ class ParsedFile:
 		return Ranges.fromRawList(ranges), default
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
-def DownloadUCDFiles(refreshFiles: bool, url: str) -> str:
+def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 	files = {
 		'ReadMe.txt': 'ReadMe.txt',
 		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
 		'PropList.txt': 'ucd/PropList.txt', 
 		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt',
-		'SpecialCasing.txt': 'ucd/SpecialCasing.txt'
+		'SpecialCasing.txt': 'ucd/SpecialCasing.txt',
+		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
+		'EmojiData.txt': 'ucd/emoji/emoji-data.txt'
 	}
 	dirPath = './generated/ucd'
 
@@ -1332,7 +1334,7 @@ def DownloadUCDFiles(refreshFiles: bool, url: str) -> str:
 
 	# download all of the files (only if they should either be refreshed, or do not exist yet)
 	for file in files:
-		url, path = f'{url}/{files[file]}', f'{dirPath}/{file}'
+		url, path = f'{baseUrl}/{files[file]}', f'{dirPath}/{file}'
 		if not refreshFiles and os.path.isfile(path):
 			print(f'skipping [{path}] as the file already exists (use --refresh to enforce a new download)')
 			continue
@@ -1437,12 +1439,12 @@ def MakeCodepointQuery(config: GenerateConfig):
 			'Zs': 22, 'Zl': 23, 'Zp': 24, 'Cc': 25, 'Cf': 26, 'Cs': 27, 'Co': 28, 'Cn': 29
 		}
 		categoryRanges = unicodeData.filter(2, lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
-		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn' ])
+		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn'])
 		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCategory', _enum, categoryRanges)
 
-# MapCase
+# MapCase (encodes lowercase/uppercase/titlecase mappings)
 def _ExpandSpecialCaseMap(conditions: dict[str, int], lowerFlag: int, upperFlag: int, titleFlag: int, lower: str, title: str, upper: str, condition: str) -> tuple[int]:
 	# prepare the condition-string and ensure it is defined
 	if condition == '':
@@ -1558,7 +1560,7 @@ def MakeCodepointMaps(config: GenerateConfig):
 	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
 	propList = ParsedFile('generated/ucd/PropList.txt', False)
 
-	# write all maps functions to the file
+	# write all map functions to the file
 	with GeneratedFile('generated/unicode-cp-maps.h', config) as file:
 		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
 		flagIsNegative = 0x4000_0000
@@ -1614,7 +1616,7 @@ def MakeCodepointMaps(config: GenerateConfig):
 		caseRanges = Ranges.translate(caseRanges, lambda _, v: _TranslateCleanupCaseMap(v, flagIsLower, flagIsUpper, flagIsTitle, caseConditions['none'], bitsOfValue))
 		caseRanges = Ranges.merge(caseRanges, propertyMask, _HandleSpecialOrConflict)
 
-		# write the case-mapping and enum to the file
+		# write the case-mapping and enum to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Casemapping)
 		caseType: LookupType = LookupType.intType(0, 'int32_t')
 		_gen: CodeGen = file.next('MapCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
 		_gen.addConstInt(caseType, 'FlagIsNegative', flagIsNegative)
@@ -1632,6 +1634,34 @@ def MakeCodepointMaps(config: GenerateConfig):
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
+# LookupWordType
+def MakeCodepointAnalysis(config: GenerateConfig):
+	# parse the relevant files
+	wordBreak = ParsedFile('generated/ucd/WordBreakProperty.txt', False)
+	emojiData = ParsedFile('generated/ucd/EmojiData.txt', False)
+
+	# write all maps functions to the file
+	with GeneratedFile('generated/unicode-cp-analysis.h', config) as file:
+		# setup the word-break boundary ranges
+		flagIsPictographic = 0x80
+		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
+			'Katakana': 8, 'Hebrew_Letter': 9, 'ALetter': 10, 'Single_Quote': 11, 'Double_Quote': 12, 'MidNumLet': 13, 'MidLetter': 14,
+			'MidNum': 15, 'Numeric': 16, 'ExtendNumLet': 17, 'WSegSpace': 18 }
+		wordRanges, wordRangesDef = wordBreak.extractAll(1, 0, wordEnumMap)
+		if wordRangesDef != wordEnumMap['Other']:
+			raise RuntimeError('Default break-value is expected to be [other]')
+		if len(wordEnumMap) >= flagIsPictographic:
+			raise RuntimeError('Flags too small for word-break enum')
+		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: flagIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
+
+		# generate the enum, extended_pictographic flag, and the lookup function (https://unicode.org/reports/tr29/#Word_Boundaries)
+		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regional_indicator', 'format', 'katakana', 'hebrew_letter', 'a_letter', 'single_quote', 'double_quote', 'mid_num_letter', 'mid_letter', 'mid_num', 'numeric', 'extend_num_let', 'w_seg_space', '_last'])
+		_type: LookupType = LookupType.intType(0, 'uint8_t')
+		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
+		_gen.addConstInt(_type, 'FlagIsPictographic', flagIsPictographic)
+		_gen.addEnum(_enum)
+		_gen.intFunction('LookupWordType', _type, wordRanges)
+	
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
@@ -1642,13 +1672,10 @@ generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generated
 # generate the actual files
 MakeCodepointQuery(generatedConfig)
 MakeCodepointMaps(generatedConfig)
+MakeCodepointAnalysis(generatedConfig)
 
 
 
-
-
-# ToLower (?)
-# ToUpper (?)
 
 def MakeGraphemeTypeMapping():
 	# parse the relevant files
