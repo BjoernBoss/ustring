@@ -1326,7 +1326,7 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
 		'EmojiData.txt': 'ucd/emoji/emoji-data.txt'
 	}
-	dirPath = './generated/ucd'
+	dirPath = './ucd'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
@@ -1342,7 +1342,7 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 		urllib.request.urlretrieve(url, path)
 
 	# fetch the version from the read-me
-	with open('generated/ucd/ReadMe.txt', 'r') as f:
+	with open('ucd/ReadMe.txt', 'r') as f:
 		fileContent = f.read()
 	version = re.findall('Version ([0-9]+(\\.[0-9]+)*) of the Unicode Standard', fileContent)
 	if len(version) != 1:
@@ -1352,12 +1352,12 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
 def MakeCodepointQuery(config: GenerateConfig):
 	# parse the relevant files
-	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
-	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
-	propList = ParsedFile('generated/ucd/PropList.txt', False)
+	unicodeData = ParsedFile('ucd/UnicodeData.txt', True)
+	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
+	propList = ParsedFile('ucd/PropList.txt', False)
 
 	# write all lookup functions to the file
-	with GeneratedFile('generated/unicode-cp-query.h', config) as file:
+	with GeneratedFile('unicode-cp-query.h', config) as file:
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
@@ -1555,13 +1555,13 @@ def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: i
 	return a + b
 def MakeCodepointMaps(config: GenerateConfig):
 	# parse the relevant files
-	unicodeData = ParsedFile('generated/ucd/UnicodeData.txt', True)
-	specialCasing = ParsedFile('generated/ucd/SpecialCasing.txt', False)
-	derivedProperties = ParsedFile('generated/ucd/DerivedCoreProperties.txt', False)
-	propList = ParsedFile('generated/ucd/PropList.txt', False)
+	unicodeData = ParsedFile('ucd/UnicodeData.txt', True)
+	specialCasing = ParsedFile('ucd/SpecialCasing.txt', False)
+	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
+	propList = ParsedFile('ucd/PropList.txt', False)
 
 	# write all map functions to the file
-	with GeneratedFile('generated/unicode-cp-maps.h', config) as file:
+	with GeneratedFile('unicode-cp-maps.h', config) as file:
 		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
 		flagIsNegative = 0x4000_0000
 		flagIsCased = 0x2000_0000
@@ -1637,11 +1637,11 @@ def MakeCodepointMaps(config: GenerateConfig):
 # LookupWordType
 def MakeCodepointAnalysis(config: GenerateConfig):
 	# parse the relevant files
-	wordBreak = ParsedFile('generated/ucd/WordBreakProperty.txt', False)
-	emojiData = ParsedFile('generated/ucd/EmojiData.txt', False)
+	wordBreak = ParsedFile('ucd/WordBreakProperty.txt', False)
+	emojiData = ParsedFile('ucd/EmojiData.txt', False)
 
 	# write all maps functions to the file
-	with GeneratedFile('generated/unicode-cp-analysis.h', config) as file:
+	with GeneratedFile('unicode-cp-analysis.h', config) as file:
 		# setup the word-break boundary ranges
 		flagIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
