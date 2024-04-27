@@ -1266,9 +1266,9 @@ class ParsedFile:
 		ranges: list[Range] = []
 
 		# iterate over the parsed lines and match them against the callback
-		for (begin, last, _, fields) in self._parsed:
+		for (begin, last, _missing, fields) in self._parsed:
 			# check if the line can be ignored
-			if len(fields) < relevantFields:
+			if _missing or len(fields) < relevantFields:
 				if failIfNotFound:
 					raise RuntimeError(f'Invalid range [{begin:#06x} - {last:#06x}] encountered in filter')
 				continue
@@ -1324,7 +1324,8 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt',
 		'SpecialCasing.txt': 'ucd/SpecialCasing.txt',
 		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
-		'EmojiData.txt': 'ucd/emoji/emoji-data.txt'
+		'EmojiData.txt': 'ucd/emoji/emoji-data.txt',
+		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt'
 	}
 	dirPath = './ucd'
 
@@ -1634,11 +1635,13 @@ def MakeCodepointMaps(config: GenerateConfig):
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
-# LookupWordType
+# LookupWordType, LookupGraphemeType
 def MakeCodepointAnalysis(config: GenerateConfig):
 	# parse the relevant files
 	wordBreak = ParsedFile('ucd/WordBreakProperty.txt', False)
+	graphemeBreak = ParsedFile('ucd/GraphemeBreakProperty.txt', False)
 	emojiData = ParsedFile('ucd/EmojiData.txt', False)
+	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
 
 	# write all maps functions to the file
 	with GeneratedFile('unicode-cp-analysis.h', config) as file:
@@ -1661,7 +1664,39 @@ def MakeCodepointAnalysis(config: GenerateConfig):
 		_gen.addConstInt(_type, 'FlagIsPictographic', flagIsPictographic)
 		_gen.addEnum(_enum)
 		_gen.intFunction('LookupWordType', _type, wordRanges)
-	
+
+		# setup the grapheme-break boundary ranges
+		graphemeEnumMap = {
+			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
+			'Regional_Indicator': 6, 'Prepend': 7, 'SpacingMark': 8, 'L': 9, 'V': 10,
+			'T': 11, 'LV': 12, 'LVT': 13, 'Extended_Pictographic': 14 }
+		graphemeRanges, graphemeRangesDef = graphemeBreak.extractAll(1, 0, graphemeEnumMap)
+		if graphemeRangesDef != graphemeEnumMap['Other']:
+			raise RuntimeError('Default break-value is expected to be [other]')
+		graphemeRanges = Ranges.union(graphemeRanges, emojiData.filter(1, lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
+
+		# parse the in-cb properties
+		flagIsInCBExtend = 0x80
+		flagIsInCBConsonant = 0x40
+		flagIsInCBLinker = 0x20
+		if len(graphemeEnumMap) >= min(flagIsInCBLinker, flagIsInCBExtend, flagIsInCBConsonant):
+			raise RuntimeError('Flags too small for word-break enum')
+		InCBMap = { 'Extend': flagIsInCBExtend, 'Consonant': flagIsInCBConsonant, 'Linker': flagIsInCBLinker }
+		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
+
+		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
+		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regional_indicator', 'prepend', 'space_marking', 'l', 'v', 't', 'lv', 'lvt', 'extended_pictographic', '_last'])
+		_type: LookupType = LookupType.intType(0, 'uint8_t')
+		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty and EmojiData')
+		_gen.addConstInt(_type, 'FlagIsInCBExtend', flagIsInCBExtend)
+		_gen.addConstInt(_type, 'FlagIsInCBConsonant', flagIsInCBConsonant)
+		_gen.addConstInt(_type, 'FlagIsInCBLinker', flagIsInCBLinker)
+		_gen.addEnum(_enum)
+		_gen.intFunction('LookupGraphemeType', _type, graphemeRanges)
+
+
+# setup the current path
+os.chdir(os.path.split(os.path.abspath(__file__))[0])
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
@@ -1673,37 +1708,3 @@ generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generated
 MakeCodepointQuery(generatedConfig)
 MakeCodepointMaps(generatedConfig)
 MakeCodepointAnalysis(generatedConfig)
-
-
-
-
-def MakeGraphemeTypeMapping():
-	# parse the relevant files
-	graphemeBreakProperty = RawParseFile('ucd/GraphemeBreakProperty.txt', False)
-	emojiData = RawParseFile('ucd/emoji-data.txt', False)
-
-	graphemeEnumName, graphemeEnumMap = 'GraphemeType', {
-		'other': 0, 'prepend': 1, 'cr': 2, 'lf': 3, 
-		'control': 4, 'extend': 5, 'regional_indicator': 6, 'spacingmark': 7, 
-		'l': 8, 'v': 9, 't': 10, 'lv': 11, 'lvt': 12, 'zwj': 13, 'extended_pictographic': 14
-	}
-
-	# parse the GraphemeBreakProperty.txt file to extract the grapheme-properties
-	ranges, defValue = ExtractProperties(graphemeBreakProperty, 0, graphemeEnumMap, True, True)
-	if defValue != graphemeEnumMap['other']:
-		raise RuntimeError('Default grapheme-value is expected to be [other]')
-
-	# parse the emoji-data.txt file to extract the Extended_Pictographic property
-	ranges += ExtractProperties(emojiData, 0, { 'extended_pictographic': graphemeEnumMap['extended_pictographic'] }, False, False)[0]
-
-	# open the output file and generate the code into it
-	with open('grapheme-type.h', 'w', encoding='ascii') as file:
-		BeginFile(file)
-
-		# write the grapheme-enum to the file
-		WriteEnumString(file, graphemeEnumName, graphemeEnumMap)
-		WriteLookup(file, ranges, Config('LookupGraphemeType', 'Grapheme', 'gen::Grapheme', f'gen::{graphemeEnumName}', f'static_cast<gen::{graphemeEnumName}>', InvertMap(f'gen::{graphemeEnumName}::', graphemeEnumMap), 0))
-
-		EndFile(file)
-
-# MakeGraphemeTypeMapping()

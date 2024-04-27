@@ -26,8 +26,8 @@ namespace cp {
 		explicit constexpr Range(size_t f, size_t l) : first(f), last(l) {}
 	};
 
-	/* Valid sink must receive zero or more valid codepoints and a final cp::EndOfTokens, after which the
-	*	object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
+	/* Valid sinks for char32_t must receive zero or more valid codepoints and a final cp::EndOfTokens, after which
+	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
 	template <class Type, class ValType>
 	concept IsSink = requires(Type t, ValType v) {
 		{ t(v) } -> std::same_as<void>;
@@ -176,7 +176,6 @@ namespace cp {
 						return Break::combine;
 					[[fallthrough]];
 				case Type::newline:
-					[[fallthrough]];
 				case Type::lf:
 					/* WB3a */
 					return Break::separate;
@@ -280,7 +279,7 @@ namespace cp {
 				uint8_t rawRight = detail::gen::LookupWordType(cp);
 				Type right = static_cast<Type>(rawRight & ~detail::gen::FlagIsPictographic);
 
-				/* fetch and update the left/last-values */
+				/* update the regional_indicator counter and update the last-state */
 				Type left = pLast, leftActual = pLastActual;
 				if (right != Type::extend && right != Type::format && right != Type::zwj) {
 					pRICount = (right == Type::regional_indicator ? pRICount + 1 : 0);
@@ -288,7 +287,7 @@ namespace cp {
 				}
 				pLastActual = right;
 
-				/* WB2: check if the end has been reached */
+				/* WB2: check if the end has been reached (before checking WB1 to prevent initialization on empty stream) */
 				if (cp == cp::EndOfTokens) {
 					if (pState == State::uninit)
 						return;
@@ -422,6 +421,188 @@ namespace cp {
 		public:
 			constexpr void operator()(char32_t cp) {
 				detail::WordBreak<detail::WordBreakSeparate<SnkType>>::operator()(cp, 0);
+			}
+		};
+
+		template <class SelfType>
+		class GraphemeBreak {
+		private:
+			using Type = detail::gen::GraphemeType;
+			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
+
+		private:
+			enum class Break : uint8_t {
+				separate,
+				combine
+			};
+			enum class GB9cState : uint8_t {
+				none,
+				linker,
+				match
+			};
+			enum class GB11State : uint8_t {
+				none,
+				zwj,
+				match
+			};
+
+		private:
+			size_t pRICount = 0;
+			GB9cState pGB9cState = GB9cState::none;
+			GB11State pGB11State = GB11State::none;
+			uint8_t pLast = static_cast<uint8_t>(Type::other);
+			bool pInitialized = false;
+
+		public:
+			constexpr GraphemeBreak() = default;
+
+		private:
+			constexpr Break fCheck(Type l, Type r, bool rIsInCBConsonant) const {
+				/* GB3/GB4/GB5 */
+				if (l == Type::cr)
+					return (r == Type::lf ? Break::combine : Break::separate);
+				else if (l == Type::control || l == Type::lf || r == Type::control || r == Type::cr || r == Type::lf)
+					return Break::separate;
+
+				/* GB9/GB9a */
+				if (r == Type::extend || r == Type::zwj || r == Type::space_marking)
+					return Break::combine;
+
+				switch (l) {
+				case Type::zwj:
+					/* GB11 */
+					if (pGB11State == GB11State::match && r == Type::extended_pictographic)
+						return Break::combine;
+					break;
+				case Type::regional_indicator:
+					/* GB12/GB13 */
+					if ((pRICount & 0x01) != 0 && r == Type::regional_indicator)
+						return Break::combine;
+					break;
+				case Type::prepend:
+					/* GB9b */
+					return Break::combine;
+				case Type::l:
+					/* GB6 */
+					if (r == Type::l || r == Type::v || r == Type::lv || r == Type::lvt)
+						return Break::combine;
+					break;
+				case Type::v:
+				case Type::lv:
+					/* GB7 */
+					if (r == Type::v || r == Type::t)
+						return Break::combine;
+					break;
+				case Type::t:
+				case Type::lvt:
+					/* GB8 */
+					if (r == Type::t)
+						return Break::combine;
+					break;
+				}
+
+				/* GB9c */
+				if (pGB9cState == GB9cState::match && rIsInCBConsonant)
+					return Break::combine;
+
+				/* GB999 */
+				return Break::separate;
+			}
+			constexpr GB9cState fUpdateGB9cState(uint8_t l) const {
+				if ((l & detail::gen::FlagIsInCBConsonant) != 0)
+					return GB9cState::linker;
+
+				if (pGB9cState == GB9cState::linker) {
+					if ((l & detail::gen::FlagIsInCBExtend) != 0)
+						return GB9cState::linker;
+					if ((l & detail::gen::FlagIsInCBLinker) != 0)
+						return GB9cState::match;
+				}
+				else if (pGB9cState == GB9cState::match && (l & (detail::gen::FlagIsInCBExtend | detail::gen::FlagIsInCBLinker)) != 0)
+					return GB9cState::match;
+				return GB9cState::none;
+			}
+			constexpr GB11State fUpdateGB11State(Type l) const {
+				if (l == Type::extended_pictographic)
+					return GB11State::zwj;
+
+				if (pGB11State == GB11State::zwj) {
+					if (l == Type::extend)
+						return GB11State::zwj;
+					if (l == Type::zwj)
+						return GB11State::match;
+				}
+				return GB11State::none;
+			}
+
+		public:
+			template <class PayloadType>
+			constexpr void operator()(char32_t cp, const PayloadType& payload) {
+				uint8_t rawLeft = pLast, rawRight = detail::gen::LookupGraphemeType(cp);
+				Type left = static_cast<Type>(rawLeft & ~(detail::gen::FlagIsInCBExtend | detail::gen::FlagIsInCBConsonant | detail::gen::FlagIsInCBLinker));
+				Type right = static_cast<Type>(rawRight & ~(detail::gen::FlagIsInCBExtend | detail::gen::FlagIsInCBConsonant | detail::gen::FlagIsInCBLinker));
+				pLast = rawRight;
+
+				/* GB2: check if the end has been reached (before checking GB1 to prevent initialization on empty stream) */
+				if (cp == cp::EndOfTokens) {
+					if (!pInitialized)
+						return;
+					static_cast<SelfType*>(this)->fDone();
+					return;
+				}
+
+				/* GB1: check if this is the initial character */
+				if (!pInitialized) {
+					pInitialized = true;
+					static_cast<SelfType*>(this)->fBegin(payload);
+					return;
+				}
+
+				/* update the states */
+				pGB9cState = fUpdateGB9cState(rawLeft);
+				pGB11State = fUpdateGB11State(left);
+				pRICount = (left == Type::regional_indicator ? pRICount + 1 : 0);
+
+				/* check the current values and update the state */
+				switch (fCheck(left, right, (rawRight & detail::gen::FlagIsInCBConsonant) != 0)) {
+				case Break::combine:
+					static_cast<SelfType*>(this)->fNext(payload, false);
+					break;
+				case Break::separate:
+					static_cast<SelfType*>(this)->fNext(payload, true);
+					break;
+				}
+			}
+		};
+
+		template <class SnkType>
+		class GraphemeBreakRange final : private detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>> {
+			friend class detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>>;
+		private:
+			Range pCurrent;
+			SnkType pSink;
+
+		public:
+			constexpr GraphemeBreakRange(SnkType&& sink) : pSink{ sink } {}
+
+		private:
+			constexpr void fNext(size_t index, bool separated) {
+				if (separated) {
+					pSink(pCurrent);
+					pCurrent.first = index;
+				}
+				pCurrent.last = index;
+			}
+			constexpr void fBegin(size_t index) {
+				pCurrent = Range(index);
+			}
+			constexpr void fDone() {
+				pSink(pCurrent);
+			}
+
+		public:
+			constexpr void operator()(char32_t cp, size_t index) {
+				detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>>::operator()(cp, index);
 			}
 		};
 
@@ -809,6 +990,15 @@ namespace cp {
 		template <cp::IsSink<Range> SnkType>
 		constexpr detail::WordBreakRange<SnkType> operator()(SnkType&& sink) {
 			return detail::WordBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+		}
+	};
+
+	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink
+	*	Sink(char32_t, size_t): code-point and index used to reference it in the output-ranges */
+	struct GraphemeBreak {
+		template <cp::IsSink<Range> SnkType>
+		constexpr detail::GraphemeBreakRange<SnkType> operator()(SnkType&& sink) {
+			return detail::GraphemeBreakRange<SnkType>{ std::forward<SnkType>(sink) };
 		}
 	};
 
