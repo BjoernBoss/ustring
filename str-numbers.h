@@ -669,7 +669,7 @@ namespace str {
 			}
 		}
 
-		template<class Type, class ChType>
+		template <class Type, class ChType>
 		constexpr std::tuple<Type, size_t, bool> ParseRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec, bool negative) {
 			size_t totalConsumed = 0;
 			bool overflow = false;
@@ -710,7 +710,7 @@ namespace str {
 				return { value, totalConsumed, overflow };
 		}
 
-		template<class Type, class ChType>
+		template <class Type, class ChType>
 		constexpr str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
 			str::CPOut dec = str::ReadAscii(view);
@@ -737,7 +737,7 @@ namespace str {
 			return out;
 		}
 
-		template<class Type>
+		template <class Type>
 		constexpr void PrintInteger(auto& sink, Type num, size_t radix, size_t digitCount, bool addPrefix, bool upperCase) {
 			static_assert(sizeof(Type) <= 8, "Type must be smaller than/equal to 64-bit");
 
@@ -827,7 +827,7 @@ namespace str {
 			bool invalid = true;
 			bool trailIsNonNull = false;
 		};
-		template<class ChType>
+		template <class ChType>
 		constexpr detail::MantissaOut ParseFloatMantissa(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec) {
 			detail::MantissaOut out;
 
@@ -901,7 +901,7 @@ namespace str {
 			int8_t range = 0;
 			bool invalid = false;
 		};
-		template<class ChType>
+		template <class ChType>
 		constexpr detail::ExponentOut ParseFloatExponent(const std::basic_string_view<ChType>& view, size_t radix, str::CPOut& dec) {
 			detail::ExponentOut out;
 
@@ -927,7 +927,7 @@ namespace str {
 			return out;
 		}
 
-		template<class Type, size_t Units>
+		template <class Type, size_t Units>
 		constexpr std::pair<Type, int8_t> ConstructFloat(uint64_t mantissa, uint8_t manShift, int32_t exponent, uint32_t radix, bool hexFloat, bool trailIsNull) {
 			uint64_t flMantissa = 0;
 			int flExponent = 0;
@@ -1006,7 +1006,7 @@ namespace str {
 			return { value, 0 };
 		}
 
-		template<class Type, class ChType>
+		template <class Type, class ChType>
 		constexpr str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
 			using Limits = std::numeric_limits<Type>;
 
@@ -1161,7 +1161,7 @@ namespace str {
 			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), 10, 1, false, upperCase);
 		}
 
-		template<class Type, size_t Units>
+		template <class Type, size_t Units>
 		constexpr void PrintNormalFloat(auto& sink, intptr_t totalDigits, int32_t rawExponent, uint64_t flMantissa, str::FloatStyle style, uint32_t radix, bool upperCase, uint32_t capacity) {
 			/* compute the exponent, which can be off by one due to it being computed on the largest potential value, based
 			*	on the exponent, but the logarithm might be imprecise (cannot overflow as the value can at most shrink) */
@@ -1347,7 +1347,7 @@ namespace str {
 			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), radix, 2, false, upperCase);
 		}
 
-		template<class Type>
+		template <class Type>
 		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, bool addPrefix, bool upperCase, bool hexFloat) {
 			using Limits = std::numeric_limits<Type>;
 

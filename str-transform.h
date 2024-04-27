@@ -11,6 +11,7 @@
 #include <concepts>
 #include <vector>
 #include <utility>
+#include <variant>
 
 namespace cp {
 	/* inclusive range */
@@ -25,16 +26,87 @@ namespace cp {
 		explicit constexpr Range(size_t f, size_t l) : first(f), last(l) {}
 	};
 
-	/* Valid sink must receive zero or more valid codepoints and a final cp::EndOfTokens, which must reset the state, after which,
-	*	a new independent codepoints-stream may be started (undefined behavior allowed, if input does not behave well-defined) */
+	/* Valid sink must receive zero or more valid codepoints and a final cp::EndOfTokens, after which the
+	*	object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
 	template <class Type, class ValType>
 	concept IsSink = requires(Type t, ValType v) {
 		{ t(v) } -> std::same_as<void>;
 	};
 
 	namespace detail {
-		template<class SnkType>
-		struct WordBreak {
+		template <class Type, size_t Buffer>
+		class LocalBuffer {
+		private:
+			struct Static {
+				Type buffer[Buffer]{};
+				size_t size = 0;
+			};
+
+		private:
+			std::variant<Static, std::vector<Type>> pBuffer;
+			size_t pProcessed = 0;
+
+		public:
+			LocalBuffer() : pBuffer{ Static{} } {}
+
+		public:
+			void push(const Type& t) {
+				if (std::holds_alternative<std::vector<Type>>(pBuffer)) {
+					std::get<std::vector<Type>>(pBuffer).push_back(t);
+				}
+				else {
+					Static& s = std::get<Static>(pBuffer);
+					if (s.size < Buffer)
+						s.buffer[s.size++] = t;
+					else {
+						std::vector<Type> v{ s.buffer + pProcessed, s.buffer + s.size };
+						v.push_back(t);
+						pBuffer = std::move(v);
+					}
+				}
+			}
+			Type pop() {
+				if (std::holds_alternative<Static>(pBuffer)) {
+					Static& s = std::get<Static>(pBuffer);
+					Type val = s.buffer[pProcessed++];
+					if (pProcessed >= s.size)
+						pProcessed = (s.size = 0);
+					return val;
+				}
+
+				std::vector<Type>& v = std::get<std::vector<Type>>(pBuffer);
+				Type val = v[pProcessed++];
+				if (pProcessed >= v.size()) {
+					v.clear();
+					pProcessed = 0;
+				}
+				return val;
+			}
+			size_t size() const {
+				return (std::holds_alternative<Static>(pBuffer) ? std::get<Static>(pBuffer).size : std::get<std::vector<Type>>(pBuffer).size()) - pProcessed;
+			}
+			Type& get(size_t i) {
+				if (std::holds_alternative<Static>(pBuffer))
+					return std::get<Static>(pBuffer).buffer[i - pProcessed];
+				return std::get<std::vector<Type>>(pBuffer)[i - pProcessed];
+			}
+			Type& front() {
+				if (std::holds_alternative<Static>(pBuffer))
+					return std::get<Static>(pBuffer).buffer[pProcessed];
+				return std::get<std::vector<Type>>(pBuffer)[pProcessed];
+			}
+			Type& back() {
+				if (std::holds_alternative<Static>(pBuffer)) {
+					Static& s = std::get<Static>(pBuffer);
+					return s.buffer[s.size - pProcessed - 1];
+				}
+				std::vector<Type>& v = std::get<std::vector<Type>>(pBuffer);
+				return v[v.size() - pProcessed - 1];
+			}
+		};
+
+		template <class SelfType>
+		class WordBreak {
 		private:
 			using Type = detail::gen::WordType;
 			static_assert(size_t(Type::_last) == 19, "Only types 0-18 are known by the state-machine");
@@ -48,11 +120,11 @@ namespace cp {
 				wb7b,
 				wb11
 			};
-			enum class Cont : uint8_t {
-				uncertain,
-				fullCombine,
-				firstBreak,
-				firstCombine
+			enum class Continue : uint8_t {
+				addCached,
+				combineIncludingRight,
+				combineExcludingRight,
+				breakBeforeCached
 			};
 			enum class Break : uint8_t {
 				separate,
@@ -61,43 +133,40 @@ namespace cp {
 			};
 
 		private:
-			Range pCurrent;
-			Range pCached;
-			SnkType pSink;
 			size_t pRICount = 0;
 			Type pLast = Type::other;
 			Type pLastActual = Type::other;
 			State pState = State::uninit;
 
 		public:
-			constexpr WordBreak(SnkType&& sink) : pSink{ sink } {}
+			constexpr WordBreak() = default;
 
 		private:
-			constexpr Cont fCheckState(Type right) const {
+			constexpr Continue fCheckState(Type right) const {
 				/* check if this is a silent reduction */
 				if (right == Type::extend || right == Type::format || right == Type::zwj)
-					return Cont::uncertain;
+					return Continue::addCached;
 
 				/* cleanup the state */
 				switch (pState) {
 				case State::wb6:
 					if (right == Type::a_letter || right == Type::hebrew_letter)
-						return Cont::fullCombine;
-					return Cont::firstBreak;
+						return Continue::combineIncludingRight;
+					return Continue::breakBeforeCached;
 				case State::wb7a:
 					if (right == Type::a_letter || right == Type::hebrew_letter)
-						return Cont::fullCombine;
-					return Cont::firstCombine;
+						return Continue::combineIncludingRight;
+					return Continue::combineExcludingRight;
 				case State::wb7b:
 					if (right == Type::hebrew_letter)
-						return Cont::fullCombine;
-					return Cont::firstBreak;
+						return Continue::combineIncludingRight;
+					return Continue::breakBeforeCached;
 				case State::wb11:
 					if (right == Type::numeric)
-						return Cont::fullCombine;
-					return Cont::firstBreak;
+						return Continue::combineIncludingRight;
+					return Continue::breakBeforeCached;
 				}
-				return Cont::firstCombine;
+				return Continue::combineExcludingRight;
 			}
 			constexpr Break fCheck(Type l, Type lActual, Type r, bool rPictographic) {
 				switch (lActual) {
@@ -206,11 +275,12 @@ namespace cp {
 			}
 
 		public:
-			constexpr void operator()(char32_t cp, size_t index) {
+			template <class PayloadType>
+			constexpr void operator()(char32_t cp, const PayloadType& payload) {
 				uint8_t rawRight = detail::gen::LookupWordType(cp);
 				Type right = static_cast<Type>(rawRight & ~detail::gen::FlagIsPictographic);
 
-				/* fetch and update the left/last-values (will automatically reset the state on the last cp::EndOfTokens, as it will result in Type::other) */
+				/* fetch and update the left/last-values */
 				Type left = pLast, leftActual = pLastActual;
 				if (right != Type::extend && right != Type::format && right != Type::zwj) {
 					pRICount = (right == Type::regional_indicator ? pRICount + 1 : 0);
@@ -224,42 +294,39 @@ namespace cp {
 						return;
 
 					/* handle the last open states and sink the remaining word */
-					if (pState == State::wb6 || pState == State::wb7b || pState == State::wb11) {
-						pSink(pCurrent);
-						pCurrent = pCached;
-					}
+					if (pState == State::wb6 || pState == State::wb7b || pState == State::wb11)
+						static_cast<SelfType*>(this)->fEndUnknown(true);
 					else if (pState == State::wb7a)
-						pCurrent.last = pCached.last;
-					pState = State::uninit;
-					pSink(pCurrent);
+						static_cast<SelfType*>(this)->fEndUnknown(false);
+					static_cast<SelfType*>(this)->fDone();
 					return;
 				}
 
 				/* WB1: check if this is the initial character */
 				if (pState == State::uninit) {
-					pCurrent = Range(index);
 					pState = State::none;
+					static_cast<SelfType*>(this)->fBegin(payload);
 					return;
 				}
 
 				/* check if a current state for longer chains has been entered and handle it */
 				if (pState != State::none) {
 					switch (fCheckState(right)) {
-					case Cont::fullCombine:
+					case Continue::combineIncludingRight:
 						pState = State::none;
-						pCurrent.last = index;
+						static_cast<SelfType*>(this)->fEndUnknown(false);
+						static_cast<SelfType*>(this)->fNext(payload, false);
 						return;
-					case Cont::uncertain:
-						pCached.last = index;
-						return;
-					case Cont::firstBreak:
+					case Continue::combineExcludingRight:
 						pState = State::none;
-						pSink(pCurrent);
-						pCurrent = pCached;
+						static_cast<SelfType*>(this)->fEndUnknown(false);
 						break;
-					case Cont::firstCombine:
+					case Continue::addCached:
+						static_cast<SelfType*>(this)->fAddUnknown(payload);
+						return;
+					case Continue::breakBeforeCached:
 						pState = State::none;
-						pCurrent.last = pCached.last;
+						static_cast<SelfType*>(this)->fEndUnknown(true);
 						break;
 					}
 				}
@@ -267,16 +334,94 @@ namespace cp {
 				/* check the current values and update the state */
 				switch (fCheck(left, leftActual, right, (rawRight & detail::gen::FlagIsPictographic) != 0)) {
 				case Break::combine:
-					pCurrent.last = index;
+					static_cast<SelfType*>(this)->fNext(payload, false);
 					break;
 				case Break::separate:
-					pSink(pCurrent);
-					pCurrent = Range(index);
+					static_cast<SelfType*>(this)->fNext(payload, true);
 					break;
 				case Break::uncertain:
-					pCached = Range(index);
+					static_cast<SelfType*>(this)->fBeginUnknown(payload);
 					break;
 				}
+			}
+		};
+
+		template <class SnkType>
+		class WordBreakRange final : private detail::WordBreak<detail::WordBreakRange<SnkType>> {
+			friend class detail::WordBreak<detail::WordBreakRange<SnkType>>;
+		private:
+			Range pCurrent;
+			Range pCached;
+			SnkType pSink;
+
+		public:
+			constexpr WordBreakRange(SnkType&& sink) : pSink{ sink } {}
+
+		private:
+			constexpr void fBeginUnknown(size_t index) {
+				pCached = Range(index);
+			}
+			constexpr void fEndUnknown(bool separated) {
+				if (separated) {
+					pSink(pCurrent);
+					pCurrent.first = pCached.first;
+				}
+				pCurrent.last = pCached.last;
+			}
+			constexpr void fAddUnknown(size_t index) {
+				pCached.last = index;
+			}
+			constexpr void fNext(size_t index, bool separated) {
+				if (separated) {
+					pSink(pCurrent);
+					pCurrent.first = index;
+				}
+				pCurrent.last = index;
+			}
+			constexpr void fBegin(size_t index) {
+				pCurrent = Range(index);
+			}
+			constexpr void fDone() {
+				pSink(pCurrent);
+			}
+
+		public:
+			constexpr void operator()(char32_t cp, size_t index) {
+				detail::WordBreak<detail::WordBreakRange<SnkType>>::operator()(cp, index);
+			}
+		};
+
+		template <class SnkType>
+		class WordBreakSeparate final : private detail::WordBreak<detail::WordBreakSeparate<SnkType>> {
+			friend class detail::WordBreak<detail::WordBreakSeparate<SnkType>>;
+		private:
+			size_t pCached = 0;
+			SnkType pSink;
+
+		public:
+			constexpr WordBreakSeparate(SnkType&& sink) : pSink{ sink } {}
+
+		private:
+			constexpr void fBeginUnknown(int) {
+				pCached = 0;
+			}
+			constexpr void fEndUnknown(bool separated) {
+				pSink(separated);
+				for (size_t i = 0; i < pCached; ++i)
+					pSink(false);
+			}
+			constexpr void fAddUnknown(int) {
+				++pCached;
+			}
+			constexpr void fNext(int, bool separated) {
+				pSink(separated);
+			}
+			constexpr void fBegin(int) {}
+			constexpr void fDone() {}
+
+		public:
+			constexpr void operator()(char32_t cp) {
+				detail::WordBreak<detail::WordBreakSeparate<SnkType>>::operator()(cp, 0);
 			}
 		};
 
@@ -337,8 +482,8 @@ namespace cp {
 			return detail::CaseLocale::none;
 		}
 
-		template<class SnkType, int32_t TypeFlag>
-		struct CaseMapper {
+		template <class SelfType, class SnkType>
+		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
 			static_assert(size_t(Cond::_last) == 11, "Only conditions 0-10 are known by the state-machine");
@@ -351,9 +496,8 @@ namespace cp {
 			};
 
 		private:
-			std::vector<Cache> pCached;
+			detail::LocalBuffer<Cache, 2> pCached;
 			SnkType pSink;
-			size_t pProcessed = 0;
 			struct {
 				const int32_t* begin = 0;
 				const int32_t* end = 0;
@@ -409,14 +553,8 @@ namespace cp {
 				}
 			}
 			constexpr char32_t fUnpackSingle(char32_t cp, int32_t data) {
-				if ((data & TypeFlag) == 0) {
-					/* check if the stored state should be reset */
-					if (cp == cp::EndOfTokens) {
-						pBefore = { false, false, false };
-						pAfter = { false, false };
-					}
+				if ((data & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
 					return cp;
-				}
 
 				int32_t value = (data & detail::gen::BitsOfPayload);
 				if (data & detail::gen::FlagIsNegative)
@@ -428,7 +566,7 @@ namespace cp {
 				pAfter = { false, false };
 
 				/* check if the casing matches */
-				if ((*pActive.begin & TypeFlag) == 0)
+				if ((*pActive.begin & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
 					return -1;
 
 				/* setup the state for the corresponding condition */
@@ -490,12 +628,13 @@ namespace cp {
 				auto [size, data] = detail::gen::MapCase(cp);
 
 				/* check for the fast-way out of no active condition and a single diff-value (will be entered for cp::EndOfTokens and result in a diff of zero) */
-				if (pActive.begin == pActive.end && size == 1) {
+				if (pActive.begin == pActive.end && size == 1 && !static_cast<SelfType*>(this)->fIncomplete()) {
 					fBeforeState(data[0]);
 					pSink(fUnpackSingle(cp, data[0]));
+					static_cast<SelfType*>(this)->fDone();
 					return;
 				}
-				pCached.push_back({ cp, data, size });
+				pCached.push({ cp, data, size });
 
 				/* iterate until an incomplete character has been encountered or the cached entries have been processed */
 				size_t index = pCached.size() - 1;
@@ -504,32 +643,30 @@ namespace cp {
 
 					/* check if a new block needs to be opened */
 					if (pActive.begin == pActive.end) {
-						if (pProcessed >= pCached.size())
+						if (pCached.size() == 0 || static_cast<SelfType*>(this)->fIncomplete())
 							return;
-						cp = pCached[pProcessed].cp;
-						data = pCached[pProcessed].data;
-						size = pCached[pProcessed].size;
-						if (++pProcessed >= pCached.size()) {
-							pCached.clear();
-							pProcessed = 0;
-						}
+						Cache _c = pCached.pop();
+						cp = _c.cp;
+						data = _c.data;
+						size = _c.size;
 
 						/* check if this is a single block (will also catch cp::EndOfTokens) */
 						if (size == 1) {
 							fBeforeState(data[0]);
 							pSink(fUnpackSingle(cp, data[0]));
+							static_cast<SelfType*>(this)->fDone();
 							continue;
 						}
 						pActive = { data, data + size, data[0], cp };
 						cond = fSetupCondition();
-						index = pProcessed;
+						index = 0;
 					}
 
 					while (true) {
 						/* feed the cached entries into the condition and check if its still incomplete or failed */
 						for (; cond == 0 && index < pCached.size(); ++index) {
-							cond = fAfterState(pCached[index].data[0]);
-							if (cond == 0 && pCached[index].cp == cp::EndOfTokens)
+							cond = fAfterState(pCached.get(index).data[0]);
+							if (cond == 0 && pCached.get(index).cp == cp::EndOfTokens)
 								cond = -1;
 						}
 						if (cond == 0)
@@ -542,7 +679,7 @@ namespace cp {
 						if (pActive.begin == pActive.end)
 							break;
 						cond = fSetupCondition();
-						index = pProcessed;
+						index = 0;
 					}
 
 					/* write the characters to the output and update the before-state */
@@ -554,8 +691,114 @@ namespace cp {
 					}
 					else
 						pSink(pActive.cp);
+					static_cast<SelfType*>(this)->fDone();
 					fBeforeState(pActive.flags);
 				}
+			}
+		};
+
+		template <class SnkType>
+		class UpperMapper final : private detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType> {
+			friend class detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType>;
+		private:
+			using Super = detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType>;
+
+		public:
+			using Super::Super;
+
+		private:
+			constexpr int32_t fTypeFlag() {
+				return detail::gen::FlagIsUpper;
+			}
+			constexpr bool fIncomplete() {
+				return false;
+			}
+			constexpr void fDone() {}
+
+		public:
+			constexpr void operator()(char32_t cp) {
+				Super::operator()(cp);
+			}
+		};
+
+		template <class SnkType>
+		class LowerMapper final : private detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType> {
+			friend class detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType>;
+		private:
+			using Super = detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType>;
+
+		public:
+			using Super::Super;
+
+		private:
+			constexpr int32_t fTypeFlag() {
+				return detail::gen::FlagIsLower;
+			}
+			constexpr bool fIncomplete() {
+				return false;
+			}
+			constexpr void fDone() {}
+
+		public:
+			constexpr void operator()(char32_t cp) {
+				Super::operator()(cp);
+			}
+		};
+
+		template <class SnkType>
+		class TitleMapper final : private detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType> {
+			friend class detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType>;
+		private:
+			using Super = detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType>;
+			struct Lambda {
+				TitleMapper<SnkType>& self;
+				constexpr Lambda(TitleMapper<SnkType>& s) : self{ s } {}
+				constexpr void operator()(bool separate) {
+					self.fSeparate(separate);
+				}
+			};
+
+		private:
+			detail::LocalBuffer<size_t, 2> pWords;
+			detail::WordBreakSeparate<Lambda> pSeparator;
+			bool pLower = false;
+
+		public:
+			constexpr TitleMapper(SnkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SnkType>(sink), locale }, pSeparator{ Lambda{ *this } } {
+				pWords.push(1);
+			}
+
+		private:
+			constexpr int32_t fTypeFlag() {
+				return (pLower ? detail::gen::FlagIsLower : detail::gen::FlagIsTitle);
+			}
+			constexpr bool fIncomplete() {
+				return (pWords.size() == 0);
+			}
+			constexpr void fDone() {
+				pLower = true;
+				if (--pWords.front() == 0) {
+					pWords.pop();
+					pLower = false;
+				}
+			}
+			constexpr void fSeparate(bool separate) {
+				if (pWords.size() == 0) {
+					pLower = !separate;
+					pWords.push(1);
+				}
+				else if (separate)
+					pWords.push(1);
+				else
+					++pWords.back();
+			}
+
+		public:
+			constexpr void operator()(char32_t cp) {
+				pSeparator(cp);
+				if (cp == cp::EndOfTokens)
+					fSeparate(false);
+				Super::operator()(cp);
 			}
 		};
 	}
@@ -564,8 +807,8 @@ namespace cp {
 	*	Sink(char32_t, size_t): code-point and index used to reference it in the output-ranges */
 	struct WordBreak {
 		template <cp::IsSink<Range> SnkType>
-		constexpr detail::WordBreak<SnkType> operator()(SnkType&& sink) {
-			return detail::WordBreak<SnkType>{ std::forward<SnkType>(sink) };
+		constexpr detail::WordBreakRange<SnkType> operator()(SnkType&& sink) {
+			return detail::WordBreakRange<SnkType>{ std::forward<SnkType>(sink) };
 		}
 	};
 
@@ -580,8 +823,8 @@ namespace cp {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::CaseMapper<SnkType, detail::gen::FlagIsUpper> operator()(SnkType&& sink) {
-			return detail::CaseMapper<SnkType, detail::gen::FlagIsUpper>{ std::forward<SnkType>(sink), pLocale };
+		constexpr detail::UpperMapper<SnkType> operator()(SnkType&& sink) {
+			return detail::UpperMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
 		}
 	};
 
@@ -596,8 +839,24 @@ namespace cp {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::CaseMapper<SnkType, detail::gen::FlagIsLower> operator()(SnkType&& sink) {
-			return detail::CaseMapper<SnkType, detail::gen::FlagIsLower>{ std::forward<SnkType>(sink), pLocale };
+		constexpr detail::LowerMapper<SnkType> operator()(SnkType&& sink) {
+			return detail::LowerMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+		}
+	};
+
+	/* create a sink, which writes the title-cased stream to the given sink
+	*	Sink(char32_t): code-point */
+	struct TitleCase {
+	private:
+		detail::CaseLocale pLocale = detail::CaseLocale::none;
+
+	public:
+		constexpr TitleCase(const char8_t* locale = 0) {
+			pLocale = detail::ParseCaseLocale(locale);
+		}
+		template <cp::IsSink<char32_t> SnkType>
+		constexpr detail::TitleMapper<SnkType> operator()(SnkType&& sink) {
+			return detail::TitleMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
 		}
 	};
 }
