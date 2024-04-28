@@ -8,7 +8,7 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source URL: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2024-04-27 14:26
+*	Generated on: 2024-04-27 21:28
 *	Generated from version: 15.1.0
 */
 namespace cp::detail::gen {
@@ -323,12 +323,15 @@ namespace cp::detail::gen {
 
 
 	/* Automatically generated from: Unicode White_Space property */
+	static constexpr uint8_t WhiteSpaceBuf0Cluster[8] = {
+		 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
+	};
 	inline constexpr bool TestWhiteSpace(char32_t cp) {
-		if ((cp >= 0x2000 && cp <= 0x200a) || (cp >= 0x0009 && cp <= 0x000d) || cp == 0x0020 || cp == 0x0085)
+		if (cp >= 0x2028 && cp <= 0x202f)
+			return (gen::WhiteSpaceBuf0Cluster[cp - 0x2028] != 0);
+		else if ((cp >= 0x2000 && cp <= 0x200a) || (cp >= 0x0009 && cp <= 0x000d) || cp == 0x0020)
 			return true;
-		if (cp == 0x00a0 || cp == 0x1680 || cp == 0x2028)
-			return true;
-		if (cp == 0x2029 || cp == 0x202f || cp == 0x205f || cp == 0x3000)
+		else if (cp == 0x0085 || cp == 0x00a0 || cp == 0x1680 || cp == 0x205f || cp == 0x3000)
 			return true;
 		else
 			return false;

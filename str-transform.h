@@ -150,15 +150,15 @@ namespace cp {
 				/* cleanup the state */
 				switch (pState) {
 				case State::wb6:
-					if (right == Type::a_letter || right == Type::hebrew_letter)
+					if (right == Type::aLetter || right == Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
 				case State::wb7a:
-					if (right == Type::a_letter || right == Type::hebrew_letter)
+					if (right == Type::aLetter || right == Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::combineExcludingRight;
 				case State::wb7b:
-					if (right == Type::hebrew_letter)
+					if (right == Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
 				case State::wb11:
@@ -184,9 +184,9 @@ namespace cp {
 					if (rPictographic)
 						return Break::combine;
 					break;
-				case Type::w_seg_space:
+				case Type::wSegSpace:
 					/* WB3d */
-					if (r == Type::w_seg_space)
+					if (r == Type::wSegSpace)
 						return Break::combine;
 					break;
 				}
@@ -195,51 +195,51 @@ namespace cp {
 				if (r == Type::newline || r == Type::cr || r == Type::lf)
 					return Break::separate;
 
-				/* WB4 (leaves ri-counter unchanged) */
+				/* WB4 */
 				if (r == Type::extend || r == Type::format || r == Type::zwj)
 					return Break::combine;
 
 				/* handle the remaining cases based on the left-side type */
 				switch (l) {
-				case Type::hebrew_letter:
+				case Type::hebrewLetter:
 					/* WB7b/WB7c */
-					if (r == Type::double_quote) {
+					if (r == Type::doubleQuote) {
 						pState = State::wb7b;
 						return Break::uncertain;
 					}
 
 					/* WB7a */
-					if (r == Type::single_quote) {
+					if (r == Type::singleQuote) {
 						pState = State::wb7a;
 						return Break::uncertain;
 					}
 					[[fallthrough]];
-				case Type::a_letter:
+				case Type::aLetter:
 					/* WB5/WB9 */
-					if (r == Type::a_letter || r == Type::hebrew_letter || r == Type::numeric)
+					if (r == Type::aLetter || r == Type::hebrewLetter || r == Type::numeric)
 						return Break::combine;
 
 					/* WB6/WB7 */
-					if (r == Type::mid_letter || r == Type::mid_num_letter || r == Type::single_quote) {
+					if (r == Type::midLetter || r == Type::midNumLetter || r == Type::singleQuote) {
 						pState = State::wb6;
 						return Break::uncertain;
 					}
 
 					/* partial: WB13a */
-					if (r == Type::extend_num_let)
+					if (r == Type::extendNumLet)
 						return Break::combine;
 					return Break::separate;
 				case Type::numeric:
 					/* WB8/WB10 */
-					if (r == Type::numeric || r == Type::a_letter || r == Type::hebrew_letter)
+					if (r == Type::numeric || r == Type::aLetter || r == Type::hebrewLetter)
 						return Break::combine;
 
 					/* partial: WB13a */
-					if (r == Type::extend_num_let)
+					if (r == Type::extendNumLet)
 						return Break::combine;
 
 					/* WB11/WB12 */
-					if (r == Type::mid_num || r == Type::mid_num_letter || r == Type::single_quote) {
+					if (r == Type::midNum || r == Type::midNumLetter || r == Type::singleQuote) {
 						pState = State::wb11;
 						return Break::uncertain;
 					}
@@ -250,19 +250,19 @@ namespace cp {
 						return Break::combine;
 
 					/* partial: WB13a */
-					if (r == Type::extend_num_let)
+					if (r == Type::extendNumLet)
 						return Break::combine;
 					return Break::separate;
-				case Type::extend_num_let:
+				case Type::extendNumLet:
 					/* partial: WB13a */
-					if (r == Type::extend_num_let)
+					if (r == Type::extendNumLet)
 						return Break::combine;
 
 					/* WB13b */
-					if (r == Type::a_letter || r == Type::hebrew_letter || r == Type::numeric || r == Type::katakana)
+					if (r == Type::aLetter || r == Type::hebrewLetter || r == Type::numeric || r == Type::katakana)
 						return Break::combine;
 					return Break::separate;
-				case Type::regional_indicator:
+				case Type::regionalIndicator:
 					/* WB15/WB16 */
 					if (pRICount > 0 && (pRICount & 0x01) == 0)
 						return Break::combine;
@@ -279,32 +279,31 @@ namespace cp {
 				uint8_t rawRight = detail::gen::LookupWordType(cp);
 				Type right = static_cast<Type>(rawRight & ~detail::gen::FlagIsPictographic);
 
-				/* update the regional_indicator counter and update the last-state */
+				/* update the regionalIndicator counter and update the last-state */
 				Type left = pLast, leftActual = pLastActual;
 				if (right != Type::extend && right != Type::format && right != Type::zwj) {
-					pRICount = (right == Type::regional_indicator ? pRICount + 1 : 0);
+					pRICount = (right == Type::regionalIndicator ? pRICount + 1 : 0);
 					pLast = right;
 				}
 				pLastActual = right;
 
-				/* WB2: check if the end has been reached (before checking WB1 to prevent initialization on empty stream) */
-				if (cp == cp::EndOfTokens) {
-					if (pState == State::uninit)
+				/* WB1: check if this is the initial character (only if its not an empty string) */
+				if (pState == State::uninit) {
+					if (cp == cp::EndOfTokens)
 						return;
+					pState = State::none;
+					static_cast<SelfType*>(this)->fBegin(payload);
+					return;
+				}
 
+				/* WB2: check if the end has been reached */
+				if (cp == cp::EndOfTokens) {
 					/* handle the last open states and sink the remaining word */
 					if (pState == State::wb6 || pState == State::wb7b || pState == State::wb11)
 						static_cast<SelfType*>(this)->fEndUnknown(true);
 					else if (pState == State::wb7a)
 						static_cast<SelfType*>(this)->fEndUnknown(false);
 					static_cast<SelfType*>(this)->fDone();
-					return;
-				}
-
-				/* WB1: check if this is the initial character */
-				if (pState == State::uninit) {
-					pState = State::none;
-					static_cast<SelfType*>(this)->fBegin(payload);
 					return;
 				}
 
@@ -465,18 +464,18 @@ namespace cp {
 					return Break::separate;
 
 				/* GB9/GB9a */
-				if (r == Type::extend || r == Type::zwj || r == Type::space_marking)
+				if (r == Type::extend || r == Type::zwj || r == Type::spaceMarking)
 					return Break::combine;
 
 				switch (l) {
 				case Type::zwj:
 					/* GB11 */
-					if (pGB11State == GB11State::match && r == Type::extended_pictographic)
+					if (pGB11State == GB11State::match && r == Type::extendedPictographic)
 						return Break::combine;
 					break;
-				case Type::regional_indicator:
+				case Type::regionalIndicator:
 					/* GB12/GB13 */
-					if ((pRICount & 0x01) != 0 && r == Type::regional_indicator)
+					if ((pRICount & 0x01) != 0 && r == Type::regionalIndicator)
 						return Break::combine;
 					break;
 				case Type::prepend:
@@ -523,7 +522,7 @@ namespace cp {
 				return GB9cState::none;
 			}
 			constexpr GB11State fUpdateGB11State(Type l) const {
-				if (l == Type::extended_pictographic)
+				if (l == Type::extendedPictographic)
 					return GB11State::zwj;
 
 				if (pGB11State == GB11State::zwj) {
@@ -543,25 +542,25 @@ namespace cp {
 				Type right = static_cast<Type>(rawRight & ~(detail::gen::FlagIsInCBExtend | detail::gen::FlagIsInCBConsonant | detail::gen::FlagIsInCBLinker));
 				pLast = rawRight;
 
-				/* GB2: check if the end has been reached (before checking GB1 to prevent initialization on empty stream) */
-				if (cp == cp::EndOfTokens) {
-					if (!pInitialized)
+				/* GB1: check if this is the initial character (only if its not an empty string) */
+				if (!pInitialized) {
+					if (cp == cp::EndOfTokens)
 						return;
-					static_cast<SelfType*>(this)->fDone();
+					pInitialized = true;
+					static_cast<SelfType*>(this)->fBegin(payload);
 					return;
 				}
 
-				/* GB1: check if this is the initial character */
-				if (!pInitialized) {
-					pInitialized = true;
-					static_cast<SelfType*>(this)->fBegin(payload);
+				/* GB2: check if the end has been reached */
+				if (cp == cp::EndOfTokens) {
+					static_cast<SelfType*>(this)->fDone();
 					return;
 				}
 
 				/* update the states */
 				pGB9cState = fUpdateGB9cState(rawLeft);
 				pGB11State = fUpdateGB11State(left);
-				pRICount = (left == Type::regional_indicator ? pRICount + 1 : 0);
+				pRICount = (left == Type::regionalIndicator ? pRICount + 1 : 0);
 
 				/* check the current values and update the state */
 				switch (fCheck(left, right, (rawRight & detail::gen::FlagIsInCBConsonant) != 0)) {
@@ -603,6 +602,264 @@ namespace cp {
 		public:
 			constexpr void operator()(char32_t cp, size_t index) {
 				detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>>::operator()(cp, index);
+			}
+		};
+
+		template <class SelfType, class PayloadType>
+		class SentenceBreak {
+		private:
+			using Type = detail::gen::SentenceType;
+			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
+
+		private:
+			enum class Chain : uint8_t {
+				none,
+				aClose,
+				sClose,
+				aSpace,
+				sSpace,
+				paraSep
+			};
+			enum class SB7State : uint8_t {
+				none,
+				aTerm,
+				match
+			};
+			struct Cache {
+				char32_t cp = 0;
+				PayloadType payload{};
+				Type type = Type::other;
+			};
+
+		private:
+			detail::LocalBuffer<Cache, 2> pCache;
+			Type pLast = Type::other;
+			Type pActual = Type::other;
+			Chain pChain = Chain::none;
+			SB7State pSB7State = SB7State::none;
+			bool pInitialized = false;
+			bool pSB8Uncertain = false;
+
+		public:
+			constexpr SentenceBreak() = default;
+
+		private:
+			constexpr Chain fChainState(Type l) const {
+				if (l == Type::aTerm)
+					return Chain::aClose;
+				if (l == Type::sTerm)
+					return Chain::sClose;
+
+				if (l == Type::separator || l == Type::cr || l == Type::lf)
+					return (pChain == Chain::none ? Chain::none : Chain::paraSep);
+
+				switch (pChain) {
+				case Chain::aClose:
+					if (l == Type::close)
+						return Chain::aClose;
+					if (l == Type::space)
+						return Chain::aSpace;
+					break;
+				case Chain::sClose:
+					if (l == Type::close)
+						return Chain::sClose;
+					if (l == Type::space)
+						return Chain::sSpace;
+					break;
+				case Chain::aSpace:
+					if (l == Type::space)
+						return Chain::aSpace;
+					break;
+				case Chain::sSpace:
+					if (l == Type::space)
+						return Chain::sSpace;
+					break;
+				}
+				return Chain::none;
+			}
+			constexpr SB7State fSB7State(Type l) const {
+				if (l == Type::upper || l == Type::lower)
+					return SB7State::aTerm;
+				if (pSB7State == SB7State::aTerm && l == Type::aTerm)
+					return SB7State::match;
+				return SB7State::none;
+			}
+			constexpr bool fNext(Type r, const PayloadType& payload, bool done) {
+				/* SB2: check if the end has been reached */
+				if (done) {
+					static_cast<SelfType*>(this)->fDone();
+					return false;
+				}
+				bool isExtFmt = (r == Type::extend || r == Type::format);
+
+				/* update the last-states and the state-machine */
+				Type l = pLast, lActual = pActual;
+				if (!isExtFmt) {
+					pChain = fChainState(l);
+					pSB7State = fSB7State(l);
+					pLast = r;
+				}
+				pActual = r;
+
+				/* SB3/SB4 */
+				if (lActual == Type::cr || lActual == Type::lf || lActual == Type::separator) {
+					if (lActual == Type::cr && r == Type::lf)
+						return true;
+					static_cast<SelfType*>(this)->fNext(payload, true);
+					pLast = r;
+					return false;
+				}
+
+				/* fast-path */
+				if (l == Type::other)
+					return true;
+
+				/* SB5 */
+				if (isExtFmt)
+					return true;
+
+				/* SB6/SB7 */
+				if (l == Type::aTerm) {
+					if (r == Type::numeric)
+						return true;
+					if (pSB7State == SB7State::match && r == Type::upper)
+						return true;
+				}
+
+				/* SB9/SB10 partial (consume as many spaces/closes as possible) */
+				if (pChain == Chain::aClose || pChain == Chain::sClose) {
+					if (r == Type::close || r == Type::space)
+						return true;
+				}
+				else if ((pChain == Chain::aSpace || pChain == Chain::sSpace) && r == Type::space)
+					return true;
+
+				/* SB8a */
+				if (pChain != Chain::none && pChain != Chain::paraSep && (r == Type::sContinue || r == Type::sTerm || r == Type::aTerm))
+					return true;
+
+				/* SB8 */
+				if (pChain == Chain::aClose || pChain == Chain::aSpace) {
+					if (r == Type::lower)
+						return true;
+					if (r == Type::other || r == Type::numeric || r == Type::close) {
+						static_cast<SelfType*>(this)->fBeginUnknown(payload);
+						pSB8Uncertain = true;
+						return false;
+					}
+				}
+
+				if (r == Type::cr || r == Type::lf || r == Type::separator) {
+					/* SB9/SB10 rest */
+					if (pChain != Chain::none && pChain != Chain::paraSep)
+						return true;
+				}
+
+				/* SB11 */
+				if (pChain != Chain::none) {
+					static_cast<SelfType*>(this)->fNext(payload, true);
+					return false;
+				}
+
+				/* SB998 */
+				return true;
+			}
+			constexpr void fCloseState(Type r, bool forceClose) {
+				/* check if a determined end has been encountered */
+				if (r == Type::lower || forceClose) {
+					static_cast<SelfType*>(this)->fEndUnknown(r != Type::lower);
+					pSB8Uncertain = false;
+					return;
+				}
+
+				/* check if the chain remains uncertain */
+				if (r == Type::other || r == Type::extend || r == Type::format || r == Type::space || r == Type::numeric || r == Type::sContinue || r == Type::close)
+					return;
+				static_cast<SelfType*>(this)->fEndUnknown(true);
+				pSB8Uncertain = false;
+			}
+
+		public:
+			constexpr void operator()(char32_t cp, const PayloadType& payload) {
+				Type type = detail::gen::LookupSentenceType(cp);
+				bool done = (cp == cp::EndOfTokens);
+
+				/* SB1: check if this is the initial character (only if its not an empty string) */
+				if (!pInitialized) {
+					if (done)
+						return;
+					pInitialized = true;
+					pLast = type;
+					pActual = type;
+					static_cast<SelfType*>(this)->fBegin(payload);
+					return;
+				}
+
+				/* fast-path of not being in a look-ahead state */
+				if (!pSB8Uncertain) {
+					if (fNext(type, payload, done))
+						static_cast<SelfType*>(this)->fNext(payload, false);
+					return;
+				}
+
+				/* feed the value into the cache and check if the state can be completed */
+				pCache.push({ cp, payload, type });
+				fCloseState(type, cp == cp::EndOfTokens);
+
+				/* process the cached characters */
+				while (!pSB8Uncertain && pCache.size() > 0) {
+					auto [_cp, _payload, _type] = pCache.pop();
+					if (fNext(_type, _payload, _cp == cp::EndOfTokens))
+						static_cast<SelfType*>(this)->fNext(payload, false);
+
+					/* check if a state-chain has been created and feed the cached values to it */
+					for (size_t i = 0; pSB8Uncertain && i < pCache.size(); ++i) {
+						Cache& cache = pCache.get(i);
+						fCloseState(cache.type, cache.cp == cp::EndOfTokens);
+					}
+				}
+			}
+		};
+
+		template <class SnkType>
+		class SentenceBreakRange final : private detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t> {
+			friend class detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t>;
+		private:
+			Range pCurrent;
+			Range pCached;
+			SnkType pSink;
+
+		public:
+			constexpr SentenceBreakRange(SnkType&& sink) : pSink{ sink } {}
+
+		private:
+			constexpr void fBeginUnknown(size_t index) {
+				pCached = Range(index);
+			}
+			constexpr void fEndUnknown(bool separated) {
+				if (separated) {
+					pSink(pCurrent);
+					pCurrent.first = pCached.first;
+				}
+				pCurrent.last = pCached.last;
+			}
+			constexpr void fNext(size_t index, bool separated) {
+				if (separated) {
+					pSink(pCurrent);
+					pCurrent.first = index;
+				}
+				pCurrent.last = index;
+			}
+			constexpr void fBegin(size_t index) {
+				pCurrent = Range(index);
+			}
+			constexpr void fDone() {
+				pSink(pCurrent);
+			}
+
+		public:
+			constexpr void operator()(char32_t cp, size_t index) {
+				detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t>::operator()(cp, index);
 			}
 		};
 
@@ -701,32 +958,32 @@ namespace cp {
 
 		private:
 			constexpr void fBeforeState(int32_t val) {
-				/* update the state-machine for 'final_sigma: Before C' */
+				/* update the state-machine for 'finalSigma: Before C' */
 				if ((val & detail::gen::FlagIsIgnorable) == 0)
 					pBefore.cased = ((val & detail::gen::FlagIsCased) != 0);
 
-				/* update the state-machine for 'after_soft_dotted: Before C' and 'after_i: Before C' */
+				/* update the state-machine for 'afterSoftDotted: Before C' and 'afterI: Before C' */
 				if ((val & (detail::gen::FlagCombClass0or230)) != 0) {
 					pBefore.softDotted = ((val & detail::gen::FlagIsSoftDotted) != 0);
 					pBefore.charI = ((val & detail::gen::FlagIs0049) != 0);
 				}
 			}
 			constexpr int8_t fAfterState(int32_t val) const {
-				/* check the 'final_sigma: After C' condition (is inverted) */
+				/* check the 'finalSigma: After C' condition (is inverted) */
 				if (pAfter.testNotCased) {
 					if ((val & detail::gen::FlagIsIgnorable) != 0)
 						return 0;
 					return ((val & detail::gen::FlagIsCased) != 0 ? -1 : 1);
 				}
 
-				/* check the 'more_above: After C' condition */
+				/* check the 'moreAbove: After C' condition */
 				else if (pAfter.testCombClass) {
 					if ((val & (detail::gen::FlagCombClass0or230)) == 0)
 						return 0;
 					return ((val & detail::gen::FlagCombClass230) != 0 ? 1 : -1);
 				}
 
-				/* check the 'before_dot: After C' condition (inverted as it is only used as 'not_...') */
+				/* check the 'beforeDot: After C' condition (inverted as it is only used as 'not_...') */
 				else {
 					if ((val & (detail::gen::FlagCombClass0or230)) == 0)
 						return 0;
@@ -754,17 +1011,17 @@ namespace cp {
 				switch (static_cast<Cond>(*pActive.begin & detail::gen::BitsOfPayload)) {
 				case Cond::none:
 					return 1;
-				case Cond::final_sigma:
+				case Cond::finalSigma:
 					if (pBefore.cased) {
 						pAfter.testNotCased = true;
 						return 0;
 					}
 					break;
-				case Cond::lt_after_soft_dotted:
+				case Cond::ltAfterSoftDotted:
 					if (pBefore.softDotted && pLocale == detail::CaseLocale::lt)
 						return 1;
 					break;
-				case Cond::lt_more_above:
+				case Cond::ltMoreAbove:
 					if (pLocale == detail::CaseLocale::lt) {
 						pAfter.testCombClass = true;
 						return 0;
@@ -782,21 +1039,21 @@ namespace cp {
 					if (pLocale == detail::CaseLocale::az)
 						return 1;
 					break;
-				case Cond::tr_after_i:
+				case Cond::trAfterI:
 					if (pBefore.charI && pLocale == detail::CaseLocale::tr)
 						return 1;
 					break;
-				case Cond::az_after_i:
+				case Cond::azAfterI:
 					if (pBefore.charI && pLocale == detail::CaseLocale::az)
 						return 1;
 					break;
-				case Cond::tr_not_before_dot:
-					/* default pAfter is not_before_dot */
+				case Cond::trNotBeforeDot:
+					/* default pAfter is not_beforeDot */
 					if (pLocale == detail::CaseLocale::tr)
 						return 0;
 					break;
-				case Cond::az_not_before_dot:
-					/* default pAfter is not_before_dot */
+				case Cond::azNotBeforeDot:
+					/* default pAfter is not_beforeDot */
 					if (pLocale == detail::CaseLocale::az)
 						return 0;
 					break;
@@ -985,7 +1242,8 @@ namespace cp {
 	}
 
 	/* create a sink, which splits the stream into ranges of words and writes them to the sink
-	*	Sink(char32_t, size_t): code-point and index used to reference it in the output-ranges */
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	OutSink(Range): sink the range (not called for empty strings) */
 	struct WordBreak {
 		template <cp::IsSink<Range> SnkType>
 		constexpr detail::WordBreakRange<SnkType> operator()(SnkType&& sink) {
@@ -994,7 +1252,8 @@ namespace cp {
 	};
 
 	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink
-	*	Sink(char32_t, size_t): code-point and index used to reference it in the output-ranges */
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	OutSink(Range): sink the range (not called for empty strings) */
 	struct GraphemeBreak {
 		template <cp::IsSink<Range> SnkType>
 		constexpr detail::GraphemeBreakRange<SnkType> operator()(SnkType&& sink) {
@@ -1002,8 +1261,19 @@ namespace cp {
 		}
 	};
 
+	/* create a sink, which splits the stream into ranges of sentence-clusters and writes them to the sink
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	OutSink(Range): sink the range (not called for empty strings) */
+	struct SentenceBreak {
+		template <cp::IsSink<Range> SnkType>
+		constexpr detail::SentenceBreakRange<SnkType> operator()(SnkType&& sink) {
+			return detail::SentenceBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+		}
+	};
+
 	/* create a sink, which writes the upper-cased stream to the given sink
-	*	Sink(char32_t): code-point */
+	*	InSink(char32_t): code-point
+	*	OutSink(char32_t): code-point */
 	struct UpperCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -1019,7 +1289,8 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the lower-cased stream to the given sink
-	*	Sink(char32_t): code-point */
+	*	InSink(char32_t): code-point
+	*	OutSink(char32_t): code-point */
 	struct LowerCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -1035,7 +1306,8 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the title-cased stream to the given sink
-	*	Sink(char32_t): code-point */
+	*	InSink(char32_t): code-point
+	*	OutSink(char32_t): code-point */
 	struct TitleCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;

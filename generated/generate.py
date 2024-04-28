@@ -482,7 +482,7 @@ class CodeGen:
 	IndirectBufferNestingLevel = 3
 	IndirectBufferMinSize = 128
 	LookupAsCodeIfLEQRanges = 96
-	CodeGenDensityThreshold = 1 / 2.5
+	CodeGenDensityThreshold = 1 / 3.5
 	DensityMinClusterSize = 8
 	SeparateAsciiRanges = 48
 	MaxBinarySearchValueSize = 0x10000
@@ -1132,11 +1132,12 @@ class CodeGen:
 		self._file.writeln('}')
 
 class GenerateConfig:
-	def __init__(self, url: str, version: str, date: str, includes: list[str]) -> None:
+	def __init__(self, url: str, version: str, date: str, mapping: dict[str, str], includes: list[str]) -> None:
 		self.url = url
 		self.version = version
 		self.date = date
 		self.includes = includes
+		self.mapping = mapping
 
 class GeneratedFile:
 	def __init__(self, path: str, config: GenerateConfig) -> None:
@@ -1316,7 +1317,7 @@ class ParsedFile:
 		return Ranges.fromRawList(ranges), default
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
-def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
+def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
 	files = {
 		'ReadMe.txt': 'ReadMe.txt',
 		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
@@ -1325,19 +1326,29 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 		'SpecialCasing.txt': 'ucd/SpecialCasing.txt',
 		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
 		'EmojiData.txt': 'ucd/emoji/emoji-data.txt',
-		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt'
+		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt',
+		'SentenceBreakProperty.txt': 'ucd/auxiliary/SentenceBreakProperty.txt'
 	}
 	dirPath = './ucd'
+	testPath = './tests'
+	if includeTest:
+		files['WordBreakTest.txt'] = 'ucd/auxiliary/WordBreakTest.txt'
+		files['SentenceBreakTest.txt'] = 'ucd/auxiliary/SentenceBreakTest.txt'
+		files['GraphemeBreakTest.txt'] = 'ucd/auxiliary/GraphemeBreakTest.txt'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
 		os.mkdir(dirPath)
+	if includeTest and not os.path.isdir(testPath):
+		os.mkdir(testPath)
 
 	# download all of the files (only if they should either be refreshed, or do not exist yet)
+	mapping = {}
 	for file in files:
 		url, path = f'{baseUrl}/{files[file]}', f'{dirPath}/{file}'
+		mapping[file] = path
+
 		if not refreshFiles and os.path.isfile(path):
-			print(f'skipping [{path}] as the file already exists (use --refresh to enforce a new download)')
 			continue
 		print(f'downloading [{url}] to [{path}]...')
 		urllib.request.urlretrieve(url, path)
@@ -1348,17 +1359,75 @@ def DownloadUCDFiles(refreshFiles: bool, baseUrl: str) -> str:
 	version = re.findall('Version ([0-9]+(\\.[0-9]+)*) of the Unicode Standard', fileContent)
 	if len(version) != 1:
 		raise RuntimeError('Unable to extract the version')
-	return version[0][0]
+	return (version[0][0], mapping, f'{testPath}/')
+
+# parse test-file for separators and create source-code test file
+def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
+	print(f'Creating [{outPath}] from [{inPath}] for test [{name}]...')
+	tests: list[tuple[str, list[tuple[int, int]]]] = []
+
+	# open the file which contains the test-sequences and parse it
+	with open(inPath, 'r', encoding='utf-8') as file:
+		for line in file:
+			# remove any comments and skip empty lines
+			line = line.split('#')[0].strip()
+			if len(line) == 0:
+				continue
+			words = [w.strip() for w in line.split('÷')][1:-1]
+
+			# create the combined string and ranges
+			string, ranges = '', []
+			for word in words:
+				chars = [int(c.strip(), 16) for c in word.split('×')]
+				start = len(string) // 10
+				ranges.append((start, start + len(chars) - 1))
+				for chr in chars:
+					string += f'\\U{chr:08x}'
+
+			# add the string and ranges to the tests
+			tests.append((string, ranges))
+
+	# open the file to contain the testing code and write it to the file
+	with open(outPath, 'w', encoding='utf-8') as file:		
+		file.write('#pragma once\n')
+		file.write('\n')
+		file.write('#include <vector>\n')
+		file.write('#include <string>\n')
+		file.write('#include <utility>\n')
+		file.write('\n')
+		file.write('namespace test {\n')
+		file.write(f'\tstatic constexpr size_t {name}Count = {len(tests)};\n')
+		file.write('\n')
+
+		# write all strings to the file
+		file.write(f'\tstatic std::u32string {name}Words[test::{name}Count] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write(f'U\"{tests[i][0]}\"')
+		file.write('\n\t};\n')
+		file.write('\n')
+
+		# write all ranges to the file
+		file.write(f'\tstatic std::vector<std::pair<size_t, size_t>> {name}Ranges[test::{name}Count] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('{ ')
+			for j in range(len(tests[i][1])):
+				file.write('' if j == 0 else ', ')
+				file.write(f'{{ {tests[i][1][j][0]}, {tests[i][1][j][1]} }}')
+			file.write(' }')
+		file.write('\n\t};\n')
+		file.write('}\n')
 
 # TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
-def MakeCodepointQuery(config: GenerateConfig):
+def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 	# parse the relevant files
-	unicodeData = ParsedFile('ucd/UnicodeData.txt', True)
-	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
-	propList = ParsedFile('ucd/PropList.txt', False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
+	propList = ParsedFile(config.mapping['PropList.txt'], False)
 
 	# write all lookup functions to the file
-	with GeneratedFile('unicode-cp-query.h', config) as file:
+	with GeneratedFile(outPath, config) as file:
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
@@ -1554,15 +1623,15 @@ def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: i
 	if len(b) == 1:
 		b = (nullCondition | (b[0] & ~(bitsOfValue | negativeFlag)), 1, -(b[0] & bitsOfValue) if (b[0] & negativeFlag) else (b[0] & bitsOfValue))
 	return a + b
-def MakeCodepointMaps(config: GenerateConfig):
+def MakeCodepointMaps(outPath: str, config: GenerateConfig):
 	# parse the relevant files
-	unicodeData = ParsedFile('ucd/UnicodeData.txt', True)
-	specialCasing = ParsedFile('ucd/SpecialCasing.txt', False)
-	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
-	propList = ParsedFile('ucd/PropList.txt', False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
+	specialCasing = ParsedFile(config.mapping['SpecialCasing.txt'], False)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
+	propList = ParsedFile(config.mapping['PropList.txt'], False)
 
 	# write all map functions to the file
-	with GeneratedFile('unicode-cp-maps.h', config) as file:
+	with GeneratedFile(outPath, config) as file:
 		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
 		flagIsNegative = 0x4000_0000
 		flagIsCased = 0x2000_0000
@@ -1617,6 +1686,22 @@ def MakeCodepointMaps(config: GenerateConfig):
 		caseRanges = Ranges.translate(caseRanges, lambda _, v: _TranslateCleanupCaseMap(v, flagIsLower, flagIsUpper, flagIsTitle, caseConditions['none'], bitsOfValue))
 		caseRanges = Ranges.merge(caseRanges, propertyMask, _HandleSpecialOrConflict)
 
+		# update the casing of the condition map
+		tempConditions, caseConditions = caseConditions, {}
+		for k in tempConditions:
+			n, i = '', 0
+			if k == '_last':
+				n = k
+			else:
+				while i < len(k):
+					if k[i] != '_':
+						n += k[i]
+					else:
+						i += 1
+						n += k[i].upper()
+					i += 1
+			caseConditions[n] = tempConditions[k]
+
 		# write the case-mapping and enum to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Casemapping)
 		caseType: LookupType = LookupType.intType(0, 'int32_t')
 		_gen: CodeGen = file.next('MapCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
@@ -1635,16 +1720,17 @@ def MakeCodepointMaps(config: GenerateConfig):
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
-# LookupWordType, LookupGraphemeType
-def MakeCodepointAnalysis(config: GenerateConfig):
+# LookupWordType, LookupGraphemeType, LookupSentenceType
+def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 	# parse the relevant files
-	wordBreak = ParsedFile('ucd/WordBreakProperty.txt', False)
-	graphemeBreak = ParsedFile('ucd/GraphemeBreakProperty.txt', False)
-	emojiData = ParsedFile('ucd/EmojiData.txt', False)
-	derivedProperties = ParsedFile('ucd/DerivedCoreProperties.txt', False)
+	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
+	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty.txt'], False)
+	sentenceBreak = ParsedFile(config.mapping['SentenceBreakProperty.txt'], False)
+	emojiData = ParsedFile(config.mapping['EmojiData.txt'], False)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
 
 	# write all maps functions to the file
-	with GeneratedFile('unicode-cp-analysis.h', config) as file:
+	with GeneratedFile(outPath, config) as file:
 		# setup the word-break boundary ranges
 		flagIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
@@ -1658,7 +1744,7 @@ def MakeCodepointAnalysis(config: GenerateConfig):
 		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: flagIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
 
 		# generate the enum, extended_pictographic flag, and the lookup function (https://unicode.org/reports/tr29/#Word_Boundaries)
-		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regional_indicator', 'format', 'katakana', 'hebrew_letter', 'a_letter', 'single_quote', 'double_quote', 'mid_num_letter', 'mid_letter', 'mid_num', 'numeric', 'extend_num_let', 'w_seg_space', '_last'])
+		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
 		_type: LookupType = LookupType.intType(0, 'uint8_t')
 		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
 		_gen.addConstInt(_type, 'FlagIsPictographic', flagIsPictographic)
@@ -1666,6 +1752,9 @@ def MakeCodepointAnalysis(config: GenerateConfig):
 		_gen.intFunction('LookupWordType', _type, wordRanges)
 
 		# setup the grapheme-break boundary ranges
+		flagIsInCBExtend = 0x80
+		flagIsInCBConsonant = 0x40
+		flagIsInCBLinker = 0x20
 		graphemeEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
 			'Regional_Indicator': 6, 'Prepend': 7, 'SpacingMark': 8, 'L': 9, 'V': 10,
@@ -1674,37 +1763,60 @@ def MakeCodepointAnalysis(config: GenerateConfig):
 		if graphemeRangesDef != graphemeEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
 		graphemeRanges = Ranges.union(graphemeRanges, emojiData.filter(1, lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
-
-		# parse the in-cb properties
-		flagIsInCBExtend = 0x80
-		flagIsInCBConsonant = 0x40
-		flagIsInCBLinker = 0x20
 		if len(graphemeEnumMap) >= min(flagIsInCBLinker, flagIsInCBExtend, flagIsInCBConsonant):
 			raise RuntimeError('Flags too small for word-break enum')
 		InCBMap = { 'Extend': flagIsInCBExtend, 'Consonant': flagIsInCBConsonant, 'Linker': flagIsInCBLinker }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
 
 		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
-		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regional_indicator', 'prepend', 'space_marking', 'l', 'v', 't', 'lv', 'lvt', 'extended_pictographic', '_last'])
+		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
 		_type: LookupType = LookupType.intType(0, 'uint8_t')
-		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty and EmojiData')
+		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
 		_gen.addConstInt(_type, 'FlagIsInCBExtend', flagIsInCBExtend)
 		_gen.addConstInt(_type, 'FlagIsInCBConsonant', flagIsInCBConsonant)
 		_gen.addConstInt(_type, 'FlagIsInCBLinker', flagIsInCBLinker)
 		_gen.addEnum(_enum)
 		_gen.intFunction('LookupGraphemeType', _type, graphemeRanges)
 
+		# setup the sentence-break boundary ranges
+		sentenceEnumMap = {
+			'Other': 0, 'CR': 1, 'LF': 2, 'Extend': 3, 'Sep': 4, 'Format': 5, 'Sp': 6, 'Lower': 7, 'Upper': 8,
+			'OLetter': 9, 'Numeric': 10, 'ATerm': 11, 'SContinue': 12, 'STerm': 13, 'Close': 14 }
+		sentenceRanges, sentenceRangesDef = sentenceBreak.extractAll(1, 0, sentenceEnumMap)
+		if sentenceRangesDef != sentenceEnumMap['Other']:
+			raise RuntimeError('Default break-value is expected to be [other]')
+
+		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Sentence_Boundaries)
+		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
+		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
+		_gen.addEnum(_enum)
+		_gen.intFunction('LookupSentenceType', _enum, sentenceRanges)
+
+
+
 
 # setup the current path
 os.chdir(os.path.split(os.path.abspath(__file__))[0])
+doTests: bool = ('--tests' in sys.argv)
+doRefresh: bool = ('--refresh' in sys.argv)
+if not doTests:
+	print('Hint: use --tests to generate test-source-code')
+if not doRefresh:
+	print('Hint: use --refresh to download already cached files again')
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
-generatedVersion = DownloadUCDFiles('--refresh' in sys.argv, generatedURLOrigin)
+generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, doTests, generatedURLOrigin)
 generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
-generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generatedDateTime, ['cinttypes', 'utility', 'algorithm'])
+generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generatedDateTime, generatedMapping, ['cinttypes', 'utility', 'algorithm'])
+
+# generate the test files
+if doTests:
+	CreateTestFile(testPath + 'test-words.h', generatedConfig.mapping['WordBreakTest.txt'], 'Word')
+	CreateTestFile(testPath + 'test-graphemes.h', generatedConfig.mapping['GraphemeBreakTest.txt'], 'Grapheme')
+	CreateTestFile(testPath + 'test-sentences.h', generatedConfig.mapping['SentenceBreakTest.txt'], 'Sentence')
 
 # generate the actual files
-MakeCodepointQuery(generatedConfig)
-MakeCodepointMaps(generatedConfig)
-MakeCodepointAnalysis(generatedConfig)
+MakeCodepointQuery('unicode-cp-query.h', generatedConfig)
+MakeCodepointMaps('unicode-cp-maps.h', generatedConfig)
+MakeCodepointAnalysis('unicode-cp-analysis.h', generatedConfig)
