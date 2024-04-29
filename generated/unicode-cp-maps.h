@@ -8,23 +8,23 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source URL: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2024-04-27 21:28
+*	Generated on: 2024-04-29 21:00
 *	Generated from version: 15.1.0
 */
 namespace cp::detail::gen {
 	/* Automatically generated from: Special-Casing, unicode-data simple case mapping */
-	static constexpr int32_t FlagIsNegative = 0x40000000;
-	static constexpr int32_t FlagIsCased = 0x20000000;
-	static constexpr int32_t FlagIsIgnorable = 0x10000000;
-	static constexpr int32_t FlagIsSoftDotted = 0x08000000;
-	static constexpr int32_t FlagCombClass0or230 = 0x04000000;
-	static constexpr int32_t FlagCombClass230 = 0x02000000;
-	static constexpr int32_t FlagIsLower = 0x01000000;
-	static constexpr int32_t FlagIsUpper = 0x00800000;
-	static constexpr int32_t FlagIsTitle = 0x00400000;
-	static constexpr int32_t FlagIs0049 = 0x00200000;
-	static constexpr int32_t FlagIs0307 = 0x00100000;
-	static constexpr int32_t BitsOfPayload = 0x000fffff;
+	static constexpr int32_t CaseIsNegative = 0x40000000;
+	static constexpr int32_t CaseIsCased = 0x20000000;
+	static constexpr int32_t CaseIsIgnorable = 0x10000000;
+	static constexpr int32_t CaseIsSoftDotted = 0x08000000;
+	static constexpr int32_t CaseIsCombClass0or230 = 0x04000000;
+	static constexpr int32_t CaseIsCombClass230 = 0x02000000;
+	static constexpr int32_t CaseIsLower = 0x01000000;
+	static constexpr int32_t CaseIsUpper = 0x00800000;
+	static constexpr int32_t CaseIsTitle = 0x00400000;
+	static constexpr int32_t CaseIs0049 = 0x00200000;
+	static constexpr int32_t CaseIs0307 = 0x00100000;
+	static constexpr int32_t CaseBitsOfPayload = 0x000fffff;
 	enum class CaseCond : uint8_t {
 		none,
 		finalSigma,

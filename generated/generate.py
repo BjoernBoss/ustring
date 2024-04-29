@@ -340,6 +340,13 @@ class Ranges:
 		if b is None:
 			return a
 		return conflictHandler(a, b)
+	@staticmethod
+	def _modifyOperation(a: tuple[int]|None, b: tuple[int]|None, conflictHandler) -> tuple[int]|None:
+		if a is None:
+			return None
+		if b is None:
+			return a
+		return conflictHandler(a, b)
 
 	@staticmethod
 	def fromRawList(ranges: list[Range]) -> list[Range]:
@@ -438,7 +445,16 @@ class Ranges:
 			raise RuntimeError('Invalid cluster specified')
 		out = ranges[:cluster.first] + [Range(ranges[cluster.first].first, ranges[cluster.last].last, cluster.values)] + ranges[cluster.last + 1:]
 		return out, ranges[cluster.first:cluster.last + 1]
+	@staticmethod
+	def lookup(ranges: list[Range], pos: int) -> tuple[int]|None:
+		for r in ranges:
+			if pos >= r.first and pos <= r.last:
+				return r.values
+		return None
 
+	@staticmethod
+	def modify(base: list[Range], mask: list[Range], conflictHandler) -> list[Range]:
+		return Ranges._setIteration(base, mask, False, lambda a, b: Ranges._modifyOperation(a, b, conflictHandler))
 	@staticmethod
 	def merge(a: list[Range], b: list[Range], conflictHandler) -> list[Range]:
 		return Ranges._setIteration(a, b, False, lambda a, b: Ranges._conflictUnionOperation(a, b, conflictHandler))
@@ -1326,8 +1342,10 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		'SpecialCasing.txt': 'ucd/SpecialCasing.txt',
 		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
 		'EmojiData.txt': 'ucd/emoji/emoji-data.txt',
+		'EastAsianWidth.txt': 'ucd/EastAsianWidth.txt',
 		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt',
-		'SentenceBreakProperty.txt': 'ucd/auxiliary/SentenceBreakProperty.txt'
+		'SentenceBreakProperty.txt': 'ucd/auxiliary/SentenceBreakProperty.txt',
+		'LineBreak.txt': 'ucd/LineBreak.txt'
 	}
 	dirPath = './ucd'
 	testPath = './tests'
@@ -1335,6 +1353,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		files['WordBreakTest.txt'] = 'ucd/auxiliary/WordBreakTest.txt'
 		files['SentenceBreakTest.txt'] = 'ucd/auxiliary/SentenceBreakTest.txt'
 		files['GraphemeBreakTest.txt'] = 'ucd/auxiliary/GraphemeBreakTest.txt'
+		files['LineBreakTest.txt'] = 'ucd/auxiliary/LineBreakTest.txt'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
@@ -1373,7 +1392,7 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 			line = line.split('#')[0].strip()
 			if len(line) == 0:
 				continue
-			words = [w.strip() for w in line.split('÷')][1:-1]
+			words = [w.strip() for w in line[1:-1].split('÷')]
 
 			# create the combined string and ranges
 			string, ranges = '', []
@@ -1388,7 +1407,7 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 			tests.append((string, ranges))
 
 	# open the file to contain the testing code and write it to the file
-	with open(outPath, 'w', encoding='utf-8') as file:		
+	with open(outPath, 'w', encoding='utf-8') as file:
 		file.write('#pragma once\n')
 		file.write('\n')
 		file.write('#include <vector>\n')
@@ -1705,56 +1724,59 @@ def MakeCodepointMaps(outPath: str, config: GenerateConfig):
 		# write the case-mapping and enum to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Casemapping)
 		caseType: LookupType = LookupType.intType(0, 'int32_t')
 		_gen: CodeGen = file.next('MapCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
-		_gen.addConstInt(caseType, 'FlagIsNegative', flagIsNegative)
-		_gen.addConstInt(caseType, 'FlagIsCased', flagIsCased)
-		_gen.addConstInt(caseType, 'FlagIsIgnorable', flagIsIgnorable)
-		_gen.addConstInt(caseType, 'FlagIsSoftDotted', flagIsSoftDotted)
-		_gen.addConstInt(caseType, 'FlagCombClass0or230', flagCombClass0or230)
-		_gen.addConstInt(caseType, 'FlagCombClass230', flagCombClass230)
-		_gen.addConstInt(caseType, 'FlagIsLower', flagIsLower)
-		_gen.addConstInt(caseType, 'FlagIsUpper', flagIsUpper)
-		_gen.addConstInt(caseType, 'FlagIsTitle', flagIsTitle)
-		_gen.addConstInt(caseType, 'FlagIs0049', flagIs0049)
-		_gen.addConstInt(caseType, 'FlagIs0307', flagIs0307)
-		_gen.addConstInt(caseType, 'BitsOfPayload', bitsOfValue)
+		_gen.addConstInt(caseType, 'CaseIsNegative', flagIsNegative)
+		_gen.addConstInt(caseType, 'CaseIsCased', flagIsCased)
+		_gen.addConstInt(caseType, 'CaseIsIgnorable', flagIsIgnorable)
+		_gen.addConstInt(caseType, 'CaseIsSoftDotted', flagIsSoftDotted)
+		_gen.addConstInt(caseType, 'CaseIsCombClass0or230', flagCombClass0or230)
+		_gen.addConstInt(caseType, 'CaseIsCombClass230', flagCombClass230)
+		_gen.addConstInt(caseType, 'CaseIsLower', flagIsLower)
+		_gen.addConstInt(caseType, 'CaseIsUpper', flagIsUpper)
+		_gen.addConstInt(caseType, 'CaseIsTitle', flagIsTitle)
+		_gen.addConstInt(caseType, 'CaseIs0049', flagIs0049)
+		_gen.addConstInt(caseType, 'CaseIs0307', flagIs0307)
+		_gen.addConstInt(caseType, 'CaseBitsOfPayload', bitsOfValue)
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
-# LookupWordType, LookupGraphemeType, LookupSentenceType
+# LookupWordType, LookupGraphemeType, LookupSentenceType, LookupLineType
 def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 	# parse the relevant files
 	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
 	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty.txt'], False)
 	sentenceBreak = ParsedFile(config.mapping['SentenceBreakProperty.txt'], False)
+	lineBreak = ParsedFile(config.mapping['LineBreak.txt'], False)
 	emojiData = ParsedFile(config.mapping['EmojiData.txt'], False)
+	eastAsianWidth = ParsedFile(config.mapping['EastAsianWidth.txt'], False)
 	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
 
 	# write all maps functions to the file
 	with GeneratedFile(outPath, config) as file:
 		# setup the word-break boundary ranges
-		flagIsPictographic = 0x80
+		wordIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
 			'Katakana': 8, 'Hebrew_Letter': 9, 'ALetter': 10, 'Single_Quote': 11, 'Double_Quote': 12, 'MidNumLet': 13, 'MidLetter': 14,
 			'MidNum': 15, 'Numeric': 16, 'ExtendNumLet': 17, 'WSegSpace': 18 }
 		wordRanges, wordRangesDef = wordBreak.extractAll(1, 0, wordEnumMap)
 		if wordRangesDef != wordEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
-		if len(wordEnumMap) >= flagIsPictographic:
+		if len(wordEnumMap) >= wordIsPictographic:
 			raise RuntimeError('Flags too small for word-break enum')
-		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: flagIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
+		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
 
 		# generate the enum, extended_pictographic flag, and the lookup function (https://unicode.org/reports/tr29/#Word_Boundaries)
 		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
 		_type: LookupType = LookupType.intType(0, 'uint8_t')
 		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
-		_gen.addConstInt(_type, 'FlagIsPictographic', flagIsPictographic)
+		_gen.addConstInt(_type, 'WordIsPictographic', wordIsPictographic)
 		_gen.addEnum(_enum)
 		_gen.intFunction('LookupWordType', _type, wordRanges)
 
 		# setup the grapheme-break boundary ranges
-		flagIsInCBExtend = 0x80
-		flagIsInCBConsonant = 0x40
-		flagIsInCBLinker = 0x20
+		graphemeIsInCBExtend = 0x80
+		graphemeIsInCBConsonant = 0x40
+		graphemeIsInCBLinker = 0x20
 		graphemeEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
 			'Regional_Indicator': 6, 'Prepend': 7, 'SpacingMark': 8, 'L': 9, 'V': 10,
@@ -1763,18 +1785,18 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 		if graphemeRangesDef != graphemeEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
 		graphemeRanges = Ranges.union(graphemeRanges, emojiData.filter(1, lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
-		if len(graphemeEnumMap) >= min(flagIsInCBLinker, flagIsInCBExtend, flagIsInCBConsonant):
+		if len(graphemeEnumMap) >= min(graphemeIsInCBLinker, graphemeIsInCBExtend, graphemeIsInCBConsonant):
 			raise RuntimeError('Flags too small for word-break enum')
-		InCBMap = { 'Extend': flagIsInCBExtend, 'Consonant': flagIsInCBConsonant, 'Linker': flagIsInCBLinker }
+		InCBMap = { 'Extend': graphemeIsInCBExtend, 'Consonant': graphemeIsInCBConsonant, 'Linker': graphemeIsInCBLinker }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
 
 		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
 		_type: LookupType = LookupType.intType(0, 'uint8_t')
 		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
-		_gen.addConstInt(_type, 'FlagIsInCBExtend', flagIsInCBExtend)
-		_gen.addConstInt(_type, 'FlagIsInCBConsonant', flagIsInCBConsonant)
-		_gen.addConstInt(_type, 'FlagIsInCBLinker', flagIsInCBLinker)
+		_gen.addConstInt(_type, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
+		_gen.addConstInt(_type, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
+		_gen.addConstInt(_type, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
 		_gen.addEnum(_enum)
 		_gen.intFunction('LookupGraphemeType', _type, graphemeRanges)
 
@@ -1792,6 +1814,62 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 		_gen.addEnum(_enum)
 		_gen.intFunction('LookupSentenceType', _enum, sentenceRanges)
 
+		# setup the line-break boundary ranges and list of the enum
+		lineEnumMap = {
+			'BK':  0, 'CR':  1, 'LF':  2, 'CM':  3, 'NL':  4, 'WJ':  5, 'ZW':  6, 'GL':  7, 'SP':  8, 'ZWJ': 9, 'B2': 10,
+			'BA': 11, 'BB': 12, 'HY': 13, 'CB': 14, 'CL': 15, 'CP': 16, 'EX': 17, 'IN': 18, 'NS': 19, 'OP': 20, 'QU': 21,
+			'IS': 22, 'NU': 23, 'PO': 24, 'PR': 25, 'SY': 26, 'AK': 27, 'AL': 28, 'AP': 29, 'AS': 30, 'EB': 31, 'EM': 32,
+			'H2': 33, 'H3': 34, 'HL': 35, 'ID': 36, 'JL': 37, 'JV': 38, 'JT': 39, 'RI': 40, 'VF': 41, 'VI': 42,
+			'XX': 43, 'CJ': 44, 'AI': 45, 'SG': 46, 'SA': 47 }
+		lineRanges, lineRangesDef = lineBreak.extractAll(1, 0, lineEnumMap)
+		if lineRangesDef != lineEnumMap['XX']:
+			raise RuntimeError('Default break-value is expected to be [XX]')
+		lineEnumList = [0] * len(lineEnumMap)
+		for k in lineEnumMap:
+			lineEnumList[lineEnumMap[k]] = k.lower()
+		lineEnumList[lineEnumMap['AL']] = 'alDef'
+		lineEnumList[lineEnumMap['QU']] = 'quDef'
+		lineEnumList[lineEnumMap['OP']] = 'opDef'
+		lineEnumList[lineEnumMap['CP']] = 'cpDef'
+
+		# setup the intermediate helper-ranges
+		categoryMnOrMc = unicodeData.filter(2, lambda fs: 1 if (fs[1] == 'Mn' or fs[1] == 'Mc') else None)
+		fwhAsianRanges = eastAsianWidth.filter(1, lambda fs: 1 if fs[0] in 'FWH' else None)
+		cnPictRanges = Ranges.intersect(unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Cn' else None), emojiData.filter(1, lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
+
+		# LB1 mapping
+		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['AI'] else v)
+		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['SG'] else v)
+		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['XX'] else v)
+		lineRangesDef = lineEnumMap['AL']
+		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['NS'] if v[0] == lineEnumMap['CJ'] else v)
+		lineRanges = Ranges.modify(lineRanges, categoryMnOrMc, lambda a, _: lineEnumMap['CM'] if a[0] == lineEnumMap['SA'] else a)
+		lineRanges = Ranges.modify(lineRanges, Ranges.complement(categoryMnOrMc), lambda a, _: lineEnumMap['AL'] if a[0] == lineEnumMap['SA'] else a)
+		lineEnumList = lineEnumList[:-5]
+
+		# add the special values
+		if Ranges.lookup(lineRanges, 0x25cc) != (lineEnumMap['AL'],):
+			raise RuntimeError('Dotted-Circle is assumed to be part of the [AL] break-type')
+		lineRanges = Ranges.merge(lineRanges, [Range(0x25cc, 0x25cc, 1)], lambda a, b: len(lineEnumList))
+		lineEnumList.append('alDotCircle')
+		lineRanges = Ranges.modify(lineRanges, unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Pi' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
+		lineEnumList.append('quPi')
+		lineRanges = Ranges.modify(lineRanges, unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Pf' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
+		lineEnumList.append('quPf')
+		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['OP'] else a)
+		lineEnumList.append('opNoFWH')
+		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['CP'] else a)
+		lineEnumList.append('cpNoFWH')
+		lineRanges = Ranges.union(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)))
+		lineEnumList.append('cnPictographic')
+		lineEnumList.append('_last')
+
+		# generate the enum and the lookup function (https://www.unicode.org/reports/tr14/#Algorithm)
+		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
+		_gen: CodeGen = file.next('Line', 'Automatically generated from: Unicode LineBreak, EmojiData, UnicodeData, EastAsianWidth')
+		_gen.addEnum(_enum)
+		_gen.intFunction('LookupLineType', _enum, lineRanges)
+
 
 
 
@@ -1799,8 +1877,9 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 os.chdir(os.path.split(os.path.abspath(__file__))[0])
 doTests: bool = ('--tests' in sys.argv)
 doRefresh: bool = ('--refresh' in sys.argv)
-if not doTests:
-	print('Hint: use --tests to generate test-source-code')
+doQuery: bool = not ('--noquery' in sys.argv)
+doMap: bool = not ('--nomap' in sys.argv)
+doAnalysis: bool = not ('--noanalysis' in sys.argv)
 if not doRefresh:
 	print('Hint: use --refresh to download already cached files again')
 
@@ -1815,8 +1894,17 @@ if doTests:
 	CreateTestFile(testPath + 'test-words.h', generatedConfig.mapping['WordBreakTest.txt'], 'Word')
 	CreateTestFile(testPath + 'test-graphemes.h', generatedConfig.mapping['GraphemeBreakTest.txt'], 'Grapheme')
 	CreateTestFile(testPath + 'test-sentences.h', generatedConfig.mapping['SentenceBreakTest.txt'], 'Sentence')
+	CreateTestFile(testPath + 'test-lines.h', generatedConfig.mapping['LineBreakTest.txt'], 'Line')
+else:
+	print('Hint: use --tests to generate test-source-code')
 
 # generate the actual files
-MakeCodepointQuery('unicode-cp-query.h', generatedConfig)
-MakeCodepointMaps('unicode-cp-maps.h', generatedConfig)
-MakeCodepointAnalysis('unicode-cp-analysis.h', generatedConfig)
+if doQuery:
+	print('Hint: use --noquery to prevent query-code from being generated again')
+	MakeCodepointQuery('unicode-cp-query.h', generatedConfig)
+if doMap:
+	print('Hint: use --nomap to prevent query-code from being generated again')
+	MakeCodepointMaps('unicode-cp-maps.h', generatedConfig)
+if doAnalysis:
+	print('Hint: use --noanalysis to prevent query-code from being generated again')
+	MakeCodepointAnalysis('unicode-cp-analysis.h', generatedConfig)
