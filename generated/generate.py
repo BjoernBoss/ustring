@@ -1453,7 +1453,7 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
 		_gen.intFunction('TestUnicode', LookupType.boolType(), unicodeRanges)
 
-		# write the assigned-test to the file
+		# write the assigned-test to the file (default = False is required as default value of UnicodeData is Cn)
 		assignedRanges = unicodeData.filter(2, lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
 		_gen: CodeGen = file.next('Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
 		_gen.intFunction('TestAssigned', LookupType.boolType(), assignedRanges)
@@ -1522,7 +1522,7 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 		_gen.addEnum(_enum)
 		_gen.intFunction('GetCase', _enum, caseRanges)
 
-		# write the category-enum to the file (https://www.unicode.org/reports/tr44/#GC_Values_Table)
+		# write the category-enum to the file (default value of UnicodeData is Cn) (https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		categoryEnumMap = {
 			'Lu': 0, 'Ll': 1, 'Lt': 2, 'Lm': 3, 'Lo': 4, 'Mn': 5, 'Mc': 6, 'Me': 7, 'Nd': 8, 'Nl': 9, 'No': 10,
 			'Pc': 11, 'Pd': 12, 'Ps': 13, 'Pe': 14, 'Pi': 15, 'Pf': 16, 'Po': 17, 'Sm': 18, 'Sc': 19, 'Sk': 20, 'So': 21,
@@ -1741,6 +1741,10 @@ def MakeCodepointMaps(outPath: str, config: GenerateConfig):
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
 # LookupSegmentationType (encodes word/grapheme/sentence/line segmentation)
+def _CnPictographicMerge(a: tuple[int], idCnPictographic: int, id: int) -> tuple[int]:
+	if a[0] != id:
+		raise RuntimeError('Cn&Extended_Pictographic is expected to at most collide with [ID]')
+	return (idCnPictographic,)
 def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 	# parse the relevant files
 	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
@@ -1808,11 +1812,12 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 		lineEnumList[lineEnumMap['QU']] = 'quDef'
 		lineEnumList[lineEnumMap['OP']] = 'opDef'
 		lineEnumList[lineEnumMap['CP']] = 'cpDef'
+		lineEnumList[lineEnumMap['ID']] = 'idDef'
 
 		# setup the intermediate helper-ranges
 		categoryMnOrMc = unicodeData.filter(2, lambda fs: 1 if (fs[1] == 'Mn' or fs[1] == 'Mc') else None)
 		fwhAsianRanges = eastAsianWidth.filter(1, lambda fs: 1 if fs[0] in 'FWH' else None)
-		cnPictRanges = Ranges.intersect(unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Cn' else None), emojiData.filter(1, lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
+		cnPictRanges = Ranges.intersect(Ranges.complement(unicodeData.filter(2, lambda fs: 1 if fs[1] != 'Cn' else None)), emojiData.filter(1, lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
 
 		# LB1 mapping
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['AI'] else v)
@@ -1837,8 +1842,9 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 		lineEnumList.append('opNoFWH')
 		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['CP'] else a)
 		lineEnumList.append('cpNoFWH')
-		lineRanges = Ranges.union(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)))
-		lineEnumList.append('cnPictographic')
+		lineRanges = Ranges.merge(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)), lambda a, _: _CnPictographicMerge(a, len(lineEnumList) + 1, lineEnumMap['ID']))
+		lineEnumList.append('defCnPict')
+		lineEnumList.append('idCnPict')
 		lineEnumList.append('_last')
 
 		# create the merged function to encode all four segmentation-lookups into a single buffer-function (requires less memory than four separate lookups)

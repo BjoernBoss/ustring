@@ -882,7 +882,7 @@ namespace cp {
 		class LineBreak {
 		private:
 			using Type = detail::gen::LineType;
-			static_assert(size_t(Type::_last) == 49, "Only types 0-48 are known by the state-machine");
+			static_assert(size_t(Type::_last) == 50, "Only types 0-49 are known by the state-machine");
 
 		private:
 			enum class State : uint8_t {
@@ -1269,11 +1269,12 @@ namespace cp {
 
 				case Type::em:
 					/* LB30b */
-					if (l == Type::eb || l == Type::cnPictographic)
+					if (l == Type::eb || l == Type::defCnPict || l == Type::idCnPict)
 						return Break::combine;
 					[[fallthrough]];
 
-				case Type::id:
+				case Type::idDef:
+				case Type::idCnPict:
 				case Type::eb:
 					/* LB23a */
 					if (l == Type::pr)
@@ -1282,7 +1283,7 @@ namespace cp {
 
 				case Type::po:
 					/* LB23a */
-					if (l == Type::id || l == Type::eb || l == Type::em)
+					if (l == Type::idDef || l == Type::idCnPict || l == Type::eb || l == Type::em)
 						return Break::combine;
 
 					/* LB24 */
