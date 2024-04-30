@@ -1,7 +1,8 @@
 #pragma once
 
 #include "str-common.h"
-#include "generated/unicode-cp-query.h"
+
+#include "generated/unicode-query.h"
 
 #include <algorithm>
 #include <string>

@@ -498,7 +498,7 @@ class CodeGen:
 	IndirectBufferNestingLevel = 3
 	IndirectBufferMinSize = 128
 	LookupAsCodeIfLEQRanges = 96
-	CodeGenDensityThreshold = 1 / 3.5
+	CodeGenDensityThreshold = 1 / 3.0
 	DensityMinClusterSize = 8
 	SeparateAsciiRanges = 48
 	MaxBinarySearchValueSize = 0x10000
@@ -538,20 +538,20 @@ class CodeGen:
 			valsPerLine = (len(data) + estimatedLines - 1) // estimatedLines
 
 			# select the formatting precision based on the type
-			btUnsigned = (tp.bufferType() == 'uint8_t')
-			btSigned = (tp.bufferType() == 'int8_t')
+			btFormat = (tp.bufferSize() == 1)
+			wdFormat = (tp.bufferSize() == 2)
 
 			# write the header, data, and trailer out
 			self._file.write(f'static constexpr {tp.bufferType()} {name}[{len(data)}] = {{\n\t')
 			for i in range(len(data)):
 				if i > 0:
 					self._file.write(f',{"\n\t" if (i % valsPerLine) == 0 else ""}')
-				if btUnsigned:
-					self._file.write(f' {data[i]:#04x}')
-				elif btSigned:
+				if btFormat:
 					self._file.write(f' {data[i]: #05x}')
-				else:
+				elif wdFormat:
 					self._file.write(f' {data[i]: #07x}')
+				else:
+					self._file.write(f' {data[i]: #011x}')
 			self._file.writeln('\n};')
 
 	def _value(self, val: int) -> str:
@@ -811,12 +811,16 @@ class CodeGen:
 				lastSorted = actual[-1]
 				actual = actual[:-1]
 
-			# extract all ranges which contain more than two chars
-			sortedActual += sorted([a for a in actual if a.values[0] > 2], key=lambda x: -x.values[0])
+			# reorganize ascii-ranges before the remainder
+			for i in range(2):
+				# extract all ranges which contain more than two chars
+				sortedActual += sorted([a for a in actual if a.values[0] > 2 and ((i == 0) == (a.first < 0x80))], key=lambda x: -x.values[0])
 
-			# add all remaining single checks, but sorted in ascending order
-			actual = [a for a in actual if a.values[0] == 1] + [Range(a.first, a.first, 1) for a in actual if a.values[0] == 2] + [Range(a.last, a.last, 1) for a in actual if a.values[0] == 2]
-			sortedActual += sorted(actual, key=lambda x: x.first)
+				# add all remaining single checks, but sorted in ascending order
+				restToSort = [a for a in actual if a.values[0] == 1 and ((i == 0) == (a.first < 0x80))]
+				restToSort += [Range(a.first, a.first, 1) for a in actual if a.values[0] == 2 and ((i == 0) == (a.first < 0x80))]
+				restToSort += [Range(a.last, a.last, 1) for a in actual if a.values[0] == 2 and ((i == 0) == (a.first < 0x80))]
+				sortedActual += sorted(restToSort, key=lambda x: x.first)
 
 			# add the last element back
 			if lastSorted is not None:
@@ -940,35 +944,32 @@ class CodeGen:
 		# select the list of shifts, data-buffers, index-buffers
 		indirections = self._setupIndirectBuffers(clippedRanges, bufType, nestingLevel, shiftList, minIndirectSize)
 
-		# setup the small and large buffer as well as the mapping to the corresponding slots
-		indexMap: dict[int|None, tuple[int, bool]] = {}
-		smBufferData, lgBufferData = [], []
+		# setup the size-based buffers as well as the mapping to the corresponding slots
+		indexMap: dict[int|None, tuple[int, int]] = {}
+		bufferData: dict[int, list[int]] = {}
 		for i in range(len(indirections)):
 			_, datBuffer, idxBuffer = indirections[i]
 
 			# write the data to the buffer
-			if LookupType.listType(0, datBuffer).bufferSize() == 1:
-				indexMap[i] = (len(smBufferData), True)
-				smBufferData += datBuffer
-			else:
-				indexMap[i] = (len(lgBufferData), False)
-				lgBufferData += datBuffer
+			datSize: int = LookupType.listType(0, datBuffer).bufferSize()
+			if datSize not in bufferData:
+				bufferData[datSize] = []
+			indexMap[i] = (len(bufferData[datSize]), datSize)
+			bufferData[datSize] += datBuffer
 
 			# write the index to the buffer (there can only exist one index-buffer)
-			if len(idxBuffer) > 0:
-				if LookupType.listType(0, idxBuffer).bufferSize() == 1:
-					indexMap[None] = (len(smBufferData), True)
-					smBufferData += idxBuffer
-				else:
-					indexMap[None] = (len(lgBufferData), False)
-					lgBufferData += idxBuffer
+			if len(idxBuffer) == 0:
+				continue
+			datSize = LookupType.listType(0, idxBuffer).bufferSize()
+			if datSize not in bufferData:
+				bufferData[datSize] = []
+			indexMap[None] = (len(bufferData[datSize]), datSize)
+			bufferData[datSize] += idxBuffer
 
 		# check if the buffer(s) need to be allocated
-		smBufferName, lgBufferName = '', ''
-		if len(smBufferData) > 0:
-			smBufferName = self._addBuffer(smBufferData, LookupType.listType(0, smBufferData), ('IndData' if len(lgBufferData) == 0 else 'IndSmall'))
-		if len(lgBufferData) > 0:
-			lgBufferName = self._addBuffer(lgBufferData, LookupType.listType(0, lgBufferData), ('IndData' if len(smBufferData) == 0 else 'IndLarge'))
+		bufferName: dict[int, str] = {}
+		for k in bufferData:
+			bufferName[k] = self._addBuffer(bufferData[k], LookupType.listType(0, bufferData[k]), f'IndData{k}')
 
 		# allocate and initialize the in-var
 		inVarName = self._addVar('In')
@@ -982,7 +983,7 @@ class CodeGen:
 
 		# check if its only a single direct lookup
 		if shiftSum == 0:
-			indexLookupCode = f'{smBufferName if len(smBufferName) > 0 else lgBufferName}[{inVarName}]'
+			indexLookupCode = f'{list[bufferName.values()][0]}[{inVarName}]'
 			self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexLookupCode)};\n'
 			if lowerClipped or upperClipped:
 				self._code += '}\n'
@@ -993,12 +994,12 @@ class CodeGen:
 		indexLookupCode = f'{inVarName} >> {shiftSum}'
 		if indexMap[None][0] > 0:
 			indexLookupCode = f'{self._value(indexMap[None][0])} + ({indexLookupCode})'
-		self._code += f'{indent}size_t {indexVarName} = {smBufferName if indexMap[None][1] else lgBufferName}[{indexLookupCode}];\n'
+		self._code += f'{indent}size_t {indexVarName} = {bufferName[indexMap[None][1]]}[{indexLookupCode}];\n'
 
 		# iterate over the indirections and apply them to the index-variable
 		for i in range(len(indirections) - 1, -1, -1):
 			shift = indirections[i][0]
-			dataOffset, dataSmall = indexMap[i]
+			dataOffset, bufNameIndex = indexMap[i]
 
 			# add the operation to compute the index into the data-buffer for the current indirection
 			shiftSum -= shift
@@ -1007,9 +1008,9 @@ class CodeGen:
 
 			# add the memory lookup (i.e. the 'data')
 			if dataOffset > 0:
-				indexLookupCode = f'{smBufferName if dataSmall else lgBufferName}[{indexLookupCode} + {dataOffset:#04x}]'
+				indexLookupCode = f'{bufferName[bufNameIndex]}[{indexLookupCode} + {dataOffset:#04x}]'
 			else:
-				indexLookupCode = f'{smBufferName if dataSmall else lgBufferName}[{indexLookupCode}]'
+				indexLookupCode = f'{bufferName[bufNameIndex]}[{indexLookupCode}]'
 
 			# add the line to the produced code, as well as the final dynamic lookup
 			self._code += f'{indent}{indexVarName} = {indexLookupCode};\n'
@@ -1739,8 +1740,8 @@ def MakeCodepointMaps(outPath: str, config: GenerateConfig):
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
 
-# LookupWordType, LookupGraphemeType, LookupSentenceType, LookupLineType
-def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
+# LookupSegmentationType (encodes word/grapheme/sentence/line segmentation)
+def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 	# parse the relevant files
 	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
 	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty.txt'], False)
@@ -1753,7 +1754,7 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 
 	# write all maps functions to the file
 	with GeneratedFile(outPath, config) as file:
-		# setup the word-break boundary ranges
+		# setup the word-break boundary ranges (https://unicode.org/reports/tr29/#Word_Boundaries)
 		wordIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
 			'Katakana': 8, 'Hebrew_Letter': 9, 'ALetter': 10, 'Single_Quote': 11, 'Double_Quote': 12, 'MidNumLet': 13, 'MidLetter': 14,
@@ -1765,15 +1766,7 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 			raise RuntimeError('Flags too small for word-break enum')
 		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
 
-		# generate the enum, extended_pictographic flag, and the lookup function (https://unicode.org/reports/tr29/#Word_Boundaries)
-		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
-		_type: LookupType = LookupType.intType(0, 'uint8_t')
-		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
-		_gen.addConstInt(_type, 'WordIsPictographic', wordIsPictographic)
-		_gen.addEnum(_enum)
-		_gen.intFunction('LookupWordType', _type, wordRanges)
-
-		# setup the grapheme-break boundary ranges
+		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		graphemeIsInCBExtend = 0x80
 		graphemeIsInCBConsonant = 0x40
 		graphemeIsInCBLinker = 0x20
@@ -1790,17 +1783,7 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 		InCBMap = { 'Extend': graphemeIsInCBExtend, 'Consonant': graphemeIsInCBConsonant, 'Linker': graphemeIsInCBLinker }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
 
-		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
-		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
-		_type: LookupType = LookupType.intType(0, 'uint8_t')
-		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
-		_gen.addConstInt(_type, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
-		_gen.addConstInt(_type, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
-		_gen.addConstInt(_type, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
-		_gen.addEnum(_enum)
-		_gen.intFunction('LookupGraphemeType', _type, graphemeRanges)
-
-		# setup the sentence-break boundary ranges
+		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
 		sentenceEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Extend': 3, 'Sep': 4, 'Format': 5, 'Sp': 6, 'Lower': 7, 'Upper': 8,
 			'OLetter': 9, 'Numeric': 10, 'ATerm': 11, 'SContinue': 12, 'STerm': 13, 'Close': 14 }
@@ -1808,13 +1791,7 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 		if sentenceRangesDef != sentenceEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
 
-		# generate the enum and the lookup function (https://unicode.org/reports/tr29/#Sentence_Boundaries)
-		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
-		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
-		_gen.addEnum(_enum)
-		_gen.intFunction('LookupSentenceType', _enum, sentenceRanges)
-
-		# setup the line-break boundary ranges and list of the enum
+		# setup the line-break boundary ranges and list of the enum (https://www.unicode.org/reports/tr14/#Algorithm)
 		lineEnumMap = {
 			'BK':  0, 'CR':  1, 'LF':  2, 'CM':  3, 'NL':  4, 'WJ':  5, 'ZW':  6, 'GL':  7, 'SP':  8, 'ZWJ': 9, 'B2': 10,
 			'BA': 11, 'BB': 12, 'HY': 13, 'CB': 14, 'CL': 15, 'CP': 16, 'EX': 17, 'IN': 18, 'NS': 19, 'OP': 20, 'QU': 21,
@@ -1864,11 +1841,34 @@ def MakeCodepointAnalysis(outPath: str, config: GenerateConfig):
 		lineEnumList.append('cnPictographic')
 		lineEnumList.append('_last')
 
-		# generate the enum and the lookup function (https://www.unicode.org/reports/tr14/#Algorithm)
-		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
-		_gen: CodeGen = file.next('Line', 'Automatically generated from: Unicode LineBreak, EmojiData, UnicodeData, EastAsianWidth')
-		_gen.addEnum(_enum)
-		_gen.intFunction('LookupLineType', _enum, lineRanges)
+		# create the merged function to encode all four segmentation-lookups into a single buffer-function (requires less memory than four separate lookups)
+		segmentWordOff, segmentGraphemeOff, segmentSentenceOff, segmentLineOff, segmentationRanges = 24, 16, 8, 0, []
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentWordOff), lambda a, b: (a[0] | b[0],))
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentGraphemeOff), lambda a, b: (a[0] | b[0],))
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentSentenceOff), lambda a, b: (a[0] | b[0],))
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(lineRanges, lambda _, v: v[0] << segmentLineOff), lambda a, b: (a[0] | b[0],))
+		segmentationDefValue = (wordRangesDef << segmentWordOff) | (graphemeRangesDef << segmentGraphemeOff) | (sentenceRangesDef << segmentSentenceOff) | (lineRangesDef << segmentLineOff)
+		_type32: LookupType = LookupType.intType(segmentationDefValue, 'uint32_t')
+		_type8: LookupType = LookupType.intType(0, 'uint8_t')
+		_enumWord: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
+		_enumGrapheme: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
+		_enumSentence: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
+		_enumLine: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
+		_gen: CodeGen = file.next('Segmentation', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, DerivedProperties, WordBreakProperty, SentenceBreakProperty, LineBreak, UnicodeData, EastAsianWidth')
+		_gen.addConstInt(_type8, 'WordIsPictographic', wordIsPictographic)
+		_gen.addConstInt(_type8, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
+		_gen.addConstInt(_type8, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
+		_gen.addConstInt(_type8, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
+		_gen.addConstInt(_type8, 'SegmentWordType', segmentWordOff)
+		_gen.addConstInt(_type8, 'SegmentGraphemeType', segmentGraphemeOff)
+		_gen.addConstInt(_type8, 'SegmentSentenceType', segmentSentenceOff)
+		_gen.addConstInt(_type8, 'SegmentLineType', segmentLineOff)
+		_gen.addConstInt(_type8, 'SegmentTypeMask', 0xff)
+		_gen.addEnum(_enumWord)
+		_gen.addEnum(_enumGrapheme)
+		_gen.addEnum(_enumSentence)
+		_gen.addEnum(_enumLine)
+		_gen.intFunction('LookupSegmentationType', _type32, segmentationRanges)
 
 
 
@@ -1879,7 +1879,7 @@ doTests: bool = ('--tests' in sys.argv)
 doRefresh: bool = ('--refresh' in sys.argv)
 doQuery: bool = not ('--noquery' in sys.argv)
 doMap: bool = not ('--nomap' in sys.argv)
-doAnalysis: bool = not ('--noanalysis' in sys.argv)
+doSegment: bool = not ('--nosegment' in sys.argv)
 if not doRefresh:
 	print('Hint: use --refresh to download already cached files again')
 
@@ -1901,10 +1901,10 @@ else:
 # generate the actual files
 if doQuery:
 	print('Hint: use --noquery to prevent query-code from being generated again')
-	MakeCodepointQuery('unicode-cp-query.h', generatedConfig)
+	MakeCodepointQuery('unicode-query.h', generatedConfig)
 if doMap:
-	print('Hint: use --nomap to prevent query-code from being generated again')
-	MakeCodepointMaps('unicode-cp-maps.h', generatedConfig)
-if doAnalysis:
-	print('Hint: use --noanalysis to prevent query-code from being generated again')
-	MakeCodepointAnalysis('unicode-cp-analysis.h', generatedConfig)
+	print('Hint: use --nomap to prevent mapping-code from being generated again')
+	MakeCodepointMaps('unicode-mapping.h', generatedConfig)
+if doSegment:
+	print('Hint: use --nosegment to prevent segmentation-code from being generated again')
+	MakeCodepointSegmentation('unicode-segmentation.h', generatedConfig)
