@@ -492,17 +492,72 @@ class Ranges:
 				Ranges._appOrMerge(out, Range(i, i, assignValue(i, r.values)))
 		return out
 
-class CodeGen:
-	ListConsideredSparse = 0.3
-	IndirectBufferShiftTests = [0, 1, 2, 3, 4, 5, 6, 7]
-	IndirectBufferNestingLevel = 3
-	IndirectBufferMinSize = 128
-	LookupAsCodeIfLEQRanges = 96
-	CodeGenDensityThreshold = 1 / 3.0
-	DensityMinClusterSize = 8
-	SeparateAsciiRanges = 48
-	MaxBinarySearchValueSize = 0x10000
+class CodeGenIndirect:
+	def __init__(self, nestDepth: int = 3, minBufSize: int = 128, shiftTests: list[int] = [0, 1, 2, 3, 4, 5, 6, 7]) -> None:
+		self._nestingDepth = nestDepth
+		self._minBufferSize = minBufSize
+		self._shiftTests = shiftTests
+	@property
+	def nestingDepth(self) -> int:
+		return self._nestingDepth
+	@property
+	def minBufferSize(self) -> int:
+		return self._minBufferSize
+	@property
+	def shiftTests(self) -> int:
+		return self._shiftTests
 
+class CodeGenDensityIfElse:
+	def __init__(self, lookupDensity: float = 1/3, minClusterSize: int = 8, preferAscii: bool = True) -> None:
+		self._lookupDensity = lookupDensity
+		self._minClusterSize = minClusterSize
+		self._preferAscii = preferAscii
+	@property
+	def lookupDensity(self) -> float:
+		return self._lookupDensity
+	@property
+	def minClusterSize(self) -> int:
+		return self._minClusterSize
+	@property
+	def preferAscii(self) -> int:
+		return self._preferAscii
+
+class CodeGenBinarySearch:
+	def __init__(self, maxValueSize: int = 0x10000, nestDepth: int = 2, minBufSize: int = 128, shiftTests: list[int] = [0, 1, 2, 3, 4, 5, 6, 7]) -> None:
+		self._maxValueSize = maxValueSize
+		self._nestingDepth = nestDepth
+		self._minBufferSize = minBufSize
+		self._shiftTests = shiftTests
+	@property
+	def maxValueSize(self) -> int:
+		return self._maxValueSize
+	@property
+	def nestingDepth(self) -> int:
+		return self._nestingDepth
+	@property
+	def minBufferSize(self) -> int:
+		return self._minBufferSize
+	@property
+	def shiftTests(self) -> int:
+		return self._shiftTests
+
+type CodeGenOpts = CodeGenIndirect|CodeGenDensityIfElse|CodeGenBinarySearch
+class CodeGenConfig:
+	def __init__(self, lookup: CodeGenOpts, asciiLookup: CodeGenOpts|None = None, listConsideredSparse: float = 0.3) -> None:
+		self._lookup = lookup
+		self._ascii = asciiLookup
+		self._listConsideredSparse = listConsideredSparse
+	@property
+	def lookup(self) -> CodeGenOpts:
+		return self._lookup
+	@property
+	def ascii(self) -> CodeGenOpts|None:
+		return self._ascii
+	@property
+	def listConsideredSparse(self) -> float:
+		return self._listConsideredSparse
+
+class CodeGen:
 	def __init__(self, file: 'GeneratedFile', blockName: str, desc: str) -> None:
 		# global data
 		self._file = file
@@ -634,11 +689,11 @@ class CodeGen:
 	def _rangeFromList(self, data: list[int]) -> list[Range]:
 		return Ranges.fromRawList([Range(i, i, data[i]) for i in range(len(data))])
 
-	def _binarySearchLookup(self, data: list[int], tp: LookupType, inVarName: str, outWriteTo: str, hint: str, bufMaxNesting: int, bufShiftTests: list[int], bufMinIndSize: int) -> str:
+	def _binarySearchLookup(self, data: list[int], tp: LookupType, inVarName: str, outWriteTo: str, hint: str, bufMaxNesting: int, bufMinIndSize: int, bufShiftTests: list[int]) -> str:
 		self._pushContext(tp, inVarName, outWriteTo, hint)
-		self._indirectBuffer(self._rangeFromList(data), bufMaxNesting, bufShiftTests, bufMinIndSize)
+		self._indirectBuffer(self._rangeFromList(data), bufMaxNesting, bufMinIndSize, bufShiftTests)
 		return self._popContext()
-	def _binarySearch(self, ranges: list[Range], maxBinSearchSize: int, bufMaxNesting: int, bufShiftTests: list[int], bufMinIndSize: int) -> None:
+	def _binarySearch(self, ranges: list[Range], maxBinSearchSize: int, bufMaxNesting: int, bufMinIndSize: int, bufShiftTests: list[int]) -> None:
 		defValue = None
 
 		# check if the last value will be the default value (due to the size-constraints, any too large last-values can produce exeedingly many values)
@@ -663,7 +718,7 @@ class CodeGen:
 
 		# check if there are more than two values, in which case a lookup for the values is required and otherwise return any value from the range
 		if len(counts) > 2:
-			getValueCode = self._binarySearchLookup([r.values[0] for r in ranges], self._type, leftVarName, self._outTo, 'Value', bufMaxNesting, bufShiftTests, bufMinIndSize)
+			getValueCode = self._binarySearchLookup([r.values[0] for r in ranges], self._type, leftVarName, self._outTo, 'Value', bufMaxNesting, bufMinIndSize, bufShiftTests)
 			if StrHelp.multiLines(getValueCode):
 				getValueCode = f' {{\n{StrHelp.indent(getValueCode)}}}\n'
 			else:
@@ -674,7 +729,7 @@ class CodeGen:
 		# create the lookup code for the ranges sizes (store the size smaller by 1 as a size cannot be 0)
 		sizeBufferList = [r.span() - 1 for r in ranges]
 		sizeBufferType = LookupType.listType(-1, sizeBufferList)
-		getSizeCode = self._binarySearchLookup(sizeBufferList, sizeBufferType, leftVarName, f'{sizeVarName} =', 'Size', bufMaxNesting, bufShiftTests, bufMinIndSize)
+		getSizeCode = self._binarySearchLookup(sizeBufferList, sizeBufferType, leftVarName, f'{sizeVarName} =', 'Size', bufMaxNesting, bufMinIndSize, bufShiftTests)
 
 		# write the buffer for the first-values out (must be a buffer, as it will be passed
 		# to the binary-search and will hopefully be complex enough to require a binary-search, and ensure all values are smaller than maxBinSearchSize)
@@ -724,7 +779,7 @@ class CodeGen:
 		# add the code to perform the value-lookup
 		self._code += 'else' + getValueCode
 
-	def _ifElseClusters(self, ranges: list[Range], densityThreshold: float, minClusterSize: int) -> None:
+	def _ifElseClusters(self, ranges: list[Range], densityThreshold: float, minClusterSize: int, preferAscii: bool) -> None:
 		# perform density-clustering to detect what areas might benefit from buffers
 		clusters, clusterAccess = self._density(ranges, densityThreshold, minClusterSize), []
 
@@ -811,15 +866,17 @@ class CodeGen:
 				lastSorted = actual[-1]
 				actual = actual[:-1]
 
-			# reorganize ascii-ranges before the remainder
-			for i in range(2):
+			# reorganize ascii-ranges before the remainder or simply sort all ranges by size of their span
+			for i in range(2 if preferAscii else 1):
+				rangesToSort = ([a for a in actual if (i == 0) == (a.first < 0x80)] if preferAscii else actual)
+
 				# extract all ranges which contain more than two chars
-				sortedActual += sorted([a for a in actual if a.values[0] > 2 and ((i == 0) == (a.first < 0x80))], key=lambda x: -x.values[0])
+				sortedActual += sorted([a for a in rangesToSort if a.values[0] > 2], key=lambda x: -x.values[0])
 
 				# add all remaining single checks, but sorted in ascending order
-				restToSort = [a for a in actual if a.values[0] == 1 and ((i == 0) == (a.first < 0x80))]
-				restToSort += [Range(a.first, a.first, 1) for a in actual if a.values[0] == 2 and ((i == 0) == (a.first < 0x80))]
-				restToSort += [Range(a.last, a.last, 1) for a in actual if a.values[0] == 2 and ((i == 0) == (a.first < 0x80))]
+				restToSort = [a for a in rangesToSort if a.values[0] == 1]
+				restToSort += [Range(a.first, a.first, 1) for a in rangesToSort if a.values[0] == 2]
+				restToSort += [Range(a.last, a.last, 1) for a in rangesToSort if a.values[0] == 2]
 				sortedActual += sorted(restToSort, key=lambda x: x.first)
 
 			# add the last element back
@@ -914,7 +971,7 @@ class CodeGen:
 				out = tempOut
 				outMemoryCost = tempMemoryCost
 		return out
-	def _indirectBuffer(self, ranges: list[Range], nestingLevel: int, shiftList: list[int], minIndirectSize: int) -> None:
+	def _indirectBuffer(self, ranges: list[Range], nestingLevel: int, minIndirectSize: int, shiftList: list[int]) -> None:
 		lowerClipped, upperClipped = False, False
 
 		# check if the range needs to be clipped to prevent too large buffers
@@ -1021,7 +1078,7 @@ class CodeGen:
 		if lowerClipped or upperClipped:
 			self._code += '}\n'
 
-	def _lookupRanges(self, ranges: list[Range], tp: LookupType, addIndentation: bool, inVarName: str, outWriteTo: str, hint: str) -> str:
+	def _lookupRanges(self, ranges: list[Range], tp: LookupType, addIndentation: bool, inVarName: str, outWriteTo: str, hint: str, config: CodeGenOpts) -> str:
 		# check if the range is empty or trivial and nothing needs to be done
 		if len(ranges) == 0:
 			return f'{"\n\t" if addIndentation else ""}{outWriteTo} {tp.staticLookup(tp.defValue())};\n'
@@ -1031,14 +1088,17 @@ class CodeGen:
 		# setup the new context for the execution
 		self._pushContext(tp, inVarName, outWriteTo, hint)
 
-		# check if a code-lookup makes sense (i.e. few ranges)
-		if len(ranges) <= CodeGen.LookupAsCodeIfLEQRanges:
-			self._ifElseClusters(ranges, CodeGen.CodeGenDensityThreshold, CodeGen.DensityMinClusterSize)
+		# check if a code-lookup should be performed
+		if type(config) == CodeGenDensityIfElse:
+			self._ifElseClusters(ranges, config.lookupDensity, config.minClusterSize, config.preferAscii)
 
-		# either perform a binary search or use indirect buffers (currently: indirect-buffers have a lower memory-footprint and fewer memory accesses)
+		# check if a lookup using indirect buffers should be performed
+		elif type(config) == CodeGenIndirect:
+			self._indirectBuffer(ranges, config.nestingDepth, config.minBufferSize, config.shiftTests)
+
+		# perform the binary search
 		else:
-			self._indirectBuffer(ranges, CodeGen.IndirectBufferNestingLevel, CodeGen.IndirectBufferShiftTests, CodeGen.IndirectBufferMinSize)
-			# self._binarySearch(ranges, CodeGen.MaxBinarySearchValueSize, CodeGen.IndirectBufferNestingLevel, CodeGen.IndirectBufferShiftTests, CodeGen.IndirectBufferMinSize)
+			self._binarySearch(ranges, config.maxValueSize, config.nestingDepth, config.minBufferSize, config.shiftTests)
 
 		# fetch the produced code
 		lookupCode: str = self._popContext()
@@ -1050,7 +1110,7 @@ class CodeGen:
 			else:
 				lookupCode = '\n\t' + lookupCode
 		return lookupCode
-	def _fullRangeLookup(self, ranges: list[Range], tp: LookupType, inVarName: str, outVarName: str|None) -> str:
+	def _fullRangeLookup(self, ranges: list[Range], tp: LookupType, inVarName: str, outVarName: str|None, config: CodeGenConfig) -> str:
 		# initialize the out variable-name
 		if outVarName is None:
 			outVarName = 'return'
@@ -1059,17 +1119,17 @@ class CodeGen:
 		lookupCode = ''
 
 		# check if the entire ranges should be handled as a single lookup
-		if len(ranges) < CodeGen.SeparateAsciiRanges or ranges[-1].first <= 0x80:
-			return self._lookupRanges(ranges, tp, False, inVarName, outVarName, '')
+		if config.ascii is None or ranges[-1].first <= 0x80:
+			return self._lookupRanges(ranges, tp, False, inVarName, outVarName, '', config.lookup)
 
 		# add the ascii lookup
 		lookupCode += f'if ({inVarName} < 0x80)'
 		asciiRanges, upperRanges = Ranges.split(ranges, 0x80)
-		lookupCode += self._lookupRanges(asciiRanges, tp, True, inVarName, outVarName, 'Ascii')
+		lookupCode += self._lookupRanges(asciiRanges, tp, True, inVarName, outVarName, 'Ascii', config.ascii)
 
 		# add the remaining lookup code
 		lookupCode += 'else'
-		lookupCode += self._lookupRanges(upperRanges, tp, True, inVarName, outVarName, '')
+		lookupCode += self._lookupRanges(upperRanges, tp, True, inVarName, outVarName, '', config.lookup)
 		return lookupCode
 
 	def addConstInt(self, type: LookupType, name: str, value: int) -> None:
@@ -1081,7 +1141,7 @@ class CodeGen:
 		self._file.write(f'enum class {enum.typeName(True)} : {enum.bufferType()} {{\n\t')
 		self._file.writeln(",\n\t".join(enum.enumValues()))
 		self._file.writeln('};')
-	def intFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
+	def intFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range], config: CodeGenConfig) -> None:
 		print(f'Creating integer-lookup {fnName}...')
 		Ranges.wellFormed(ranges, lookupType)
 
@@ -1089,14 +1149,14 @@ class CodeGen:
 		ranges = Ranges.fill(ranges, lookupType.defValue(), Range.RangeFirst, Range.RangeLast)
 
 		# generate the lookup-code and write the final buffers out
-		lookupCode: str = self._fullRangeLookup(ranges, lookupType, 'cp', None)
+		lookupCode: str = self._fullRangeLookup(ranges, lookupType, 'cp', None, config)
 		self._writeBuffers()
 
 		# generate the actual function and insert the final code
 		self._file.writeln(f'inline constexpr {lookupType.typeName()} {fnName}(char32_t cp) {{')
 		self._file.write(StrHelp.indent(lookupCode))
 		self._file.writeln('}')
-	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range]) -> None:
+	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range], config: CodeGenConfig) -> None:
 		print(f'Creating list-lookup {fnName}...')
 		Ranges.wellFormed(ranges, lookupType)
 
@@ -1106,7 +1166,7 @@ class CodeGen:
 
 		# check if a sparse buffer should be created for the map (data-buffer contains either single value, or null
 		#	followed by size followed by values; null-value also needs special encoding) or simply write size, and data out
-		sparseBuffer = (sum(1 for r in ranges if len(r.values) > 1) <= len(ranges) * CodeGen.ListConsideredSparse)
+		sparseBuffer = (sum(1 for r in ranges if len(r.values) > 1) <= len(ranges) * config.listConsideredSparse)
 
 		# create the data buffer for the ranges and remap the ranges to indices into the data-buffer
 		dataBuffer, dataIndex = [], {}
@@ -1131,7 +1191,7 @@ class CodeGen:
 		indexVarName: str = self._addVar('Index')
 
 		# generate the lookup-code and write the final buffers out
-		lookupCode: str = self._fullRangeLookup(ranges, LookupType.rangeType(0, 0, len(dataIndex) - 1), 'cp', indexVarName)
+		lookupCode: str = self._fullRangeLookup(ranges, LookupType.rangeType(0, 0, len(dataIndex) - 1), 'cp', indexVarName, config)
 		self._writeBuffers()
 
 		# generate the actual function and insert the generated code
@@ -1148,7 +1208,7 @@ class CodeGen:
 			self._file.writeln(f'\treturn {{ size_t({dataBufferName}[{indexVarName}]), {dataBufferName} + {indexVarName} + 1 }};')
 		self._file.writeln('}')
 
-class GenerateConfig:
+class SystemConfig:
 	def __init__(self, url: str, version: str, date: str, mapping: dict[str, str], includes: list[str]) -> None:
 		self.url = url
 		self.version = version
@@ -1157,7 +1217,7 @@ class GenerateConfig:
 		self.mapping = mapping
 
 class GeneratedFile:
-	def __init__(self, path: str, config: GenerateConfig) -> None:
+	def __init__(self, path: str, config: SystemConfig) -> None:
 		self._path = path
 		self._config = config
 		self._file = None
@@ -1439,8 +1499,8 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 		file.write('\n\t};\n')
 		file.write('}\n')
 
-# TestAscii, TestAlpha, GetRadix, GetDigit, TestWhiteSpace, TestControl, TestLetter, GetPrintable, GetCase, GetCategory
-def MakeCodepointQuery(outPath: str, config: GenerateConfig):
+# TestUnicode, TestAscii, TestAsciiAlphabetic, TestAsciiNumeric, GetAsciiRadix, TestWhiteSpace, TestControl, GetProperty (encodes: assigned/alphabetic/numeric/decimal/printable/case/category)
+def MakePropertyLookup(outPath: str, config: SystemConfig):
 	# parse the relevant files
 	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
 	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
@@ -1448,58 +1508,85 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 
 	# write all lookup functions to the file
 	with GeneratedFile(outPath, config) as file:
+		_type: LookupType = LookupType.intType(0, 'uint16_t')
+		propertyDefValue: int = 0
+
 		# write the unicode-test to the file
 		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
-		_gen.intFunction('TestUnicode', LookupType.boolType(), unicodeRanges)
-
-		# write the assigned-test to the file (default = False is required as default value of UnicodeData is Cn)
-		assignedRanges = unicodeData.filter(2, lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
-		_gen: CodeGen = file.next('Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
-		_gen.intFunction('TestAssigned', LookupType.boolType(), assignedRanges)
+		_gen.intFunction('TestUnicode', LookupType.boolType(), unicodeRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
 		# write the ascii-test to the file
 		asciiRanges = [Range(0, 0x7f, 1)]
 		_gen: CodeGen = file.next('Ascii', 'Automatically generated from: [cp <= 0x7f]')
-		_gen.intFunction('TestAscii', LookupType.boolType(), asciiRanges)
+		_gen.intFunction('TestAscii', LookupType.boolType(), asciiRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
-		# write the alpha-test to the file
-		alphaRanges = Ranges.fromRawList([Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)])
-		_gen: CodeGen = file.next('Alpha', 'Automatically generated from: [a-zA-Z]')
-		_gen.intFunction('TestAlpha', LookupType.boolType(), alphaRanges)
+		# write the ascii-alphabetic-test to the file
+		asciiAlphabeticRanges = Ranges.fromRawList([Range(ord('a'), ord('z'), 1), Range(ord('A'), ord('Z'), 1)])
+		_gen: CodeGen = file.next('AsciiAlphabetic', 'Automatically generated from: [a-zA-Z]')
+		_gen.intFunction('TestAsciiAlphabetic', LookupType.boolType(), asciiAlphabeticRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
-		# write the radix-getter to the file
+		# write the ascii-numeric-test to the file
+		asciiNumericRanges = Ranges.fromRawList([Range(ord('0'), ord('9'), 1)])
+		_gen: CodeGen = file.next('AsciiNumeric', 'Automatically generated from: [0-9]')
+		_gen.intFunction('TestAsciiNumeric', LookupType.boolType(), asciiNumericRanges, CodeGenConfig(CodeGenDensityIfElse()))
+
+		# write the ascii-radix-getter to the file
 		radixRanges = Ranges.fromRawList([Range(ord('0') + i, ord('0') + i, i) for i in range(10)] + [Range(ord('a') + i, ord('a') + i, 10 + i) for i in range(26)] + [Range(ord('A') + i, ord('A') + i, 10 + i) for i in range(26)])
-		_gen: CodeGen = file.next('Radix', 'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to 0xff')
-		_gen.intFunction('GetRadix', LookupType.intType(0xff, 'uint8_t'), radixRanges)
-
-		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
-		digitRanges = unicodeData.filter(8, lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
-		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf0 if fs[6] != '' else None), lambda a, b: a)
-		digitRanges = Ranges.merge(digitRanges, unicodeData.filter(8, lambda fs: 0xf1 if fs[7] != '' else None), lambda a, b: a)
-		_gen: CodeGen = file.next('Digit', 'Automatically generated from: Unicode: Numeric_Type=Decimal: [0-9]; Numeric_Type=Digit: [0xf0]; Numeric_Type=Numeric: [0xf1]; rest [0xff]')
-		_gen.intFunction('GetDigit', LookupType.intType(0xff, 'uint8_t'), digitRanges)
+		radixValueDef = 36
+		_gen: CodeGen = file.next('AsciiRadix', f'Automatically generated from: [0-9a-zA-Z] mapped to [0-35] and rest to {radixValueDef}')
+		_gen.addConstInt(LookupType.intType(0, 'uint8_t'), 'AsciiRadixNone', radixValueDef)
+		_gen.intFunction('GetAsciiRadix', LookupType.intType(radixValueDef, 'uint8_t'), radixRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
 		# write the whitespace-test to the file (https://www.unicode.org/reports/tr44/#White_Space)
 		whiteSpaceRanges = propList.filter(1, lambda fs: None if fs[0] != 'White_Space' else 1)
 		_gen: CodeGen = file.next('WhiteSpace', 'Automatically generated from: Unicode White_Space property')
-		_gen.intFunction('TestWhiteSpace', LookupType.boolType(), whiteSpaceRanges)
+		_gen.intFunction('TestWhiteSpace', LookupType.boolType(), whiteSpaceRanges, CodeGenConfig(CodeGenDensityIfElse(1, 256)))
 
 		# write the control-test to the file (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		controlRanges = unicodeData.filter(2, lambda fs: None if fs[1] != 'Cc' else 1)
 		_gen: CodeGen = file.next('Control', 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)')
-		_gen.intFunction('TestControl', LookupType.boolType(), controlRanges)
+		_gen.intFunction('TestControl', LookupType.boolType(), controlRanges, CodeGenConfig(CodeGenDensityIfElse()))
+
+		# write the assigned-data to the file (default = False is required as default value of UnicodeData is Cn)
+		assignedRanges = unicodeData.filter(2, lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
+		_gen: CodeGen = file.next('Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
+		propertyOffset, propertyBits = 0, 1
+		_gen.addConstInt(_type, 'PropertyAssignedOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyAssignedBits', propertyBits)
+		propertyRanges = Ranges.translate(assignedRanges, lambda _, v: (v[0] << propertyOffset))
+		propertyDefValue = (False << propertyOffset)
 
 		# write the letter-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic)
-		letterRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
-		_gen: CodeGen = file.next('Letter', 'Automatically generated from: Unicode derived property Alphabetic')
-		_gen.intFunction('TestLetter', LookupType.boolType(), letterRanges)
+		alphabeticRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
+		_gen: CodeGen = file.next('Alphabetic', 'Automatically generated from: Unicode derived property Alphabetic')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 1
+		_gen.addConstInt(_type, 'PropertyAlphabeticOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyAlphabeticBits', propertyBits)
+		propertyRanges = Ranges.merge(Ranges.translate(alphabeticRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (False << propertyOffset) | propertyDefValue
 
-		# write the alpha-num-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic + https://www.unicode.org/reports/tr44/#Numeric_Type)
-		alnumRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
-		alnumRanges = Ranges.union(alnumRanges, unicodeData.filter(8, lambda fs: 1 if fs[7] != '' else None))
-		_gen: CodeGen = file.next('AlNum', 'Automatically generated from: Unicode derived property Alphabetic or Numeric_Type=Decimal,Digit,Numeric')
-		_gen.intFunction('TestAlNum', LookupType.boolType(), alnumRanges)
+		# write the numeric-test to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
+		numericRanges = unicodeData.filter(8, lambda fs: 1 if fs[7] != '' else None)
+		_gen: CodeGen = file.next('Numeric', 'Automatically generated from: Unicode Numeric_Type=Numeric, Numeric_Type=Decimal, Numeric_Type=Digit')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 1
+		_gen.addConstInt(_type, 'PropertyNumericOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyNumericBits', propertyBits)
+		propertyRanges = Ranges.merge(Ranges.translate(numericRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (False << propertyOffset) | propertyDefValue
+
+		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Value)
+		decimalRanges = unicodeData.filter(8, lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
+		decimalDefNone = 10
+		_gen: CodeGen = file.next('Decimal', 'Automatically generated from: Unicode Numeric_Type=Decimal: [0-9]')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 4
+		if decimalDefNone >= 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all values')
+		_gen.addConstInt(_type, 'PropertyDecimalOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyDecimalBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyDecimalNone', decimalDefNone)
+		propertyRanges = Ranges.merge(Ranges.translate(decimalRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (decimalDefNone << propertyOffset) | propertyDefValue
 
 		# write the printable-enum to the file (https://en.wikipedia.org/wiki/Graphic_character)
 		printableFilterMap = { 
@@ -1510,8 +1597,14 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 		printableRanges = unicodeData.filter(2, lambda fs: printableFilterMap[fs[1]] if fs[1] in printableFilterMap else None)
 		_enum: LookupType = LookupType.enumType('PrintableType', 'none', ['none', 'printable', 'printSpace'])
 		_gen: CodeGen = file.next('Printable', 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
+		if len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		_gen.addConstInt(_type, 'PropertyPrintableOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyPrintableBits', propertyBits)
 		_gen.addEnum(_enum)
-		_gen.intFunction('GetPrintable', _enum, printableRanges)
+		propertyRanges = Ranges.merge(Ranges.translate(printableRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
 		# write the cased-enum to the file (https://www.unicode.org/reports/tr44/#Cased)
 		caseFilterMap = { 'Lowercase': 1, 'Uppercase': 2 }
@@ -1519,8 +1612,14 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 		caseRanges = Ranges.union(caseRanges, unicodeData.filter(2, lambda fs: 3 if fs[1] == 'Lt' else None))
 		_enum: LookupType = LookupType.enumType('CaseType', 'none', ['none', 'lowerCase', 'upperCase', 'titleCase'])
 		_gen: CodeGen = file.next('Case', 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
+		if len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		_gen.addConstInt(_type, 'PropertyCaseOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyCaseBits', propertyBits)
 		_gen.addEnum(_enum)
-		_gen.intFunction('GetCase', _enum, caseRanges)
+		propertyRanges = Ranges.merge(Ranges.translate(caseRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
 		# write the category-enum to the file (default value of UnicodeData is Cn) (https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		categoryEnumMap = {
@@ -1531,10 +1630,20 @@ def MakeCodepointQuery(outPath: str, config: GenerateConfig):
 		categoryRanges = unicodeData.filter(2, lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
 		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn'])
 		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
+		if len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		_gen.addConstInt(_type, 'PropertyCategoryOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyCategoryBits', propertyBits)
 		_gen.addEnum(_enum)
-		_gen.intFunction('GetCategory', _enum, categoryRanges)
+		propertyRanges = Ranges.merge(Ranges.translate(categoryRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
-# MapCase (encodes lowercase/uppercase/titlecase mappings)
+		# add the final property-lookup function for all large-lookup values (requires less memory than separate lookups)
+		_gen: CodeGen = file.next('Property', 'Lookup properties (Category, Case, Printable, Decimal, Numeric, Alphabetic, Assigned)')
+		_gen.intFunction('GetProperty', LookupType.intType(propertyDefValue, _type.typeName()), propertyRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
+
+# MapCase (encodes: lowercase/uppercase/titlecase mappings)
 def _ExpandSpecialCaseMap(conditions: dict[str, int], lowerFlag: int, upperFlag: int, titleFlag: int, lower: str, title: str, upper: str, condition: str) -> tuple[int]:
 	# prepare the condition-string and ensure it is defined
 	if condition == '':
@@ -1643,7 +1752,7 @@ def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: i
 	if len(b) == 1:
 		b = (nullCondition | (b[0] & ~(bitsOfValue | negativeFlag)), 1, -(b[0] & bitsOfValue) if (b[0] & negativeFlag) else (b[0] & bitsOfValue))
 	return a + b
-def MakeCodepointMaps(outPath: str, config: GenerateConfig):
+def MakeMappingLookup(outPath: str, config: SystemConfig):
 	# parse the relevant files
 	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
 	specialCasing = ParsedFile(config.mapping['SpecialCasing.txt'], False)
@@ -1738,14 +1847,14 @@ def MakeCodepointMaps(outPath: str, config: GenerateConfig):
 		_gen.addConstInt(caseType, 'CaseIs0307', flagIs0307)
 		_gen.addConstInt(caseType, 'CaseBitsOfPayload', bitsOfValue)
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
-		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges)
+		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
 
-# LookupSegmentationType (encodes word/grapheme/sentence/line segmentation)
+# GetSegmentation (encodes: word/grapheme/sentence/line segmentation)
 def _CnPictographicMerge(a: tuple[int], idCnPictographic: int, id: int) -> tuple[int]:
 	if a[0] != id:
 		raise RuntimeError('Cn&Extended_Pictographic is expected to at most collide with [ID]')
 	return (idCnPictographic,)
-def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
+def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 	# parse the relevant files
 	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
 	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty.txt'], False)
@@ -1758,6 +1867,9 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 
 	# write all maps functions to the file
 	with GeneratedFile(outPath, config) as file:
+		segmentationRanges, segmentationDefValue, segmentationBits = [], 0, 8
+		_type8: LookupType = LookupType.intType(0, 'uint8_t')
+
 		# setup the word-break boundary ranges (https://unicode.org/reports/tr29/#Word_Boundaries)
 		wordIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
@@ -1770,6 +1882,16 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 			raise RuntimeError('Flags too small for word-break enum')
 		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
 
+		# write the word-ranges to the file
+		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
+		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty')
+		segmentationOffset = 0
+		_gen.addConstInt(_type8, 'WordIsPictographic', wordIsPictographic)
+		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
+		_gen.addEnum(_enum)
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+		segmentationDefValue = (wordRangesDef << segmentationOffset) | segmentationDefValue
+		
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		graphemeIsInCBExtend = 0x80
 		graphemeIsInCBConsonant = 0x40
@@ -1787,6 +1909,18 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 		InCBMap = { 'Extend': graphemeIsInCBExtend, 'Consonant': graphemeIsInCBConsonant, 'Linker': graphemeIsInCBLinker }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
 
+		# write the grapheme-ranges to the file
+		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
+		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
+		segmentationOffset += segmentationBits
+		_gen.addConstInt(_type8, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
+		_gen.addConstInt(_type8, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
+		_gen.addConstInt(_type8, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
+		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
+		_gen.addEnum(_enum)
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+		segmentationDefValue = (graphemeRangesDef << segmentationOffset) | segmentationDefValue
+		
 		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
 		sentenceEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Extend': 3, 'Sep': 4, 'Format': 5, 'Sp': 6, 'Lower': 7, 'Upper': 8,
@@ -1794,6 +1928,15 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 		sentenceRanges, sentenceRangesDef = sentenceBreak.extractAll(1, 0, sentenceEnumMap)
 		if sentenceRangesDef != sentenceEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
+
+		# write the sentence-ranges to the file
+		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
+		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
+		segmentationOffset += segmentationBits
+		_gen.addConstInt(_type8, 'SentenceSegmentationOff', segmentationOffset)
+		_gen.addEnum(_enum)
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+		segmentationDefValue = (sentenceRangesDef << segmentationOffset) | segmentationDefValue
 
 		# setup the line-break boundary ranges and list of the enum (https://www.unicode.org/reports/tr14/#Algorithm)
 		lineEnumMap = {
@@ -1847,34 +1990,20 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 		lineEnumList.append('idCnPict')
 		lineEnumList.append('_last')
 
+		# write the line-ranges to the file
+		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
+		_gen: CodeGen = file.next('Line', 'Automatically generated from: Unicode LineBreak, General_Category, East-Asian-Width, EmojiData')
+		segmentationOffset += segmentationBits
+		_gen.addConstInt(_type8, 'LineSegmentationOff', segmentationOffset)
+		_gen.addEnum(_enum)
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(lineRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+		segmentationDefValue = (lineRangesDef << segmentationOffset) | segmentationDefValue
+
 		# create the merged function to encode all four segmentation-lookups into a single buffer-function (requires less memory than four separate lookups)
-		segmentWordOff, segmentGraphemeOff, segmentSentenceOff, segmentLineOff, segmentationRanges = 24, 16, 8, 0, []
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentWordOff), lambda a, b: (a[0] | b[0],))
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentGraphemeOff), lambda a, b: (a[0] | b[0],))
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentSentenceOff), lambda a, b: (a[0] | b[0],))
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(lineRanges, lambda _, v: v[0] << segmentLineOff), lambda a, b: (a[0] | b[0],))
-		segmentationDefValue = (wordRangesDef << segmentWordOff) | (graphemeRangesDef << segmentGraphemeOff) | (sentenceRangesDef << segmentSentenceOff) | (lineRangesDef << segmentLineOff)
 		_type32: LookupType = LookupType.intType(segmentationDefValue, 'uint32_t')
-		_type8: LookupType = LookupType.intType(0, 'uint8_t')
-		_enumWord: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
-		_enumGrapheme: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
-		_enumSentence: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
-		_enumLine: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
-		_gen: CodeGen = file.next('Segmentation', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, DerivedProperties, WordBreakProperty, SentenceBreakProperty, LineBreak, UnicodeData, EastAsianWidth')
-		_gen.addConstInt(_type8, 'WordIsPictographic', wordIsPictographic)
-		_gen.addConstInt(_type8, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
-		_gen.addConstInt(_type8, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
-		_gen.addConstInt(_type8, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
-		_gen.addConstInt(_type8, 'SegmentWordType', segmentWordOff)
-		_gen.addConstInt(_type8, 'SegmentGraphemeType', segmentGraphemeOff)
-		_gen.addConstInt(_type8, 'SegmentSentenceType', segmentSentenceOff)
-		_gen.addConstInt(_type8, 'SegmentLineType', segmentLineOff)
-		_gen.addConstInt(_type8, 'SegmentTypeMask', 0xff)
-		_gen.addEnum(_enumWord)
-		_gen.addEnum(_enumGrapheme)
-		_gen.addEnum(_enumSentence)
-		_gen.addEnum(_enumLine)
-		_gen.intFunction('LookupSegmentationType', _type32, segmentationRanges)
+		_gen: CodeGen = file.next('Segmentation', 'Lookup segmentation types (Word, Grapheme, Sentence, Line)')
+		_gen.addConstInt(_type8, 'SegmentationMask', 0xff)
+		_gen.intFunction('GetSegmentation', _type32, segmentationRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
 
 
@@ -1883,7 +2012,7 @@ def MakeCodepointSegmentation(outPath: str, config: GenerateConfig):
 os.chdir(os.path.split(os.path.abspath(__file__))[0])
 doTests: bool = ('--tests' in sys.argv)
 doRefresh: bool = ('--refresh' in sys.argv)
-doQuery: bool = not ('--noquery' in sys.argv)
+doProperty: bool = not ('--noproperty' in sys.argv)
 doMap: bool = not ('--nomap' in sys.argv)
 doSegment: bool = not ('--nosegment' in sys.argv)
 if not doRefresh:
@@ -1893,24 +2022,24 @@ if not doRefresh:
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
 generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, doTests, generatedURLOrigin)
 generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
-generatedConfig = GenerateConfig(generatedURLOrigin, generatedVersion, generatedDateTime, generatedMapping, ['cinttypes', 'utility', 'algorithm'])
+systemConfig = SystemConfig(generatedURLOrigin, generatedVersion, generatedDateTime, generatedMapping, ['cinttypes', 'utility', 'algorithm'])
 
 # generate the test files
 if doTests:
-	CreateTestFile(testPath + 'test-words.h', generatedConfig.mapping['WordBreakTest.txt'], 'Word')
-	CreateTestFile(testPath + 'test-graphemes.h', generatedConfig.mapping['GraphemeBreakTest.txt'], 'Grapheme')
-	CreateTestFile(testPath + 'test-sentences.h', generatedConfig.mapping['SentenceBreakTest.txt'], 'Sentence')
-	CreateTestFile(testPath + 'test-lines.h', generatedConfig.mapping['LineBreakTest.txt'], 'Line')
+	CreateTestFile(testPath + 'test-words.h', systemConfig.mapping['WordBreakTest.txt'], 'Word')
+	CreateTestFile(testPath + 'test-graphemes.h', systemConfig.mapping['GraphemeBreakTest.txt'], 'Grapheme')
+	CreateTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest.txt'], 'Sentence')
+	CreateTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest.txt'], 'Line')
 else:
 	print('Hint: use --tests to generate test-source-code')
 
 # generate the actual files
-if doQuery:
-	print('Hint: use --noquery to prevent query-code from being generated again')
-	MakeCodepointQuery('unicode-query.h', generatedConfig)
+if doProperty:
+	print('Hint: use --noproperty to prevent property-code from being generated again')
+	MakePropertyLookup('unicode-property.h', systemConfig)
 if doMap:
 	print('Hint: use --nomap to prevent mapping-code from being generated again')
-	MakeCodepointMaps('unicode-mapping.h', generatedConfig)
+	MakeMappingLookup('unicode-mapping.h', systemConfig)
 if doSegment:
 	print('Hint: use --nosegment to prevent segmentation-code from being generated again')
-	MakeCodepointSegmentation('unicode-segmentation.h', generatedConfig)
+	MakeSegmentationLookup('unicode-segmentation.h', systemConfig)

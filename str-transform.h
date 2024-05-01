@@ -288,7 +288,7 @@ namespace cp {
 		public:
 			template <class PayloadType>
 			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				uint8_t rawRight = ((detail::gen::LookupSegmentationType(cp) >> detail::gen::SegmentWordType) & detail::gen::SegmentTypeMask);
+				uint8_t rawRight = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
 				Type right = static_cast<Type>(rawRight & ~detail::gen::WordIsPictographic);
 
 				/* update the regionalIndicator counter and update the last-state */
@@ -547,7 +547,7 @@ namespace cp {
 			template <class PayloadType>
 			constexpr void operator()(char32_t cp, const PayloadType& payload) {
 				uint8_t rawLeft = pLast;
-				uint8_t rawRight = ((detail::gen::LookupSegmentationType(cp) >> detail::gen::SegmentGraphemeType) & detail::gen::SegmentTypeMask);
+				uint8_t rawRight = ((detail::gen::GetSegmentation(cp) >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
 				Type left = static_cast<Type>(rawLeft & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
 				Type right = static_cast<Type>(rawRight & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
 				pLast = rawRight;
@@ -791,7 +791,7 @@ namespace cp {
 
 		public:
 			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				Type type = static_cast<Type>((detail::gen::LookupSegmentationType(cp) >> detail::gen::SegmentSentenceType) & detail::gen::SegmentTypeMask);
+				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
 				bool done = (cp == cp::EndOfTokens);
 
 				/* SB1: check if this is the initial character (only if its not an empty string) */
@@ -1361,7 +1361,7 @@ namespace cp {
 		public:
 			template <class PayloadType>
 			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				Type right = static_cast<Type>((detail::gen::LookupSegmentationType(cp) >> detail::gen::SegmentLineType) & detail::gen::SegmentTypeMask);
+				Type right = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
 
 				/* LB2: check if this is the initial character (only if its not an empty string) */
 				if (pState == State::uninit) {

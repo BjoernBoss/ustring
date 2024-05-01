@@ -2,7 +2,7 @@
 
 #include "str-common.h"
 
-#include "generated/unicode-query.h"
+#include "generated/unicode-property.h"
 
 #include <algorithm>
 #include <string>
@@ -10,6 +10,8 @@
 
 /*
 *	CodePoint is identical to char32_t and thereby utf-32
+* 
+*	All CodePoint functions can receive any value as codepoint, well or ill defined.
 */
 namespace cp {
 	/*
@@ -51,34 +53,46 @@ namespace cp {
 		return detail::gen::TestUnicode(cp);
 	}
 
-	/* check if the codepoint does not have the General_Category Cn, Cs, Co */
-	inline constexpr bool IsAssigned(char32_t cp) {
-		return detail::gen::TestAssigned(cp);
-	}
-
-	/* check if the codepoint is an ascii character [ <= 0x7f] */
+	/* check if the codepoint is an ascii character [\x00-\x7f] */
 	inline constexpr bool IsAscii(char32_t cp) {
 		return detail::gen::TestAscii(cp);
 	}
 
 	/* check if the codepoint is an ascii alpha character [a-zA-Z] */
-	inline constexpr bool IsAlpha(char32_t cp) {
-		return detail::gen::TestAlpha(cp);
+	inline constexpr bool IsAsciiAlpha(char32_t cp) {
+		return detail::gen::TestAsciiAlphabetic(cp);
 	}
 
-	/* check if the codepoint is a decimal character [value within 0-9; Unicode Numeric_Type::Decimal] */
-	inline constexpr bool IsDecimal(char32_t cp) {
-		return (detail::gen::GetDigit(cp) < 10);
+	/* check if the codepoint is an ascii numeric character [0-9] */
+	inline constexpr bool IsAsciiNum(char32_t cp) {
+		return detail::gen::TestAsciiNumeric(cp);
 	}
 
-	/* check if the codepoint is a digit character [Unicode Numeric_Type::Digit] */
-	inline constexpr bool IsDigit(char32_t cp) {
-		return (detail::gen::GetDigit(cp) < 0xf0);
+	/* check if the codepoint is an ascii alpha/numeric character [a-zA-Z0-9] */
+	inline constexpr bool IsAsciiAlNum(char32_t cp) {
+		return (detail::gen::TestAsciiAlphabetic(cp) || detail::gen::TestAsciiNumeric(cp));
 	}
 
-	/* check if the codepoint is a numerical character [Unicode Numeric_Type::Numeric] */
-	inline constexpr bool IsNumeric(char32_t cp) {
-		return (detail::gen::GetDigit(cp) < 0xf1);
+	/* check if the codepoint is an ascii alpha/numerical character [a-zA-Z0-9] and return it as a radix from [0 - 35]
+	*	 and returns 0xff (a value larger than any actual radix) on failure (i.e. to check if hexit: str::GetAsciiRadix < 16) */
+	static constexpr size_t ErrRadix = 0xff;
+	inline constexpr size_t GetRadix(char32_t cp) {
+		size_t val = detail::gen::GetAsciiRadix(cp);
+		return (val == detail::gen::AsciiRadixNone ? cp::ErrRadix : val);
+	}
+
+	/* map value [0-35] to [0-9a-z] or return cp::Invalid on bounds-issues */
+	inline constexpr char32_t GetRadixLower(size_t val) {
+		if (val > 35)
+			return cp::Invalid;
+		return U"0123456789abcdefghijklmnopqrstuvwxyz"[val];
+	}
+
+	/* map value [0-35] to [0-9A-Z] or return cp::Invalid on bounds-issues */
+	inline constexpr char32_t GetRadixUpper(size_t val) {
+		if (val > 35)
+			return cp::Invalid;
+		return U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[val];
 	}
 
 	/* check if the codepoint is a whitespace character [Unicode White_Space] */
@@ -91,19 +105,44 @@ namespace cp {
 		return detail::gen::TestControl(cp);
 	}
 
-	/* check if the codepoint is a letter [Unicode Alphabetic] */
-	inline constexpr bool IsLetter(char32_t cp) {
-		return detail::gen::TestLetter(cp);
+	/* check if the codepoint does not have the General_Category Cn, Cs, Co */
+	inline constexpr bool IsAssigned(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		return ((prop >> detail::gen::PropertyAssignedOff) & detail::gen::PropertyAssignedBits) != 0;
 	}
 
-	/* check if the codepoint is a letter or numerical [Unicode Alphabetic or Numeric_Type::Decimal or Numeric_Type::Digit or Numeric_Type::Numeric] */
+	/* check if the codepoint is a alpha character [Unicode Alphabetic] */
+	inline constexpr bool IsAlpha(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		return ((prop >> detail::gen::PropertyAlphabeticOff) & detail::gen::PropertyAlphabeticBits) != 0;
+	}
+
+	/* check if the codepoint is a numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit] */
+	inline constexpr bool IsNumeric(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		return ((prop >> detail::gen::PropertyNumericOff) & detail::gen::PropertyNumericBits) != 0;
+	}
+
+	/* check if the codepoint is a alpha/numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit or Unicode Alphabetic] */
 	inline constexpr bool IsAlNum(char32_t cp) {
-		return detail::gen::TestAlNum(cp);
+		auto prop = detail::gen::GetProperty(cp);
+		if (((prop >> detail::gen::PropertyAlphabeticOff) & detail::gen::PropertyAlphabeticBits) != 0)
+			return true;
+		return ((prop >> detail::gen::PropertyNumericOff) & detail::gen::PropertyNumericBits) != 0;
+	}
+
+	/* check if the codepoint is a decimal character and return its value [0-9] or 0xff if not a decimal codepoint [Unicode Numeric_Type::Decimal] */
+	static constexpr size_t ErrDecimal = 0xff;
+	inline constexpr size_t GetDecimal(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		size_t val = ((prop >> detail::gen::PropertyDecimalOff) & detail::gen::PropertyDecimalOff);
+		return (val == detail::gen::PropertyDecimalNone ? cp::ErrDecimal : val);
 	}
 
 	/* check if the codepoint is printable [Unicode General_Category L*,M*,N*,P*,S* and either any Zs or only U' '] */
 	inline constexpr bool IsPrint(char32_t cp, bool reducedSpace = false) {
-		detail::gen::PrintableType val = detail::gen::GetPrintable(cp);
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::PrintableType val = static_cast<detail::gen::PrintableType>((prop >> detail::gen::PropertyPrintableOff) & detail::gen::PropertyPrintableBits);
 		if (val == detail::gen::PrintableType::none)
 			return false;
 		if (val == detail::gen::PrintableType::printable)
@@ -113,92 +152,9 @@ namespace cp {
 
 	/* check if the codepoint is graphical [Unicode General_Category L*,M*,N*,P*,S* without Zs] */
 	inline constexpr bool IsGraphic(char32_t cp) {
-		return (detail::gen::GetPrintable(cp) == detail::gen::PrintableType::printable);
-	}
-
-	/* check if the codepoint is has different cases [Unicode property Lowercase,Uppercase or General_Category Lt] */
-	inline constexpr bool IsCased(char32_t cp) {
-		return (detail::gen::GetCase(cp) != detail::gen::CaseType::none);
-	}
-
-	/* check if the codepoint is uppercase [Unicode property Uppercase] */
-	inline constexpr bool IsUpper(char32_t cp) {
-		return (detail::gen::GetCase(cp) == detail::gen::CaseType::upperCase);
-	}
-
-	/* check if the codepoint is lowercase [Unicode property Lowercase] */
-	inline constexpr bool IsLower(char32_t cp) {
-		return (detail::gen::GetCase(cp) == detail::gen::CaseType::lowerCase);
-	}
-
-	/* check if the codepoint is titlecase [Unicode General_Category Lt] */
-	inline constexpr bool IsTitle(char32_t cp) {
-		return (detail::gen::GetCase(cp) == detail::gen::CaseType::titleCase);
-	}
-
-	/* check if the codepoint belongs to the letter category [Unicode General_Category L*] */
-	inline constexpr bool IsGCLetter(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::lu
-			|| val == detail::gen::CategoryType::ll
-			|| val == detail::gen::CategoryType::lt
-			|| val == detail::gen::CategoryType::lm
-			|| val == detail::gen::CategoryType::lo);
-	}
-
-	/* check if the codepoint belongs to the mark category [Unicode General_Category M*] */
-	inline constexpr bool IsGCMark(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::mn
-			|| val == detail::gen::CategoryType::mc
-			|| val == detail::gen::CategoryType::me);
-	}
-
-	/* check if the codepoint belongs to the number category [Unicode General_Category N*] */
-	inline constexpr bool IsGCNumber(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::nd
-			|| val == detail::gen::CategoryType::nl
-			|| val == detail::gen::CategoryType::no);
-	}
-
-	/* check if the codepoint belongs to the punctuation category [Unicode General_Category P*] */
-	inline constexpr bool IsGCPunctuation(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::pc
-			|| val == detail::gen::CategoryType::pd
-			|| val == detail::gen::CategoryType::ps
-			|| val == detail::gen::CategoryType::pe
-			|| val == detail::gen::CategoryType::pi
-			|| val == detail::gen::CategoryType::pf
-			|| val == detail::gen::CategoryType::po);
-	}
-
-	/* check if the codepoint belongs to the symbol category [Unicode General_Category S*] */
-	inline constexpr bool IsGCSymbol(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::sm
-			|| val == detail::gen::CategoryType::sc
-			|| val == detail::gen::CategoryType::sk
-			|| val == detail::gen::CategoryType::so);
-	}
-
-	/* check if the codepoint belongs to the separator category [Unicode General_Category Z*] */
-	inline constexpr bool IsGCSeparator(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::zs
-			|| val == detail::gen::CategoryType::zl
-			|| val == detail::gen::CategoryType::zp);
-	}
-
-	/* check if the codepoint belongs to the other category [Unicode General_Category C*] */
-	inline constexpr bool IsGCOther(char32_t cp) {
-		detail::gen::CategoryType val = detail::gen::GetCategory(cp);
-		return (val == detail::gen::CategoryType::cc
-			|| val == detail::gen::CategoryType::cf
-			|| val == detail::gen::CategoryType::cs
-			|| val == detail::gen::CategoryType::co
-			|| val == detail::gen::CategoryType::cn);
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::PrintableType val = static_cast<detail::gen::PrintableType>((prop >> detail::gen::PropertyPrintableOff) & detail::gen::PropertyPrintableBits);
+		return (val == detail::gen::PrintableType::printable);
 	}
 
 	/* analzye the casing of the codepoint [Unicode property Lowercase,Uppercase or General_Category Lt] */
@@ -209,10 +165,40 @@ namespace cp {
 		titleCase = detail::gen::CaseType::titleCase
 	};
 	inline constexpr cp::CaseType GetCase(char32_t cp) {
-		return static_cast<cp::CaseType>(detail::gen::GetCase(cp));
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseBits);
+		return static_cast<cp::CaseType>(val);
 	}
 
-	/* analzye the general category of the codepoint [Unicode General_Category] */
+	/* check if the codepoint has different cases [Unicode property Lowercase, Uppercase or General_Category Lt] */
+	inline constexpr bool IsCased(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseBits);
+		return (val != detail::gen::CaseType::none);
+	}
+
+	/* check if the codepoint is uppercase [Unicode property Uppercase] */
+	inline constexpr bool IsUpper(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseBits);
+		return (val == detail::gen::CaseType::upperCase);
+	}
+
+	/* check if the codepoint is lowercase [Unicode property Lowercase] */
+	inline constexpr bool IsLower(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseBits);
+		return (val == detail::gen::CaseType::lowerCase);
+	}
+
+	/* check if the codepoint is titlecase [Unicode General_Category Lt] */
+	inline constexpr bool IsTitle(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseBits);
+		return (val == detail::gen::CaseType::titleCase);
+	}
+
+	/* analyze the general category of the codepoint [Unicode General_Category] */
 	enum class GCType : uint8_t {
 		uppercaseLetter = detail::gen::CategoryType::lu,
 		lowercaseLetter = detail::gen::CategoryType::ll,
@@ -276,36 +262,80 @@ namespace cp {
 		Cn = unassigned
 	};
 	inline constexpr cp::GCType GetCategory(char32_t cp) {
-		return static_cast<cp::GCType>(detail::gen::GetCategory(cp));
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return static_cast<cp::GCType>(val);
 	}
 
-	/* check if the codepoint is an ascii alpha/numerical character [a-zA-Z0-9] and return it as a radix from [0 - 35]
-	*	 and returns 0xff (a value larger than any actual radix) on failure (i.e. to check if hexit: str::GetRadix < 16) */
-	static constexpr size_t ErrRadix = 0xff;
-	inline constexpr size_t GetRadix(char32_t cp) {
-		return detail::gen::GetRadix(cp);
+	/* check if the codepoint belongs to the letter category [Unicode General_Category L*] */
+	inline constexpr bool IsGCLetter(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::lu
+			|| val == detail::gen::CategoryType::ll
+			|| val == detail::gen::CategoryType::lt
+			|| val == detail::gen::CategoryType::lm
+			|| val == detail::gen::CategoryType::lo);
 	}
 
-	/* map value [0-35] to [0-9a-z] or return cp::Invalid on bounds-issues */
-	inline constexpr char32_t GetRadixLower(size_t val) {
-		if (val > 35)
-			return cp::Invalid;
-		return U"0123456789abcdefghijklmnopqrstuvwxyz"[val];
+	/* check if the codepoint belongs to the mark category [Unicode General_Category M*] */
+	inline constexpr bool IsGCMark(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::mn
+			|| val == detail::gen::CategoryType::mc
+			|| val == detail::gen::CategoryType::me);
 	}
 
-	/* map value [0-35] to [0-9A-Z] or return cp::Invalid on bounds-issues */
-	inline constexpr char32_t GetRadixUpper(size_t val) {
-		if (val > 35)
-			return cp::Invalid;
-		return U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[val];
+	/* check if the codepoint belongs to the number category [Unicode General_Category N*] */
+	inline constexpr bool IsGCNumber(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::nd
+			|| val == detail::gen::CategoryType::nl
+			|| val == detail::gen::CategoryType::no);
 	}
 
-	/* check if the character is a decimal value and either return its value (0-9) or 0xff on failure */
-	static constexpr size_t ErrDecimal = 0xff;
-	inline constexpr size_t GetDecimal(char32_t cp) {
-		size_t val = detail::gen::GetDigit(cp);
-		if (val >= 10)
-			return cp::ErrDecimal;
-		return val;
+	/* check if the codepoint belongs to the punctuation category [Unicode General_Category P*] */
+	inline constexpr bool IsGCPunctuation(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::pc
+			|| val == detail::gen::CategoryType::pd
+			|| val == detail::gen::CategoryType::ps
+			|| val == detail::gen::CategoryType::pe
+			|| val == detail::gen::CategoryType::pi
+			|| val == detail::gen::CategoryType::pf
+			|| val == detail::gen::CategoryType::po);
+	}
+
+	/* check if the codepoint belongs to the symbol category [Unicode General_Category S*] */
+	inline constexpr bool IsGCSymbol(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::sm
+			|| val == detail::gen::CategoryType::sc
+			|| val == detail::gen::CategoryType::sk
+			|| val == detail::gen::CategoryType::so);
+	}
+
+	/* check if the codepoint belongs to the separator category [Unicode General_Category Z*] */
+	inline constexpr bool IsGCSeparator(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::zs
+			|| val == detail::gen::CategoryType::zl
+			|| val == detail::gen::CategoryType::zp);
+	}
+
+	/* check if the codepoint belongs to the other category [Unicode General_Category C*] */
+	inline constexpr bool IsGCOther(char32_t cp) {
+		auto prop = detail::gen::GetProperty(cp);
+		detail::gen::CategoryType val = static_cast<detail::gen::CategoryType>((prop >> detail::gen::PropertyCategoryOff) & detail::gen::PropertyCategoryBits);
+		return (val == detail::gen::CategoryType::cc
+			|| val == detail::gen::CategoryType::cf
+			|| val == detail::gen::CategoryType::cs
+			|| val == detail::gen::CategoryType::co
+			|| val == detail::gen::CategoryType::cn);
 	}
 }
