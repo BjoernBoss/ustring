@@ -49,7 +49,7 @@ namespace cp {
 		constexpr LRange(size_t f, size_t l, cp::BreakMode brkBefore) : cp::Range(f, l), breakBefore(brkBefore) {}
 	};
 
-	/* valid sinks for char32_t must receive zero or more valid codepoints and a final cp::EndOfTokens, after which
+	/* valid sinks for char32_t must receive zero or more valid codepoints and a final call to done(), after which
 	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
 	template <class Type, class... ValType>
 	concept IsSink = requires(Type t, ValType... v) {
@@ -92,7 +92,7 @@ namespace cp {
 					v.push_back(t);
 					pBuffer = std::move(v);
 					pBegin = std::get<Dynamic>(pBuffer).data();
-					pEnd = pBegin + Buffer + 1;
+					pEnd = pBegin + std::get<Dynamic>(pBuffer).size();
 					return;
 				}
 				*pEnd = t;
@@ -283,6 +283,7 @@ namespace cp {
 		private:
 			detail::LocalBuffer<PayloadType, 2> pCache;
 			SinkType pSink;
+			PayloadType pUncertainPayload{};
 			Type pLast = Type::other;
 			Type pLastActual = Type::other;
 			State pState = State::none;
@@ -435,17 +436,6 @@ namespace cp {
 				pLast = right;
 				pLastActual = right;
 			}
-			constexpr void done() {
-				/* WB2: check if a cached state needs to be ended */
-				if (pState == State::none)
-					return;
-
-				/* flush the cached characters */
-				if (fCheckState(Type::other) == Continue::breakBeforeCached)
-					pSink(pCache.pop(), true);
-				while (pCache.size() > 0)
-					pSink(pCache.pop(), false);
-			}
 			constexpr void next(char32_t cp, const PayloadType& payload) {
 				uint8_t raw = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
 				Type right = static_cast<Type>(raw & ~detail::gen::WordIsPictographic);
@@ -472,8 +462,7 @@ namespace cp {
 					pState = State::none;
 
 					/* flush the cached characters */
-					if (cont == Continue::breakBeforeCached)
-						pSink(pCache.pop(), true);
+					pSink(pUncertainPayload, cont == Continue::breakBeforeCached);
 					while (pCache.size() > 0)
 						pSink(pCache.pop(), false);
 
@@ -493,9 +482,19 @@ namespace cp {
 					pSink(payload, true);
 					break;
 				case Break::uncertain:
-					pCache.push(payload);
+					pUncertainPayload = payload;
 					break;
 				}
+			}
+			constexpr void done() {
+				/* WB2: check if a cached state needs to be ended */
+				if (pState == State::none)
+					return;
+
+				/* flush the cached characters */
+				pSink(pUncertainPayload, fCheckState(Type::other) == Continue::breakBeforeCached);
+				while (pCache.size() > 0)
+					pSink(pCache.pop(), false);
 			}
 		};
 
@@ -531,11 +530,13 @@ namespace cp {
 
 		private:
 			detail::LocalBuffer<Cache, 2> pCache;
+			PayloadType pUncertainPayload{};
 			SinkType pSink;
 			Type pLast = Type::other;
 			Type pActual = Type::other;
 			Chain pChain = Chain::none;
 			SB7State pSB7State = SB7State::none;
+			bool pUncertain = false;
 
 		public:
 			constexpr SentenceBreak(SinkType&& sink) : pSink{ sink } {}
@@ -661,37 +662,28 @@ namespace cp {
 				return Break::separate;
 			}
 			template <bool IsCleanup>
-			constexpr void fProcessQueue() {
-				/* default the value to uncertain on cleanup to ensure the first iteration is aborted */
-				Break brk = (IsCleanup ? Break::uncertain : Break::separate);
-
+			constexpr void fProcessQueue(Break brk) {
 				/* process the cached characters */
 				while (true) {
 					/* check if the last state needs to be forcefully aborted or if the result is incomplete */
 					if (brk == Break::uncertain) {
 						if constexpr (!IsCleanup)
 							return;
-						pSink(pCache.pop().payload, true);
+						brk = Break::separate;
 					}
+					pSink(pUncertainPayload, brk == Break::separate);
 
 					/* process the next character */
-					if (pCache.size() == 0)
+					if (pCache.size() == 0) {
+						pUncertain = false;
 						return;
-					brk = fNext(pCache.front().type);
-
-					/* check if this is a state-less immediate result */
-					if (brk != Break::uncertain) {
-						pSink(pCache.pop().payload, brk == Break::separate);
-						continue;
 					}
+					brk = fNext(pCache.front().type);
+					pUncertainPayload = pCache.pop().payload;
 
 					/* feed the cached characters to it to try to complete the state */
-					for (size_t i = 1; i < pCache.size(); ++i) {
-						if ((brk = fCloseState(pCache.get(i).type)) == Break::uncertain)
-							continue;
-						pSink(pCache.pop().payload, brk == Break::separate);
-						break;
-					}
+					for (size_t i = 0; brk == Break::uncertain && i < pCache.size(); ++i)
+						brk = fCloseState(pCache.get(i).type);
 				}
 			}
 
@@ -702,32 +694,28 @@ namespace cp {
 				pLast = type;
 				pActual = type;
 			}
-			constexpr void done() {
-				/* SB2: clear the cache and abort the current cached state */
-				if (pCache.size() != 0)
-					fProcessQueue<true>();
-			}
 			constexpr void next(char32_t cp, const PayloadType& payload) {
 				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
 
 				/* fast-path of not being in a look-ahead state */
-				if (pCache.size() == 0) {
+				if (!pUncertain) {
 					if (Break brk = fNext(type); brk != Break::uncertain)
 						pSink(payload, brk == Break::separate);
-					else
-						pCache.push({ payload, type });
+					else {
+						pUncertainPayload = payload;
+						pUncertain = true;
+					}
 					return;
 				}
 
-				/* add the character to the cache and feed it to update the current state */
+				/* add the character to the cache and update the current state */
 				pCache.push({ payload, type });
-				Break brk = fCloseState(type);
-				if (brk == Break::uncertain)
-					return;
-				pSink(pCache.pop().payload, brk == Break::separate);
-
-				/* process the cached characters */
-				fProcessQueue<false>();
+				fProcessQueue<false>(fCloseState(type));
+			}
+			constexpr void done() {
+				/* SB2: clear the cache and abort the current cached state */
+				if (pUncertain)
+					fProcessQueue<true>(Break::separate);
 			}
 		};
 
@@ -766,12 +754,13 @@ namespace cp {
 			};
 			struct Cache {
 				PayloadType payload{};
-				bool grapheme = false;
+				bool combine = false;
 			};
 
 		private:
 			detail::GraphemeBreak pGrapheme;
 			detail::LocalBuffer<Cache, 2> pCache;
+			PayloadType pUncertainPayload{};
 			SinkType pSink;
 			Type pLast = Type::_last;
 			Type pActual = Type::_last;
@@ -1227,10 +1216,10 @@ namespace cp {
 			}
 			constexpr void fPopQueue(bool combine) {
 				/* post all cached characters (first cannot be a grapheme-internal) */
-				pSink(pCache.pop().payload, (combine ? cp::LineMode::combine : cp::LineMode::optional));
+				pSink(pUncertainPayload, (combine ? cp::LineMode::combine : cp::LineMode::optional));
 				while (pCache.size() > 0) {
-					auto [_payload, _grapheme] = pCache.pop();
-					pSink(_payload, _grapheme ? cp::LineMode::combine : cp::LineMode::emergency);
+					auto [_payload, _combine] = pCache.pop();
+					pSink(_payload, _combine ? cp::LineMode::combine : cp::LineMode::emergency);
 				}
 			}
 
@@ -1250,17 +1239,12 @@ namespace cp {
 				else if (right == Type::quPi)
 					pChain = Chain::lb15a;
 			}
-			constexpr void done() {
-				/* LB3: cleanup the final cached state */
-				if (pState != State::none)
-					fPopQueue(pState == State::lb15b);
-			}
 			constexpr void next(char32_t cp, const PayloadType& payload) {
 				uint32_t raw = detail::gen::GetSegmentation(cp);
 				Type right = static_cast<Type>((raw >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
 
-				/* check if this is part of a single grapheme (No need to check for mandatory breaks separately,
-				*	as they are all considered 'control' by grapheme-clusters, which are broken on either side anyways) */
+				/* check if this is part of a single grapheme (No need to check for mandatory breaks separately, as
+				*	they are all considered 'control' by grapheme-clusters, which are broken on either side anyways) */
 				if (pCheckEmergency != Emergency::none && !pGrapheme.next(raw)) {
 					if (pState == State::none)
 						pSink(payload, cp::LineMode::combine);
@@ -1294,9 +1278,14 @@ namespace cp {
 					pSink(payload, cp::LineMode::mandatory);
 					break;
 				case Break::uncertain:
-					pCache.push({ payload, (pCheckEmergency != Emergency::emergency) });
+					pUncertainPayload = payload;
 					break;
 				}
+			}
+			constexpr void done() {
+				/* LB3: cleanup the final cached state */
+				if (pState != State::none)
+					fPopQueue(pState == State::lb15b);
 			}
 		};
 
@@ -1397,27 +1386,32 @@ namespace cp {
 			return detail::CaseLocale::none;
 		}
 
-		template <class SelfType, class SnkType>
+		template <class SinkType, class SelfType>
 		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
 			static_assert(size_t(Cond::_last) == 11, "Only conditions 0-10 are known by the state-machine");
 
 		private:
+			enum class Condition : uint8_t {
+				incomplete,
+				match,
+				failed
+			};
 			struct Cache {
-				char32_t cp = 0;
 				const int32_t* data = 0;
 				size_t size = 0;
+				char32_t cp = 0;
 			};
 
 		private:
 			detail::LocalBuffer<Cache, 2> pCached;
-			SnkType pSink;
+			SinkType pSink;
 			struct {
 				const int32_t* begin = 0;
 				const int32_t* end = 0;
-				int32_t flags = 0;
 				char32_t cp = 0;
+				int32_t first = 0;
 			} pActive;
 			struct {
 				bool cased = false;
@@ -1431,10 +1425,92 @@ namespace cp {
 			detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 		public:
-			constexpr CaseMapper(SnkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
+			constexpr CaseMapper(SinkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
 
 		private:
-			constexpr void fBeforeState(int32_t val) {
+			constexpr Condition fAfterState(int32_t val) const {
+				/* check the 'finalSigma: After C' condition (is inverted) */
+				if (pAfter.testNotCased) {
+					if ((val & detail::gen::CaseIsIgnorable) != 0)
+						return Condition::incomplete;
+					return ((val & detail::gen::CaseIsCased) != 0 ? Condition::failed : Condition::match);
+				}
+
+				/* check the 'moreAbove: After C' condition */
+				else if (pAfter.testCombClass) {
+					if ((val & (detail::gen::CaseIsCombClass0or230)) == 0)
+						return Condition::incomplete;
+					return ((val & detail::gen::CaseIsCombClass230) != 0 ? Condition::match : Condition::failed);
+				}
+
+				/* check the 'beforeDot: After C' condition (inverted as it is only used as 'not_...') */
+				else {
+					if ((val & (detail::gen::CaseIsCombClass0or230)) == 0)
+						return Condition::incomplete;
+					return ((val & detail::gen::CaseIs0307) != 0 ? Condition::failed : Condition::match);
+				}
+			}
+			constexpr Condition fSetupCondition() {
+				pAfter = { false, false };
+
+				/* check if the casing matches */
+				if ((*pActive.begin & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
+					return Condition::failed;
+
+				/* setup the state for the corresponding condition */
+				switch (static_cast<Cond>(*pActive.begin & detail::gen::CaseBitsOfPayload)) {
+				case Cond::none:
+					return Condition::match;
+				case Cond::finalSigma:
+					if (pBefore.cased) {
+						pAfter.testNotCased = true;
+						return Condition::incomplete;
+					}
+					break;
+				case Cond::ltAfterSoftDotted:
+					if (pBefore.softDotted && pLocale == detail::CaseLocale::lt)
+						return Condition::match;
+					break;
+				case Cond::ltMoreAbove:
+					if (pLocale == detail::CaseLocale::lt) {
+						pAfter.testCombClass = true;
+						return Condition::incomplete;
+					}
+					break;
+				case Cond::lt:
+					if (pLocale == detail::CaseLocale::lt)
+						return Condition::match;
+					break;
+				case Cond::tr:
+					if (pLocale == detail::CaseLocale::tr)
+						return Condition::match;
+					break;
+				case Cond::az:
+					if (pLocale == detail::CaseLocale::az)
+						return Condition::match;
+					break;
+				case Cond::trAfterI:
+					if (pBefore.charI && pLocale == detail::CaseLocale::tr)
+						return Condition::match;
+					break;
+				case Cond::azAfterI:
+					if (pBefore.charI && pLocale == detail::CaseLocale::az)
+						return Condition::match;
+					break;
+				case Cond::trNotBeforeDot:
+					/* default this->pAfter is notBeforeDot */
+					if (pLocale == detail::CaseLocale::tr)
+						return Condition::incomplete;
+					break;
+				case Cond::azNotBeforeDot:
+					/* default this->pAfter is notBeforeDot */
+					if (pLocale == detail::CaseLocale::az)
+						return Condition::incomplete;
+					break;
+				}
+				return Condition::failed;
+			}
+			constexpr void fCompleteChar(int32_t val) {
 				/* update the state-machine for 'finalSigma: Before C' */
 				if ((val & detail::gen::CaseIsIgnorable) == 0)
 					pBefore.cased = ((val & detail::gen::CaseIsCased) != 0);
@@ -1444,179 +1520,106 @@ namespace cp {
 					pBefore.softDotted = ((val & detail::gen::CaseIsSoftDotted) != 0);
 					pBefore.charI = ((val & detail::gen::CaseIs0049) != 0);
 				}
+
+				/* notify the self-type of the completed character */
+				static_cast<SelfType*>(this)->fDone();
 			}
-			constexpr int8_t fAfterState(int32_t val) const {
-				/* check the 'finalSigma: After C' condition (is inverted) */
-				if (pAfter.testNotCased) {
-					if ((val & detail::gen::CaseIsIgnorable) != 0)
-						return 0;
-					return ((val & detail::gen::CaseIsCased) != 0 ? -1 : 1);
+			constexpr void fProcessSingle(char32_t cp, int32_t data) {
+				/* extract the proper codepoint to be used */
+				if ((data & static_cast<SelfType*>(this)->fTypeFlag()) != 0) {
+					int32_t value = (data & detail::gen::CaseBitsOfPayload);
+					if (data & detail::gen::CaseIsNegative)
+						value = -value;
+					cp = char32_t(int32_t(cp) + value);
 				}
 
-				/* check the 'moreAbove: After C' condition */
-				else if (pAfter.testCombClass) {
-					if ((val & (detail::gen::CaseIsCombClass0or230)) == 0)
-						return 0;
-					return ((val & detail::gen::CaseIsCombClass230) != 0 ? 1 : -1);
-				}
-
-				/* check the 'beforeDot: After C' condition (inverted as it is only used as 'not_...') */
-				else {
-					if ((val & (detail::gen::CaseIsCombClass0or230)) == 0)
-						return 0;
-					return ((val & detail::gen::CaseIs0307) != 0 ? -1 : 1);
-				}
+				/* write the codepoint to the sink and update the before state */
+				pSink(cp);
+				fCompleteChar(data);
 			}
-			constexpr char32_t fUnpackSingle(char32_t cp, int32_t data) {
-				if ((data & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
-					return cp;
-
-				int32_t value = (data & detail::gen::CaseBitsOfPayload);
-				if (data & detail::gen::CaseIsNegative)
-					value = -value;
-
-				return char32_t(int32_t(cp) + value);
-			}
-			constexpr int8_t fSetupCondition() {
-				pAfter = { false, false };
-
-				/* check if the casing matches */
-				if ((*pActive.begin & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
-					return -1;
-
-				/* setup the state for the corresponding condition */
-				switch (static_cast<Cond>(*pActive.begin & detail::gen::CaseBitsOfPayload)) {
-				case Cond::none:
-					return 1;
-				case Cond::finalSigma:
-					if (pBefore.cased) {
-						pAfter.testNotCased = true;
-						return 0;
-					}
-					break;
-				case Cond::ltAfterSoftDotted:
-					if (pBefore.softDotted && pLocale == detail::CaseLocale::lt)
-						return 1;
-					break;
-				case Cond::ltMoreAbove:
-					if (pLocale == detail::CaseLocale::lt) {
-						pAfter.testCombClass = true;
-						return 0;
-					}
-					break;
-				case Cond::lt:
-					if (pLocale == detail::CaseLocale::lt)
-						return 1;
-					break;
-				case Cond::tr:
-					if (pLocale == detail::CaseLocale::tr)
-						return 1;
-					break;
-				case Cond::az:
-					if (pLocale == detail::CaseLocale::az)
-						return 1;
-					break;
-				case Cond::trAfterI:
-					if (pBefore.charI && pLocale == detail::CaseLocale::tr)
-						return 1;
-					break;
-				case Cond::azAfterI:
-					if (pBefore.charI && pLocale == detail::CaseLocale::az)
-						return 1;
-					break;
-				case Cond::trNotBeforeDot:
-					/* default pAfter is not_beforeDot */
-					if (pLocale == detail::CaseLocale::tr)
-						return 0;
-					break;
-				case Cond::azNotBeforeDot:
-					/* default pAfter is not_beforeDot */
-					if (pLocale == detail::CaseLocale::az)
-						return 0;
-					break;
-				}
-				return -1;
-			}
-
-		public:
-			constexpr void operator()(char32_t cp) {
-				auto [size, data] = detail::gen::MapCase(cp);
-
-				/* check for the fast-way out of no active condition and a single diff-value (will be entered for cp::EndOfTokens and result in a diff of zero) */
-				if (pActive.begin == pActive.end && size == 1 && !static_cast<SelfType*>(this)->fIncomplete()) {
-					fBeforeState(data[0]);
-					pSink(fUnpackSingle(cp, data[0]));
-					static_cast<SelfType*>(this)->fDone();
-					return;
-				}
-				pCached.push({ cp, data, size });
-
-				/* iterate until an incomplete character has been encountered or the cached entries have been processed */
-				size_t index = pCached.size() - 1;
+			template <bool IsCleanup>
+			constexpr void fProcessQueue(Condition cond) {
 				while (true) {
-					int8_t cond = 0;
-
-					/* check if a new block needs to be opened */
-					if (pActive.begin == pActive.end) {
-						if (pCached.size() == 0 || static_cast<SelfType*>(this)->fIncomplete())
+					/* check if the condition is incomplete and either return, as nothing can be done
+					*	anymore, or mark it as failed, as no more characters will be encountered */
+					if (cond == Condition::incomplete) {
+						if constexpr (!IsCleanup)
 							return;
-						Cache _c = pCached.pop();
-						cp = _c.cp;
-						data = _c.data;
-						size = _c.size;
-
-						/* check if this is a single block (will also catch cp::EndOfTokens) */
-						if (size == 1) {
-							fBeforeState(data[0]);
-							pSink(fUnpackSingle(cp, data[0]));
-							static_cast<SelfType*>(this)->fDone();
-							continue;
-						}
-						pActive = { data, data + size, data[0], cp };
-						cond = fSetupCondition();
-						index = 0;
+						cond = Condition::failed;
 					}
 
-					while (true) {
-						/* feed the cached entries into the condition and check if its still incomplete or failed */
-						for (; cond == 0 && index < pCached.size(); ++index) {
-							cond = fAfterState(pCached.get(index).data[0]);
-							if (cond == 0 && pCached.get(index).cp == cp::EndOfTokens)
-								cond = -1;
-						}
-						if (cond == 0)
-							return;
-
-						/* in case of the condition */
-						if (cond > 0)
-							break;
-						pActive.begin += 2 + pActive.begin[1];
-						if (pActive.begin == pActive.end)
-							break;
-						cond = fSetupCondition();
-						index = 0;
-					}
-
-					/* write the characters to the output and update the before-state */
-					if (pActive.begin != pActive.end) {
+					/* check if the condition has not been satisfied and advance the current state
+					*	and write the result out on success or if the last condition has failed */
+					if (cond == Condition::match) {
 						pActive.begin += 2;
 						pActive.end = pActive.begin + pActive.begin[-1];
 						while (pActive.begin != pActive.end)
 							pSink(pActive.cp + *(pActive.begin++));
+						fCompleteChar(pActive.first);
 					}
-					else
+					else if ((pActive.begin += 2 + pActive.begin[1]) == pActive.end) {
 						pSink(pActive.cp);
-					static_cast<SelfType*>(this)->fDone();
-					fBeforeState(pActive.flags);
+						fCompleteChar(pActive.first);
+					}
+
+					/* check if another condition exists and set it up and otherwise process the next characters in the cache */
+					if (pActive.begin < pActive.end)
+						cond = fSetupCondition();
+					else while (true) {
+						if (pCached.size() == 0)
+							return;
+						Cache _c = pCached.pop();
+
+						/* check if the next value is a single value and process it and otherwise setup the next condition */
+						if (_c.size == 1) {
+							fProcessSingle(_c.cp, _c.data[0]);
+							continue;
+						}
+						pActive = { _c.data, _c.data + _c.size, _c.cp, _c.data[0] };
+						cond = fSetupCondition();
+						break;
+					}
+
+					/* feed all remaining cached entries into the condition and check if it can be satisfied */
+					for (size_t i = 1; cond == Condition::incomplete && i < pCached.size(); ++i)
+						cond = fAfterState(pCached.get(i).data[0]);
 				}
+			}
+
+		public:
+			constexpr void next(char32_t cp) {
+				auto [size, data] = detail::gen::MapCase(cp);
+
+				/* check for the fast-way out of no active condition and a single diff-value */
+				if (pActive.begin == pActive.end && size == 1) {
+					fProcessSingle(cp, data[0]);
+					return;
+				}
+				Condition cond = Condition::incomplete;
+
+				/* write the value to the cache and process the remaining queue */
+				if (pActive.begin == pActive.end) {
+					pActive = { data, data + size, cp, data[0] };
+					cond = fSetupCondition();
+				}
+				else {
+					pCached.push({ data, size, cp });
+					cond = fAfterState(data[0]);
+				}
+				fProcessQueue<false>(cond);
+			}
+			constexpr void done() {
+				/* process the remaining queue and fail any incomplete conditions */
+				if (pActive.begin != pActive.end)
+					fProcessQueue<true>(Condition::failed);
 			}
 		};
 
-		template <class SnkType>
-		class UpperMapper final : private detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType> {
-			friend class detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType>;
+		template <class SinkType>
+		class UpperMapper final : private detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>> {
+			friend class detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
 		private:
-			using Super = detail::CaseMapper<detail::UpperMapper<SnkType>, SnkType>;
+			using Super = detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
 
 		public:
 			using Super::Super;
@@ -1625,22 +1628,22 @@ namespace cp {
 			constexpr int32_t fTypeFlag() {
 				return detail::gen::CaseIsUpper;
 			}
-			constexpr bool fIncomplete() {
-				return false;
-			}
 			constexpr void fDone() {}
 
 		public:
-			constexpr void operator()(char32_t cp) {
-				Super::operator()(cp);
+			constexpr void next(char32_t cp) {
+				Super::next(cp);
+			}
+			constexpr void done() {
+				Super::done();
 			}
 		};
 
-		template <class SnkType>
-		class LowerMapper final : private detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType> {
-			friend class detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType>;
+		template <class SinkType>
+		class LowerMapper final : private detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>> {
+			friend class detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
 		private:
-			using Super = detail::CaseMapper<detail::LowerMapper<SnkType>, SnkType>;
+			using Super = detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
 
 		public:
 			using Super::Super;
@@ -1649,25 +1652,25 @@ namespace cp {
 			constexpr int32_t fTypeFlag() {
 				return detail::gen::CaseIsLower;
 			}
-			constexpr bool fIncomplete() {
-				return false;
-			}
 			constexpr void fDone() {}
 
 		public:
-			constexpr void operator()(char32_t cp) {
-				Super::operator()(cp);
+			constexpr void next(char32_t cp) {
+				Super::next(cp);
+			}
+			constexpr void done() {
+				Super::done();
 			}
 		};
 
-		template <class SnkType>
-		class TitleMapper final : private detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType> {
-			friend class detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType>;
+		template <class SinkType>
+		class TitleMapper final : private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
+			friend class detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
 		private:
-			using Super = detail::CaseMapper<detail::TitleMapper<SnkType>, SnkType>;
+			using Super = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
 			struct Lambda {
-				TitleMapper<SnkType>& self;
-				constexpr Lambda(TitleMapper<SnkType>& s) : self{ s } {}
+				TitleMapper<SinkType>& self;
+				constexpr Lambda(TitleMapper<SinkType>& s) : self{ s } {}
 				constexpr void operator()(bool separate) {
 					self.fSeparate(separate);
 				}
@@ -1675,28 +1678,16 @@ namespace cp {
 
 		private:
 			detail::LocalBuffer<size_t, 2> pWords;
+			detail::LocalBuffer<char32_t, 2> pChars;
 			detail::WordBreakSeparate<Lambda> pSeparator;
 			bool pLower = false;
 
 		public:
-			constexpr TitleMapper(SnkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SnkType>(sink), locale }, pSeparator{ Lambda{ *this } } {
+			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SinkType>(sink), locale }, pSeparator{ Lambda{ *this } } {
 				pWords.push(1);
 			}
 
 		private:
-			constexpr int32_t fTypeFlag() {
-				return (pLower ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
-			}
-			constexpr bool fIncomplete() {
-				return (pWords.size() == 0);
-			}
-			constexpr void fDone() {
-				pLower = true;
-				if (--pWords.front() == 0) {
-					pWords.pop();
-					pLower = false;
-				}
-			}
 			constexpr void fSeparate(bool separate) {
 				if (pWords.size() == 0) {
 					pLower = !separate;
@@ -1707,16 +1698,39 @@ namespace cp {
 				else
 					++pWords.back();
 			}
+			constexpr int32_t fTypeFlag() {
+				return (pLower ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
+			}
+			constexpr void fDone() {
+				pLower = true;
+				if (--pWords.front() == 0) {
+					pWords.pop();
+					pLower = false;
+				}
+			}
 
 		public:
-			constexpr void operator()(char32_t cp) {
-				if (cp == cp::EndOfTokens) {
-					pSeparator.done();
-					fSeparate(false);
+			constexpr void next(char32_t cp) {
+				pSeparator.next(cp);
+
+				/* flush the characters to the mapper */
+				if (pChars.size() == 0) {
+					Super::next(cp);
+					return;
 				}
+				while (pWords.size() > 0 && pChars.size() > 0)
+					Super::next(pChars.pop());
+				if (pWords.size() > 0)
+					Super::next(cp);
 				else
-					pSeparator.next(cp);
-				Super::operator()(cp);
+					pChars.push(cp);
+			}
+			constexpr void done() {
+				pSeparator.done();
+
+				while (pChars.size() > 0)
+					Super::next(pChars.pop());
+				Super::done();
 			}
 		};
 	}
