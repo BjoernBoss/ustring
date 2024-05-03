@@ -652,7 +652,7 @@ namespace str {
 
 			/* create the temporary buffer containing the single codepoint */
 			str::U32Small<10> buffer;
-			if (escape && (ascii || cp::IsAscii(cp)))
+			if (escape && (ascii || !cp::prop::IsPrint(cp)))
 				str::EscapeAsciiInto(buffer, cp, true);
 			else
 				buffer.push_back(cp);
@@ -869,8 +869,8 @@ namespace str {
 	};
 
 	/*	Normal padding
-	*	[eE]: escape: 0x00-0x1f;0x7f as \x.. and common escape sequences
-	*	[aA]: ascii: escape and write 0x80-... as \u{....} (if not in escape-mode) */
+	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
+	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <str::AnyString Type> struct Formatter<Type> {
 		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
@@ -904,7 +904,7 @@ namespace str {
 
 					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
 					if (cp::Valid(cp)) {
-						if (ascii || cp::IsAscii(cp))
+						if (ascii || !cp::prop::IsPrint(cp))
 							str::EscapeAsciiInto(buffer, cp, true);
 						else
 							buffer.push_back(cp);
@@ -982,8 +982,8 @@ namespace str {
 
 	/*	Normal padding
 	*	[@d+]: number of times to repeat char (default: 1)
-	*	[eE]: escape: 0x00-0x1f;0x7f as \x.. and common escape sequences
-	*	[aA]: ascii: escape and write 0x80-... as \u{....} (if not in escape-mode) */
+	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
+	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <> struct Formatter<char> {
 		constexpr bool operator()(str::AnySink auto& sink, char val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char>(sink, val, fmt);

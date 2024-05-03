@@ -179,7 +179,7 @@ namespace str {
 			str::CPOut out{};
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::IsAscii(*begin))
+			if (str::IsAscii<ChType> && cp::prop::IsAscii(*begin))
 				return { char32_t(*begin), 1 };
 
 			/* decode the next codepoint */
@@ -304,7 +304,7 @@ namespace str {
 			using EffType = str::EffChar<ChType>;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::IsAscii(cp)) {
+			if (str::IsAscii<ChType> && cp::prop::IsAscii(cp)) {
 				str::SinkChars<ChType>(sink, static_cast<ChType>(cp), 1);
 				return true;
 			}
@@ -327,7 +327,7 @@ namespace str {
 			uint32_t len = 0;
 
 			/* check for the fast way out by the character being an immediate ascii character */
-			if (str::IsAscii<ChType> && cp::IsAscii(*begin))
+			if (str::IsAscii<ChType> && cp::prop::IsAscii(*begin))
 				return { cp::Success, 1 };
 
 			/* check what encoding it is and read the size (invalid encodings result in length 0) */
@@ -416,14 +416,14 @@ namespace str {
 
 		/* check if the raw value itself can be checked for being an ascii character */
 		if constexpr (str::IsAscii<ChType>) {
-			if (cp::IsAscii(*begin))
+			if (cp::prop::IsAscii(*begin))
 				return { char32_t(*begin), 1 };
 			return { cp::NotAscii, 0 };
 		}
 
 		/* decode the codepoint and check if its a valid ascii character */
 		str::CPOut out = detail::ReadCodePoint<ChType>(begin, end);
-		if (cp::Valid(out.cp) && cp::IsAscii(out.cp))
+		if (cp::Valid(out.cp) && cp::prop::IsAscii(out.cp))
 			return out;
 		return { cp::NotAscii, 0 };
 	}
