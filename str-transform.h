@@ -12,8 +12,21 @@
 #include <vector>
 #include <utility>
 #include <variant>
+#include <type_traits>
 
 namespace cp {
+	enum class LineMode : uint8_t {
+		emergency,
+		mandatory,
+		optional,
+		combine
+	};
+	enum class BreakMode : uint8_t {
+		emergency,
+		mandatory,
+		optional
+	};
+
 	/* inclusive range */
 	struct Range {
 	public:
@@ -25,22 +38,22 @@ namespace cp {
 		explicit constexpr Range(size_t v) : first(v), last(v) {}
 		explicit constexpr Range(size_t f, size_t l) : first(f), last(l) {}
 	};
-	struct LineRange {
+	struct LRange : public cp::Range {
 	public:
-		cp::Range range;
-		bool breakAfter = false;
+		cp::BreakMode breakBefore = cp::BreakMode::emergency;
 
 	public:
-		constexpr LineRange() = default;
-		explicit constexpr LineRange(const cp::Range& r) : range(r), breakAfter(false) {}
-		explicit constexpr LineRange(const cp::Range& r, bool brkAfter) : range(r), breakAfter(brkAfter) {}
+		constexpr LRange() = default;
+		explicit constexpr LRange(const cp::Range& r) : cp::Range(r), breakBefore(cp::BreakMode::emergency) {}
+		constexpr LRange(const cp::Range& r, cp::BreakMode brkBefore) : cp::Range(r), breakBefore(brkBefore) {}
+		constexpr LRange(size_t f, size_t l, cp::BreakMode brkBefore) : cp::Range(f, l), breakBefore(brkBefore) {}
 	};
 
-	/* Valid sinks for char32_t must receive zero or more valid codepoints and a final cp::EndOfTokens, after which
+	/* valid sinks for char32_t must receive zero or more valid codepoints and a final cp::EndOfTokens, after which
 	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
-	template <class Type, class ValType>
-	concept IsSink = requires(Type t, ValType v) {
-		{ t(v) } -> std::same_as<void>;
+	template <class Type, class... ValType>
+	concept IsSink = requires(Type t, ValType... v) {
+		{ t(v...) } -> std::same_as<void>;
 	};
 
 	namespace detail {
@@ -49,73 +62,199 @@ namespace cp {
 		private:
 			struct Static {
 				Type buffer[Buffer]{};
-				size_t size = 0;
 			};
+			using Dynamic = std::vector<Type>;
 
 		private:
-			std::variant<Static, std::vector<Type>> pBuffer;
-			size_t pProcessed = 0;
+			std::variant<Static, Dynamic> pBuffer;
+			Type* pBegin = 0;
+			Type* pEnd = 0;
 
 		public:
-			LocalBuffer() : pBuffer{ Static{} } {}
+			LocalBuffer() : pBuffer{ Static{} } {
+				pBegin = std::get<Static>(pBuffer).buffer;
+				pEnd = pBegin;
+			}
 
 		public:
 			void push(const Type& t) {
-				if (std::holds_alternative<std::vector<Type>>(pBuffer)) {
-					std::get<std::vector<Type>>(pBuffer).push_back(t);
-				}
-				else {
-					Static& s = std::get<Static>(pBuffer);
-					if (s.size < Buffer)
-						s.buffer[s.size++] = t;
-					else {
-						std::vector<Type> v{ s.buffer + pProcessed, s.buffer + s.size };
-						v.push_back(t);
-						pBuffer = std::move(v);
+				if (std::holds_alternative<Dynamic>(pBuffer)) {
+					Dynamic& d = std::get<Dynamic>(pBuffer);
+					if (size_t(pEnd - d.data()) >= d.size()) {
+						size_t bOff = pBegin - d.data(), eOff = pEnd - d.data();
+						d.resize(d.size() + Buffer);
+						pBegin = d.data() + bOff;
+						pEnd = d.data() + eOff;
 					}
 				}
+				else if (pEnd - std::get<Static>(pBuffer).buffer >= Buffer) {
+					Dynamic v{ pBegin, pEnd };
+					v.push_back(t);
+					pBuffer = std::move(v);
+					pBegin = std::get<Dynamic>(pBuffer).data();
+					pEnd = pBegin + Buffer + 1;
+					return;
+				}
+				*pEnd = t;
+				++pEnd;
 			}
 			Type pop() {
-				if (std::holds_alternative<Static>(pBuffer)) {
-					Static& s = std::get<Static>(pBuffer);
-					Type val = s.buffer[pProcessed++];
-					if (pProcessed >= s.size)
-						pProcessed = (s.size = 0);
-					return val;
-				}
-
-				std::vector<Type>& v = std::get<std::vector<Type>>(pBuffer);
-				Type val = v[pProcessed++];
-				if (pProcessed >= v.size()) {
-					v.clear();
-					pProcessed = 0;
+				Type val = *pBegin;
+				if (++pBegin == pEnd) {
+					if (std::holds_alternative<Static>(pBuffer))
+						pBegin = std::get<Static>(pBuffer).buffer;
+					else
+						pBegin = std::get<Dynamic>(pBuffer).data();
+					pEnd = pBegin;
 				}
 				return val;
 			}
 			size_t size() const {
-				return (std::holds_alternative<Static>(pBuffer) ? std::get<Static>(pBuffer).size : std::get<std::vector<Type>>(pBuffer).size()) - pProcessed;
+				return (pEnd - pBegin);
 			}
 			Type& get(size_t i) {
-				if (std::holds_alternative<Static>(pBuffer))
-					return std::get<Static>(pBuffer).buffer[i - pProcessed];
-				return std::get<std::vector<Type>>(pBuffer)[i - pProcessed];
+				return pBegin[i];
 			}
 			Type& front() {
-				if (std::holds_alternative<Static>(pBuffer))
-					return std::get<Static>(pBuffer).buffer[pProcessed];
-				return std::get<std::vector<Type>>(pBuffer)[pProcessed];
+				return pBegin[0];
 			}
 			Type& back() {
-				if (std::holds_alternative<Static>(pBuffer)) {
-					Static& s = std::get<Static>(pBuffer);
-					return s.buffer[s.size - pProcessed - 1];
-				}
-				std::vector<Type>& v = std::get<std::vector<Type>>(pBuffer);
-				return v[v.size() - pProcessed - 1];
+				return pEnd[-1];
 			}
 		};
 
-		template <class SelfType>
+		class GraphemeBreak {
+		private:
+			using Type = detail::gen::GraphemeType;
+			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
+
+		private:
+			enum class Break : uint8_t {
+				separate,
+				combine
+			};
+			enum class GB9cState : uint8_t {
+				none,
+				linker,
+				match
+			};
+			enum class GB11State : uint8_t {
+				none,
+				zwj,
+				match
+			};
+
+		private:
+			GB9cState pGB9cState = GB9cState::none;
+			GB11State pGB11State = GB11State::none;
+			uint8_t pLast = static_cast<uint8_t>(Type::other);
+			bool pRICountOdd = false;
+
+		public:
+			constexpr GraphemeBreak() {}
+
+		private:
+			constexpr Break fCheck(Type l, Type r, bool rIsInCBConsonant) const {
+				/* GB3/GB4/GB5 */
+				if (l == Type::cr)
+					return (r == Type::lf ? Break::combine : Break::separate);
+				else if (l == Type::control || l == Type::lf || r == Type::control || r == Type::cr || r == Type::lf)
+					return Break::separate;
+
+				/* GB9/GB9a */
+				if (r == Type::extend || r == Type::zwj || r == Type::spaceMarking)
+					return Break::combine;
+
+				switch (l) {
+				case Type::zwj:
+					/* GB11 */
+					if (pGB11State == GB11State::match && r == Type::extendedPictographic)
+						return Break::combine;
+					break;
+				case Type::regionalIndicator:
+					/* GB12/GB13 */
+					if (pRICountOdd && r == Type::regionalIndicator)
+						return Break::combine;
+					break;
+				case Type::prepend:
+					/* GB9b */
+					return Break::combine;
+				case Type::l:
+					/* GB6 */
+					if (r == Type::l || r == Type::v || r == Type::lv || r == Type::lvt)
+						return Break::combine;
+					break;
+				case Type::v:
+				case Type::lv:
+					/* GB7 */
+					if (r == Type::v || r == Type::t)
+						return Break::combine;
+					break;
+				case Type::t:
+				case Type::lvt:
+					/* GB8 */
+					if (r == Type::t)
+						return Break::combine;
+					break;
+				}
+
+				/* GB9c */
+				if (pGB9cState == GB9cState::match && rIsInCBConsonant)
+					return Break::combine;
+
+				/* GB999 */
+				return Break::separate;
+			}
+			constexpr GB9cState fUpdateGB9cState(uint8_t l) const {
+				if ((l & detail::gen::GraphemeIsInCBConsonant) != 0)
+					return GB9cState::linker;
+
+				if (pGB9cState == GB9cState::linker) {
+					if ((l & detail::gen::GraphemeIsInCBExtend) != 0)
+						return GB9cState::linker;
+					if ((l & detail::gen::GraphemeIsInCBLinker) != 0)
+						return GB9cState::match;
+				}
+				else if (pGB9cState == GB9cState::match && (l & (detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBLinker)) != 0)
+					return GB9cState::match;
+				return GB9cState::none;
+			}
+			constexpr GB11State fUpdateGB11State(Type l) const {
+				if (l == Type::extendedPictographic)
+					return GB11State::zwj;
+
+				if (pGB11State == GB11State::zwj) {
+					if (l == Type::extend)
+						return GB11State::zwj;
+					if (l == Type::zwj)
+						return GB11State::match;
+				}
+				return GB11State::none;
+			}
+
+		public:
+			constexpr void first(uint32_t raw) {
+				/* GB1: initialize the state */
+				pLast = ((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
+			}
+			constexpr bool next(uint32_t raw) {
+				/* GB2: no special handling for cleanup necessary */
+				raw = ((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
+				Type left = static_cast<Type>(pLast & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
+				Type right = static_cast<Type>(raw & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
+
+				/* update the states */
+				pGB9cState = fUpdateGB9cState(pLast);
+				pGB11State = fUpdateGB11State(left);
+				pRICountOdd = (left == Type::regionalIndicator ? !pRICountOdd : false);
+				pLast = raw;
+
+				/* check if the two values should be separated */
+				return (fCheck(left, right, (raw & detail::gen::GraphemeIsInCBConsonant) != 0) == Break::separate);
+			}
+		};
+
+		template <class SinkType, class PayloadType>
 		class WordBreak {
 		private:
 			using Type = detail::gen::WordType;
@@ -123,7 +262,6 @@ namespace cp {
 
 		private:
 			enum class State : uint8_t {
-				uninit,
 				none,
 				wb6,
 				wb7a,
@@ -131,7 +269,7 @@ namespace cp {
 				wb11
 			};
 			enum class Continue : uint8_t {
-				addCached,
+				uncertain,
 				combineIncludingRight,
 				combineExcludingRight,
 				breakBeforeCached
@@ -143,13 +281,15 @@ namespace cp {
 			};
 
 		private:
-			size_t pRICount = 0;
+			detail::LocalBuffer<PayloadType, 2> pCache;
+			SinkType pSink;
 			Type pLast = Type::other;
 			Type pLastActual = Type::other;
-			State pState = State::uninit;
+			State pState = State::none;
+			int8_t pRICountEven = -1;
 
 		public:
-			constexpr WordBreak() = default;
+			constexpr WordBreak(SinkType&& sink) : pSink{ sink } {}
 
 		private:
 			constexpr Continue fCheckState(Type right) const {
@@ -157,7 +297,7 @@ namespace cp {
 
 				/* check if this is a silent reduction */
 				if (right == Type::extend || right == Type::format || right == Type::zwj)
-					return Continue::addCached;
+					return Continue::uncertain;
 
 				/* cleanup the state */
 				switch (pState) {
@@ -276,7 +416,7 @@ namespace cp {
 					return Break::separate;
 				case Type::regionalIndicator:
 					/* WB15/WB16 */
-					if (pRICount > 0 && (pRICount & 0x01) == 0)
+					if (pRICountEven == 1)
 						return Break::combine;
 					return Break::separate;
 				}
@@ -286,342 +426,91 @@ namespace cp {
 			}
 
 		public:
-			template <class PayloadType>
-			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				uint8_t rawRight = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
-				Type right = static_cast<Type>(rawRight & ~detail::gen::WordIsPictographic);
+			constexpr void first(char32_t cp) {
+				uint8_t raw = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
+				Type right = static_cast<Type>(raw & ~detail::gen::WordIsPictographic);
+
+				/* WB1: initialize the regionalIndicator counter and the last-state */
+				pRICountEven = (right == Type::regionalIndicator ? 0 : -1);
+				pLast = right;
+				pLastActual = right;
+			}
+			constexpr void done() {
+				/* WB2: check if a cached state needs to be ended */
+				if (pState == State::none)
+					return;
+
+				/* flush the cached characters */
+				if (fCheckState(Type::other) == Continue::breakBeforeCached)
+					pSink(pCache.pop(), true);
+				while (pCache.size() > 0)
+					pSink(pCache.pop(), false);
+			}
+			constexpr void next(char32_t cp, const PayloadType& payload) {
+				uint8_t raw = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
+				Type right = static_cast<Type>(raw & ~detail::gen::WordIsPictographic);
 
 				/* update the regionalIndicator counter and update the last-state */
-				Type left = pLast, leftActual = pLastActual;
+				Type left = pLast, lActual = pLastActual;
 				if (right != Type::extend && right != Type::format && right != Type::zwj) {
-					pRICount = (right == Type::regionalIndicator ? pRICount + 1 : 0);
+					if (right != Type::regionalIndicator)
+						pRICountEven = -1;
+					else
+						pRICountEven = (pRICountEven < 0 ? 0 : 1 - pRICountEven);
 					pLast = right;
 				}
 				pLastActual = right;
 
-				/* WB1: check if this is the initial character (only if its not an empty string) */
-				if (pState == State::uninit) {
-					if (cp == cp::EndOfTokens)
-						return;
-					pState = State::none;
-					static_cast<SelfType*>(this)->fBegin(payload);
-					return;
-				}
-
-				/* WB2: check if the end has been reached */
-				if (cp == cp::EndOfTokens) {
-					if (pState != State::none)
-						static_cast<SelfType*>(this)->fEndUnknown(fCheckState(Type::other) == Continue::breakBeforeCached);
-					static_cast<SelfType*>(this)->fDone();
-					return;
-				}
-
 				/* check if a current state for longer chains has been entered and handle it */
 				if (pState != State::none) {
-					switch (fCheckState(right)) {
-					case Continue::combineIncludingRight:
-						pState = State::none;
-						static_cast<SelfType*>(this)->fEndUnknown(false);
-						static_cast<SelfType*>(this)->fNext(payload, false);
+					/* update the state and check if the state can be resolved */
+					Continue cont = fCheckState(right);
+					if (cont == Continue::uncertain) {
+						pCache.push(payload);
 						return;
-					case Continue::addCached:
-						static_cast<SelfType*>(this)->fAddUnknown(payload);
+					}
+					pState = State::none;
+
+					/* flush the cached characters */
+					if (cont == Continue::breakBeforeCached)
+						pSink(pCache.pop(), true);
+					while (pCache.size() > 0)
+						pSink(pCache.pop(), false);
+
+					/* check if the upcoming element can be consumed as well */
+					if (cont == Continue::combineIncludingRight) {
+						pSink(payload, false);
 						return;
-					case Continue::combineExcludingRight:
-						pState = State::none;
-						static_cast<SelfType*>(this)->fEndUnknown(false);
-						break;
-					case Continue::breakBeforeCached:
-						pState = State::none;
-						static_cast<SelfType*>(this)->fEndUnknown(true);
-						break;
 					}
 				}
 
 				/* check the current values and update the state */
-				switch (fCheck(left, leftActual, right, (rawRight & detail::gen::WordIsPictographic) != 0)) {
+				switch (fCheck(left, lActual, right, (raw & detail::gen::WordIsPictographic) != 0)) {
 				case Break::combine:
-					static_cast<SelfType*>(this)->fNext(payload, false);
+					pSink(payload, false);
 					break;
 				case Break::separate:
-					static_cast<SelfType*>(this)->fNext(payload, true);
+					pSink(payload, true);
 					break;
 				case Break::uncertain:
-					static_cast<SelfType*>(this)->fBeginUnknown(payload);
+					pCache.push(payload);
 					break;
 				}
 			}
 		};
 
-		template <class SnkType>
-		class WordBreakRange final : private detail::WordBreak<detail::WordBreakRange<SnkType>> {
-			friend class detail::WordBreak<detail::WordBreakRange<SnkType>>;
-		private:
-			Range pCurrent;
-			Range pCached;
-			SnkType pSink;
-
-		public:
-			constexpr WordBreakRange(SnkType&& sink) : pSink{ sink } {}
-
-		private:
-			constexpr void fBeginUnknown(size_t index) {
-				pCached = Range(index);
-			}
-			constexpr void fEndUnknown(bool separated) {
-				if (separated) {
-					pSink(pCurrent);
-					pCurrent.first = pCached.first;
-				}
-				pCurrent.last = pCached.last;
-			}
-			constexpr void fAddUnknown(size_t index) {
-				pCached.last = index;
-			}
-			constexpr void fNext(size_t index, bool separated) {
-				if (separated) {
-					pSink(pCurrent);
-					pCurrent.first = index;
-				}
-				pCurrent.last = index;
-			}
-			constexpr void fBegin(size_t index) {
-				pCurrent = Range(index);
-			}
-			constexpr void fDone() {
-				pSink(pCurrent);
-			}
-
-		public:
-			constexpr void operator()(char32_t cp, size_t index) {
-				detail::WordBreak<detail::WordBreakRange<SnkType>>::operator()(cp, index);
-			}
-		};
-
-		template <class SnkType>
-		class WordBreakSeparate final : private detail::WordBreak<detail::WordBreakSeparate<SnkType>> {
-			friend class detail::WordBreak<detail::WordBreakSeparate<SnkType>>;
-		private:
-			size_t pCached = 0;
-			SnkType pSink;
-
-		public:
-			constexpr WordBreakSeparate(SnkType&& sink) : pSink{ sink } {}
-
-		private:
-			constexpr void fBeginUnknown(int) {
-				pCached = 0;
-			}
-			constexpr void fEndUnknown(bool separated) {
-				pSink(separated);
-				for (size_t i = 0; i < pCached; ++i)
-					pSink(false);
-			}
-			constexpr void fAddUnknown(int) {
-				++pCached;
-			}
-			constexpr void fNext(int, bool separated) {
-				pSink(separated);
-			}
-			constexpr void fBegin(int) {}
-			constexpr void fDone() {}
-
-		public:
-			constexpr void operator()(char32_t cp) {
-				detail::WordBreak<detail::WordBreakSeparate<SnkType>>::operator()(cp, 0);
-			}
-		};
-
-		template <class SelfType>
-		class GraphemeBreak {
-		private:
-			using Type = detail::gen::GraphemeType;
-			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
-
-		private:
-			enum class Break : uint8_t {
-				separate,
-				combine
-			};
-			enum class GB9cState : uint8_t {
-				none,
-				linker,
-				match
-			};
-			enum class GB11State : uint8_t {
-				none,
-				zwj,
-				match
-			};
-
-		private:
-			size_t pRICount = 0;
-			GB9cState pGB9cState = GB9cState::none;
-			GB11State pGB11State = GB11State::none;
-			uint8_t pLast = static_cast<uint8_t>(Type::other);
-			bool pInitialized = false;
-
-		public:
-			constexpr GraphemeBreak() = default;
-
-		private:
-			constexpr Break fCheck(Type l, Type r, bool rIsInCBConsonant) const {
-				/* GB3/GB4/GB5 */
-				if (l == Type::cr)
-					return (r == Type::lf ? Break::combine : Break::separate);
-				else if (l == Type::control || l == Type::lf || r == Type::control || r == Type::cr || r == Type::lf)
-					return Break::separate;
-
-				/* GB9/GB9a */
-				if (r == Type::extend || r == Type::zwj || r == Type::spaceMarking)
-					return Break::combine;
-
-				switch (l) {
-				case Type::zwj:
-					/* GB11 */
-					if (pGB11State == GB11State::match && r == Type::extendedPictographic)
-						return Break::combine;
-					break;
-				case Type::regionalIndicator:
-					/* GB12/GB13 */
-					if ((pRICount & 0x01) != 0 && r == Type::regionalIndicator)
-						return Break::combine;
-					break;
-				case Type::prepend:
-					/* GB9b */
-					return Break::combine;
-				case Type::l:
-					/* GB6 */
-					if (r == Type::l || r == Type::v || r == Type::lv || r == Type::lvt)
-						return Break::combine;
-					break;
-				case Type::v:
-				case Type::lv:
-					/* GB7 */
-					if (r == Type::v || r == Type::t)
-						return Break::combine;
-					break;
-				case Type::t:
-				case Type::lvt:
-					/* GB8 */
-					if (r == Type::t)
-						return Break::combine;
-					break;
-				}
-
-				/* GB9c */
-				if (pGB9cState == GB9cState::match && rIsInCBConsonant)
-					return Break::combine;
-
-				/* GB999 */
-				return Break::separate;
-			}
-			constexpr GB9cState fUpdateGB9cState(uint8_t l) const {
-				if ((l & detail::gen::GraphemeIsInCBConsonant) != 0)
-					return GB9cState::linker;
-
-				if (pGB9cState == GB9cState::linker) {
-					if ((l & detail::gen::GraphemeIsInCBExtend) != 0)
-						return GB9cState::linker;
-					if ((l & detail::gen::GraphemeIsInCBLinker) != 0)
-						return GB9cState::match;
-				}
-				else if (pGB9cState == GB9cState::match && (l & (detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBLinker)) != 0)
-					return GB9cState::match;
-				return GB9cState::none;
-			}
-			constexpr GB11State fUpdateGB11State(Type l) const {
-				if (l == Type::extendedPictographic)
-					return GB11State::zwj;
-
-				if (pGB11State == GB11State::zwj) {
-					if (l == Type::extend)
-						return GB11State::zwj;
-					if (l == Type::zwj)
-						return GB11State::match;
-				}
-				return GB11State::none;
-			}
-
-		public:
-			template <class PayloadType>
-			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				uint8_t rawLeft = pLast;
-				uint8_t rawRight = ((detail::gen::GetSegmentation(cp) >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
-				Type left = static_cast<Type>(rawLeft & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
-				Type right = static_cast<Type>(rawRight & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
-				pLast = rawRight;
-
-				/* GB1: check if this is the initial character (only if its not an empty string) */
-				if (!pInitialized) {
-					if (cp == cp::EndOfTokens)
-						return;
-					pInitialized = true;
-					static_cast<SelfType*>(this)->fBegin(payload);
-					return;
-				}
-
-				/* GB2: check if the end has been reached */
-				if (cp == cp::EndOfTokens) {
-					static_cast<SelfType*>(this)->fDone();
-					return;
-				}
-
-				/* update the states */
-				pGB9cState = fUpdateGB9cState(rawLeft);
-				pGB11State = fUpdateGB11State(left);
-				pRICount = (left == Type::regionalIndicator ? pRICount + 1 : 0);
-
-				/* check the current values and update the state */
-				switch (fCheck(left, right, (rawRight & detail::gen::GraphemeIsInCBConsonant) != 0)) {
-				case Break::combine:
-					static_cast<SelfType*>(this)->fNext(payload, false);
-					break;
-				case Break::separate:
-					static_cast<SelfType*>(this)->fNext(payload, true);
-					break;
-				}
-			}
-		};
-
-		template <class SnkType>
-		class GraphemeBreakRange final : private detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>> {
-			friend class detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>>;
-		private:
-			Range pCurrent;
-			SnkType pSink;
-
-		public:
-			constexpr GraphemeBreakRange(SnkType&& sink) : pSink{ sink } {}
-
-		private:
-			constexpr void fNext(size_t index, bool separated) {
-				if (separated) {
-					pSink(pCurrent);
-					pCurrent.first = index;
-				}
-				pCurrent.last = index;
-			}
-			constexpr void fBegin(size_t index) {
-				pCurrent = Range(index);
-			}
-			constexpr void fDone() {
-				pSink(pCurrent);
-			}
-
-		public:
-			constexpr void operator()(char32_t cp, size_t index) {
-				detail::GraphemeBreak<detail::GraphemeBreakRange<SnkType>>::operator()(cp, index);
-			}
-		};
-
-		template <class SelfType, class PayloadType>
+		template <class SinkType, class PayloadType>
 		class SentenceBreak {
 		private:
 			using Type = detail::gen::SentenceType;
 			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
 
 		private:
+			enum class Break : uint8_t {
+				separate,
+				combine,
+				uncertain
+			};
 			enum class Chain : uint8_t {
 				none,
 				aClose,
@@ -636,22 +525,20 @@ namespace cp {
 				match
 			};
 			struct Cache {
-				char32_t cp = 0;
 				PayloadType payload{};
 				Type type = Type::other;
 			};
 
 		private:
 			detail::LocalBuffer<Cache, 2> pCache;
+			SinkType pSink;
 			Type pLast = Type::other;
 			Type pActual = Type::other;
 			Chain pChain = Chain::none;
 			SB7State pSB7State = SB7State::none;
-			bool pInitialized = false;
-			bool pSB8Uncertain = false;
 
 		public:
-			constexpr SentenceBreak() = default;
+			constexpr SentenceBreak(SinkType&& sink) : pSink{ sink } {}
 
 		private:
 			constexpr Chain fChainState(Type l) const {
@@ -694,12 +581,7 @@ namespace cp {
 					return SB7State::match;
 				return SB7State::none;
 			}
-			constexpr bool fNext(Type r, const PayloadType& payload, bool done) {
-				/* SB2: check if the end has been reached */
-				if (done) {
-					static_cast<SelfType*>(this)->fDone();
-					return false;
-				}
+			constexpr Break fNext(Type r) {
 				bool isExtFmt = (r == Type::extend || r == Type::format);
 
 				/* update the last-states and the state-machine */
@@ -714,179 +596,154 @@ namespace cp {
 				/* SB3/SB4 */
 				if (lActual == Type::cr || lActual == Type::lf || lActual == Type::separator) {
 					if (lActual == Type::cr && r == Type::lf)
-						return true;
-					static_cast<SelfType*>(this)->fNext(payload, true);
+						return Break::combine;
 					pLast = r;
-					return false;
+					return Break::separate;
 				}
 
 				/* fast-path */
 				if (l == Type::other)
-					return true;
+					return Break::combine;
 
 				/* SB5 */
 				if (isExtFmt)
-					return true;
+					return Break::combine;
 
 				/* SB6/SB7 */
 				if (l == Type::aTerm) {
 					if (r == Type::numeric)
-						return true;
+						return Break::combine;
 					if (pSB7State == SB7State::match && r == Type::upper)
-						return true;
+						return Break::combine;
 				}
 
 				/* SB9/SB10 partial (consume as many spaces/closes as possible) */
 				if (pChain == Chain::aClose || pChain == Chain::sClose) {
 					if (r == Type::close || r == Type::space)
-						return true;
+						return Break::combine;
 				}
 				else if ((pChain == Chain::aSpace || pChain == Chain::sSpace) && r == Type::space)
-					return true;
+					return Break::combine;
 
 				/* SB8a */
 				if (pChain != Chain::none && pChain != Chain::paraSep && (r == Type::sContinue || r == Type::sTerm || r == Type::aTerm))
-					return true;
+					return Break::combine;
 
 				/* SB8 */
 				if (pChain == Chain::aClose || pChain == Chain::aSpace) {
 					if (r == Type::lower)
-						return true;
-					if (r == Type::other || r == Type::numeric || r == Type::close) {
-						static_cast<SelfType*>(this)->fBeginUnknown(payload);
-						pSB8Uncertain = true;
-						return false;
-					}
+						return Break::combine;
+					if (r == Type::other || r == Type::numeric || r == Type::close)
+						return Break::uncertain;
 				}
 
 				if (r == Type::cr || r == Type::lf || r == Type::separator) {
 					/* SB9/SB10 rest */
 					if (pChain != Chain::none && pChain != Chain::paraSep)
-						return true;
+						return Break::combine;
 				}
 
 				/* SB11 */
-				if (pChain != Chain::none) {
-					static_cast<SelfType*>(this)->fNext(payload, true);
-					return false;
-				}
+				if (pChain != Chain::none)
+					return Break::separate;
 
 				/* SB998 */
-				return true;
+				return Break::combine;
 			}
-			constexpr void fCloseState(Type r, bool forceClose) {
+			constexpr Break fCloseState(Type r) const {
 				/* check if a determined end has been encountered */
-				if (r == Type::lower || forceClose) {
-					static_cast<SelfType*>(this)->fEndUnknown(r != Type::lower);
-					pSB8Uncertain = false;
-					return;
-				}
+				if (r == Type::lower)
+					return Break::combine;
 
 				/* check if the chain remains uncertain */
 				if (r == Type::other || r == Type::extend || r == Type::format || r == Type::space || r == Type::numeric || r == Type::sContinue || r == Type::close)
-					return;
-				static_cast<SelfType*>(this)->fEndUnknown(true);
-				pSB8Uncertain = false;
+					return Break::uncertain;
+				return Break::separate;
 			}
-
-		public:
-			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
-				bool done = (cp == cp::EndOfTokens);
-
-				/* SB1: check if this is the initial character (only if its not an empty string) */
-				if (!pInitialized) {
-					if (done)
-						return;
-					pInitialized = true;
-					pLast = type;
-					pActual = type;
-					static_cast<SelfType*>(this)->fBegin(payload);
-					return;
-				}
-
-				/* fast-path of not being in a look-ahead state */
-				if (!pSB8Uncertain) {
-					if (fNext(type, payload, done))
-						static_cast<SelfType*>(this)->fNext(payload, false);
-					return;
-				}
-
-				/* feed the value into the cache and check if the state can be completed */
-				pCache.push({ cp, payload, type });
-				fCloseState(type, cp == cp::EndOfTokens);
+			template <bool IsCleanup>
+			constexpr void fProcessQueue() {
+				/* default the value to uncertain on cleanup to ensure the first iteration is aborted */
+				Break brk = (IsCleanup ? Break::uncertain : Break::separate);
 
 				/* process the cached characters */
-				while (!pSB8Uncertain && pCache.size() > 0) {
-					auto [_cp, _payload, _type] = pCache.pop();
-					if (fNext(_type, _payload, _cp == cp::EndOfTokens))
-						static_cast<SelfType*>(this)->fNext(payload, false);
+				while (true) {
+					/* check if the last state needs to be forcefully aborted or if the result is incomplete */
+					if (brk == Break::uncertain) {
+						if constexpr (!IsCleanup)
+							return;
+						pSink(pCache.pop().payload, true);
+					}
 
-					/* check if a state-chain has been created and feed the cached values to it */
-					for (size_t i = 0; pSB8Uncertain && i < pCache.size(); ++i) {
-						Cache& cache = pCache.get(i);
-						fCloseState(cache.type, cache.cp == cp::EndOfTokens);
+					/* process the next character */
+					if (pCache.size() == 0)
+						return;
+					brk = fNext(pCache.front().type);
+
+					/* check if this is a state-less immediate result */
+					if (brk != Break::uncertain) {
+						pSink(pCache.pop().payload, brk == Break::separate);
+						continue;
+					}
+
+					/* feed the cached characters to it to try to complete the state */
+					for (size_t i = 1; i < pCache.size(); ++i) {
+						if ((brk = fCloseState(pCache.get(i).type)) == Break::uncertain)
+							continue;
+						pSink(pCache.pop().payload, brk == Break::separate);
+						break;
 					}
 				}
 			}
-		};
-
-		template <class SnkType>
-		class SentenceBreakRange final : private detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t> {
-			friend class detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t>;
-		private:
-			Range pCurrent;
-			Range pCached;
-			SnkType pSink;
 
 		public:
-			constexpr SentenceBreakRange(SnkType&& sink) : pSink{ sink } {}
+			constexpr void first(char32_t cp) {
+				/* SB1: initialize the state */
+				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
+				pLast = type;
+				pActual = type;
+			}
+			constexpr void done() {
+				/* SB2: clear the cache and abort the current cached state */
+				if (pCache.size() != 0)
+					fProcessQueue<true>();
+			}
+			constexpr void next(char32_t cp, const PayloadType& payload) {
+				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
 
-		private:
-			constexpr void fBeginUnknown(size_t index) {
-				pCached = Range(index);
-			}
-			constexpr void fEndUnknown(bool separated) {
-				if (separated) {
-					pSink(pCurrent);
-					pCurrent.first = pCached.first;
+				/* fast-path of not being in a look-ahead state */
+				if (pCache.size() == 0) {
+					if (Break brk = fNext(type); brk != Break::uncertain)
+						pSink(payload, brk == Break::separate);
+					else
+						pCache.push({ payload, type });
+					return;
 				}
-				pCurrent.last = pCached.last;
-			}
-			constexpr void fNext(size_t index, bool separated) {
-				if (separated) {
-					pSink(pCurrent);
-					pCurrent.first = index;
-				}
-				pCurrent.last = index;
-			}
-			constexpr void fBegin(size_t index) {
-				pCurrent = Range(index);
-			}
-			constexpr void fDone() {
-				pSink(pCurrent);
-			}
 
-		public:
-			constexpr void operator()(char32_t cp, size_t index) {
-				detail::SentenceBreak<detail::SentenceBreakRange<SnkType>, size_t>::operator()(cp, index);
+				/* add the character to the cache and feed it to update the current state */
+				pCache.push({ payload, type });
+				Break brk = fCloseState(type);
+				if (brk == Break::uncertain)
+					return;
+				pSink(pCache.pop().payload, brk == Break::separate);
+
+				/* process the cached characters */
+				fProcessQueue<false>();
 			}
 		};
 
-		enum class BreakType : uint8_t {
-			mandatory,
-			optional,
-			combine
-		};
-		template <class SelfType>
+		template <class SinkType, class PayloadType>
 		class LineBreak {
 		private:
 			using Type = detail::gen::LineType;
 			static_assert(size_t(Type::_last) == 50, "Only types 0-49 are known by the state-machine");
 
 		private:
+			enum class Emergency : uint8_t {
+				emergency,
+				graphemeAware,
+				none
+			};
 			enum class State : uint8_t {
-				uninit,
 				none,
 				lb15b,
 				lb28a,
@@ -907,21 +764,32 @@ namespace cp {
 				lb25,
 				lb25PrOrPo
 			};
+			struct Cache {
+				PayloadType payload{};
+				bool grapheme = false;
+			};
 
 		private:
+			detail::GraphemeBreak pGrapheme;
+			detail::LocalBuffer<Cache, 2> pCache;
+			SinkType pSink;
 			Type pLast = Type::_last;
 			Type pActual = Type::_last;
-			State pState = State::uninit;
+			State pState = State::none;
 			Chain pChain = Chain::none;
 			bool pSpaces = false;
 			bool pRICountOdd = false;
+			Emergency pCheckEmergency = Emergency::none;
 
 		public:
-			constexpr LineBreak() = default;
+			constexpr LineBreak(bool checkGrapheme, bool createEmergency, SinkType&& sink) : pSink{ sink } {
+				if (checkGrapheme)
+					pCheckEmergency = (createEmergency ? Emergency::emergency : Emergency::graphemeAware);
+			}
 
 		private:
-			constexpr Break fCheckState(Type r, bool endOfTokens) {
-				/* type is Type::_last for end-of-tokens */
+			constexpr Break fCheckState(Type r) {
+				/* check if the character does not close the state */
 				if (r == Type::cm || r == Type::zwj) {
 					pActual = r;
 					pSpaces = false;
@@ -933,7 +801,7 @@ namespace cp {
 				if (pState == State::lb15b) {
 					if (r == Type::sp || r == Type::gl || r == Type::wj || r == Type::cl || r == Type::quDef || r == Type::quPf || r == Type::quPi ||
 						r == Type::cpDef || r == Type::cpNoFWH || r == Type::ex || r == Type::is || r == Type::sy || r == Type::bk || r == Type::cr ||
-						r == Type::lf || r == Type::nl || r == Type::zw || endOfTokens)
+						r == Type::lf || r == Type::nl || r == Type::zw)
 						return Break::combine;
 					return Break::optional;
 				}
@@ -1357,116 +1225,120 @@ namespace cp {
 				/* LB31 */
 				return Break::optional;
 			}
+			constexpr void fPopQueue(bool combine) {
+				/* post all cached characters (first cannot be a grapheme-internal) */
+				pSink(pCache.pop().payload, (combine ? cp::LineMode::combine : cp::LineMode::optional));
+				while (pCache.size() > 0) {
+					auto [_payload, _grapheme] = pCache.pop();
+					pSink(_payload, _grapheme ? cp::LineMode::combine : cp::LineMode::emergency);
+				}
+			}
 
 		public:
-			template <class PayloadType>
-			constexpr void operator()(char32_t cp, const PayloadType& payload) {
-				Type right = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
+			constexpr void first(char32_t cp) {
+				uint32_t raw = detail::gen::GetSegmentation(cp);
+				Type right = static_cast<Type>((raw >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
 
-				/* LB2: check if this is the initial character (only if its not an empty string) */
-				if (pState == State::uninit) {
-					if (cp == cp::EndOfTokens)
-						return;
-					static_cast<SelfType*>(this)->fBegin(payload);
-					pState = State::none;
+				/* LB2: initialize the state */
+				if (pCheckEmergency != Emergency::none)
+					pGrapheme.first(raw);
+				pLast = (pActual = right);
+				if (right == Type::sp)
+					pSpaces = true;
+				else if (right == Type::nu)
+					pChain = Chain::lb25;
+				else if (right == Type::quPi)
+					pChain = Chain::lb15a;
+			}
+			constexpr void done() {
+				/* LB3: cleanup the final cached state */
+				if (pState != State::none)
+					fPopQueue(pState == State::lb15b);
+			}
+			constexpr void next(char32_t cp, const PayloadType& payload) {
+				uint32_t raw = detail::gen::GetSegmentation(cp);
+				Type right = static_cast<Type>((raw >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
 
-					/* initialize the local states */
-					pLast = (pActual = right);
-					if (right == Type::sp)
-						pSpaces = true;
-					else if (right == Type::nu)
-						pChain = Chain::lb25;
-					else if (right == Type::quPi)
-						pChain = Chain::lb15a;
-					return;
-				}
-
-				/* LB3: check if the end has been reached */
-				if (cp == cp::EndOfTokens) {
-					if (pState != State::none)
-						static_cast<SelfType*>(this)->fEndUnknown((fCheckState(Type::_last, true) == Break::optional) ? BreakType::optional : BreakType::combine);
-					static_cast<SelfType*>(this)->fDone();
+				/* check if this is part of a single grapheme (No need to check for mandatory breaks separately,
+				*	as they are all considered 'control' by grapheme-clusters, which are broken on either side anyways) */
+				if (pCheckEmergency != Emergency::none && !pGrapheme.next(raw)) {
+					if (pState == State::none)
+						pSink(payload, cp::LineMode::combine);
+					else
+						pCache.push({ payload, true });
 					return;
 				}
 
 				/* check if a current state for longer chains has been entered and handle it */
 				if (pState != State::none) {
-					switch (fCheckState(right, false)) {
-					case Break::uncertain:
-						static_cast<SelfType*>(this)->fAddUnknown(payload);
+					Break brk = fCheckState(right);
+					if (brk == Break::uncertain) {
+						pCache.push({ payload, (pCheckEmergency != Emergency::emergency) });
 						return;
-					case Break::combine:
-						static_cast<SelfType*>(this)->fEndUnknown(BreakType::combine);
-						break;
-					case Break::optional:
-						static_cast<SelfType*>(this)->fEndUnknown(BreakType::optional);
-						break;
 					}
 					pState = State::none;
+
+					/* clear all cached characters */
+					fPopQueue(brk == Break::combine);
 				}
 
 				/* check the current values and update the state */
 				switch (fCheck(right)) {
 				case Break::combine:
-					static_cast<SelfType*>(this)->fNext(payload, BreakType::combine);
+					pSink(payload, (pCheckEmergency == Emergency::emergency ? cp::LineMode::emergency : cp::LineMode::combine));
 					break;
 				case Break::optional:
-					static_cast<SelfType*>(this)->fNext(payload, BreakType::optional);
+					pSink(payload, cp::LineMode::optional);
 					break;
 				case Break::mandatory:
-					static_cast<SelfType*>(this)->fNext(payload, BreakType::mandatory);
+					pSink(payload, cp::LineMode::mandatory);
 					break;
 				case Break::uncertain:
-					static_cast<SelfType*>(this)->fBeginUnknown(payload);
+					pCache.push({ payload, (pCheckEmergency != Emergency::emergency) });
 					break;
 				}
 			}
 		};
 
-		template <class SnkType>
-		class LineBreakRange final : private detail::LineBreak<detail::LineBreakRange<SnkType>> {
-			friend class detail::LineBreak<detail::LineBreakRange<SnkType>>;
+
+
+
+		template <class SinkType>
+		class WordBreakSeparate {
 		private:
-			Range pCurrent;
-			Range pCached;
-			SnkType pSink;
+			struct Lambda {
+				WordBreakSeparate<SinkType>& self;
+				constexpr Lambda(WordBreakSeparate<SinkType>& s) : self{ s } {}
+				constexpr void operator()(uint8_t, bool separate) {
+					self.pSink(separate);
+				}
+			};
+
+		private:
+			detail::WordBreak<Lambda, uint8_t> pBreaker;
+			SinkType pSink;
+			bool pInitialized = false;
 
 		public:
-			constexpr LineBreakRange(SnkType&& sink) : pSink{ sink } {}
-
-		private:
-			constexpr void fBeginUnknown(size_t index) {
-				pCached = Range(index);
-			}
-			constexpr void fEndUnknown(BreakType type) {
-				if (type != BreakType::combine) {
-					pSink(cp::LineRange(pCurrent, type == BreakType::mandatory));
-					pCurrent.first = pCached.first;
-				}
-				pCurrent.last = pCached.last;
-			}
-			constexpr void fAddUnknown(size_t index) {
-				pCached.last = index;
-			}
-			constexpr void fNext(size_t index, BreakType type) {
-				if (type != BreakType::combine) {
-					pSink(cp::LineRange(pCurrent, type == BreakType::mandatory));
-					pCurrent.first = index;
-				}
-				pCurrent.last = index;
-			}
-			constexpr void fBegin(size_t index) {
-				pCurrent = Range(index);
-			}
-			constexpr void fDone() {
-				pSink(cp::LineRange(pCurrent, false));
-			}
+			constexpr WordBreakSeparate(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
 
 		public:
-			constexpr void operator()(char32_t cp, size_t index) {
-				detail::LineBreak<detail::LineBreakRange<SnkType>>::operator()(cp, index);
+			constexpr void next(char32_t cp) {
+				if (pInitialized)
+					pBreaker.next(cp, 0);
+				else {
+					pInitialized = true;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized)
+					pBreaker.done();
 			}
 		};
+
+
+
 
 		enum class CaseLocale : uint8_t {
 			none,
@@ -1838,53 +1710,429 @@ namespace cp {
 
 		public:
 			constexpr void operator()(char32_t cp) {
-				pSeparator(cp);
-				if (cp == cp::EndOfTokens)
+				if (cp == cp::EndOfTokens) {
+					pSeparator.done();
 					fSeparate(false);
+				}
+				else
+					pSeparator.next(cp);
 				Super::operator()(cp);
 			}
 		};
 	}
 
-	/* create a sink, which splits the stream into ranges of words and writes them to the sink (will be produced in-order)
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
-	*	OutSink(Range): sink the range (not called for empty strings) */
-	struct WordBreak {
-		template <cp::IsSink<cp::Range> SnkType>
-		constexpr detail::WordBreakRange<SnkType> operator()(SnkType&& sink) {
-			return detail::WordBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+	/* create a sink, which receives the 'grapheme-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	OutSink(size_t, bool): insert break before codepoint at given index */
+	class GraphemeBreak {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			detail::GraphemeBreak pBreaker;
+			SinkType pSink;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				uint32_t raw = detail::gen::GetSegmentation(cp);
+				if (pInitialized)
+					pSink(index, pBreaker.next(raw));
+				else {
+					pInitialized = true;
+					pBreaker.first(raw);
+				}
+			}
+			constexpr void done() {}
+		};
+
+	public:
+		template <cp::IsSink<size_t, bool> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink (will be produced in-order)
+	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	*	Guaranteed by Unicode to not break grapheme-clusters
 	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
-	*	OutSink(Range): sink the range (not called for empty strings) */
-	struct GraphemeBreak {
-		template <cp::IsSink<cp::Range> SnkType>
-		constexpr detail::GraphemeBreakRange<SnkType> operator()(SnkType&& sink) {
-			return detail::GraphemeBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+	*	OutSink(cp::Range): range of a single grapheme-cluster */
+	class GraphemeRanges {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			detail::GraphemeBreak pBreaker;
+			SinkType pSink;
+			size_t pStart = 0;
+			size_t pLast = 0;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				uint32_t raw = detail::gen::GetSegmentation(cp);
+				if (pInitialized) {
+					if (pBreaker.next(raw)) {
+						pSink(cp::Range(pStart, pLast));
+						pStart = index;
+					}
+					pLast = index;
+				}
+				else {
+					pInitialized = true;
+					pStart = index;
+					pLast = index;
+					pBreaker.first(raw);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized)
+					pSink(cp::Range(pStart, pLast));
+			}
+		};
+
+	public:
+		template <cp::IsSink<cp::Range> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of sentence-clusters and writes them to the sink (will be produced in-order)
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
-	*	OutSink(Range): sink the range (not called for empty strings) */
-	struct SentenceBreak {
-		template <cp::IsSink<cp::Range> SnkType>
-		constexpr detail::SentenceBreakRange<SnkType> operator()(SnkType&& sink) {
-			return detail::SentenceBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+	/* create a sink, which receives the 'word-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	OutSink(size_t, bool): insert break before codepoint at given index */
+	class WordBreak {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, bool separate) {
+					self.pSink(payload, separate);
+				}
+			};
+
+		private:
+			detail::WordBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized)
+					pBreaker.done();
+			}
+		};
+
+	public:
+		template <cp::IsSink<size_t, bool> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of line-clusters and writes them to the sink (will be produced in-order)
+	/* create a sink, which splits the stream into ranges of words and writes them to the sink (will be produced in-order; no output if string is empty)
+	*	Guaranteed by Unicode to not break grapheme-clusters
 	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
-	*	OutSink(LineRange): sink the range (not called for empty strings) */
-	struct LineBreak {
-		template <cp::IsSink<cp::LineRange> SnkType>
-		constexpr detail::LineBreakRange<SnkType> operator()(SnkType&& sink) {
-			return detail::LineBreakRange<SnkType>{ std::forward<SnkType>(sink) };
+	*	OutSink(cp::Range): range of a single word */
+	class WordRanges {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, bool separate) {
+					if (separate) {
+						self.pSink(cp::Range(self.pStart, self.pLast));
+						self.pStart = payload;
+					}
+					self.pLast = payload;
+				}
+			};
+
+		private:
+			detail::WordBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			size_t pStart = 0;
+			size_t pLast = 0;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pStart = index;
+					pLast = index;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized) {
+					pBreaker.done();
+					pSink(cp::Range(pStart, pLast));
+				}
+			}
+		};
+
+	public:
+		template <cp::IsSink<cp::Range> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
+
+	/* create a sink, which receives the 'sentence-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	OutSink(size_t, bool): insert break before codepoint at given index */
+	class SentenceBreak {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, bool separate) {
+					self.pSink(payload, separate);
+				}
+			};
+
+		private:
+			detail::SentenceBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized)
+					pBreaker.done();
+			}
+		};
+
+	public:
+		template <cp::IsSink<size_t, bool> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
+		}
+	};
+
+	/* create a sink, which splits the stream into ranges of sentence-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	OutSink(cp::Range): range of a single sentence */
+	class SentenceRanges {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, bool separate) {
+					if (separate) {
+						self.pSink(cp::Range(self.pStart, self.pLast));
+						self.pStart = payload;
+					}
+					self.pLast = payload;
+				}
+			};
+
+		private:
+			detail::SentenceBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			size_t pStart = 0;
+			size_t pLast = 0;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pStart = index;
+					pLast = index;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized) {
+					pBreaker.done();
+					pSink(cp::Range(pStart, pLast));
+				}
+			}
+		};
+
+	public:
+		template <cp::IsSink<cp::Range> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ std::forward<SinkType>(sink) };
+		}
+	};
+
+	/* create a sink, which receives the 'line-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	*	Additionally specify whether to not break grapheme-clusters, produce emergency-breaks (based on grapheme-clusters), or perform default line-breaking
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	OutSink(size_t, cp::LineMode): insert corresponding break before codepoint at given index */
+	class LineBreak {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, cp::LineMode mode) {
+					self.pSink(payload, mode);
+				}
+			};
+
+		private:
+			detail::LineBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(bool graphemeAware, bool createEmergency, SinkType&& sink) : pBreaker{ graphemeAware, createEmergency, Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized)
+					pBreaker.done();
+			}
+		};
+
+	private:
+		bool pGraphemeAware = false;
+		bool pCreateEmergency = false;
+
+	public:
+		LineBreak(bool graphemeAware = true, bool createEmergency = true) : pGraphemeAware(graphemeAware), pCreateEmergency(createEmergency) {}
+
+	public:
+		template <cp::IsSink<size_t, cp::LineMode> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ pGraphemeAware, pCreateEmergency, std::forward<SinkType>(sink) };
+		}
+	};
+
+	/* create a sink, which splits the stream into ranges of line-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	*	Additionally specify whether to not break grapheme-clusters, produce emergency-breaks (based on grapheme-clusters), or perform default line-breaking
+	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	OutSink(cp::LRange): range of a single line-token and corresponding behavior before the range (cp::BreakMode::emergency for first range) */
+	class LineRanges {
+	private:
+		template <class SinkType>
+		class Impl {
+		private:
+			struct Lambda {
+				Impl<SinkType>& self;
+				constexpr Lambda(Impl<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t payload, cp::LineMode mode) {
+					if (mode != cp::LineMode::combine) {
+						self.pSink(cp::LRange(self.pStart, self.pLast, self.pMode));
+						self.pMode = (mode == cp::LineMode::emergency ? cp::BreakMode::emergency : (mode == cp::LineMode::mandatory ? cp::BreakMode::mandatory : cp::BreakMode::optional));
+						self.pStart = payload;
+					}
+					self.pLast = payload;
+				}
+			};
+
+		private:
+			detail::LineBreak<Lambda, size_t> pBreaker;
+			SinkType pSink;
+			size_t pStart = 0;
+			size_t pLast = 0;
+			cp::BreakMode pMode = cp::BreakMode::emergency;
+			bool pInitialized = false;
+
+		public:
+			constexpr Impl(bool graphemeAware, bool createEmergency, SinkType&& sink) : pBreaker{ graphemeAware, createEmergency, Lambda{ *this } }, pSink{ sink } {}
+
+		public:
+			constexpr void next(char32_t cp, size_t index) {
+				if (pInitialized)
+					pBreaker.next(cp, index);
+				else {
+					pInitialized = true;
+					pStart = index;
+					pLast = index;
+					pBreaker.first(cp);
+				}
+			}
+			constexpr void done() {
+				if (pInitialized) {
+					pBreaker.done();
+					pSink(cp::LRange(pStart, pLast, pMode));
+				}
+			}
+		};
+
+	private:
+		bool pGraphemeAware = false;
+		bool pCreateEmergency = false;
+
+	public:
+		LineRanges(bool graphemeAware = true, bool createEmergency = true) : pGraphemeAware(graphemeAware), pCreateEmergency(createEmergency) {}
+
+	public:
+		template <cp::IsSink<cp::LRange> SinkType>
+		constexpr Impl<SinkType> operator()(SinkType&& sink) {
+			return Impl<SinkType>{ pGraphemeAware, pCreateEmergency, std::forward<SinkType>(sink) };
+		}
+	};
+
+
 
 	/* create a sink, which writes the upper-cased stream to the given sink (will be produced in-order)
 	*	InSink(char32_t): code-point
