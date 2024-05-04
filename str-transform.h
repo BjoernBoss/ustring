@@ -56,6 +56,15 @@ namespace cp {
 		{ t(v...) } -> std::same_as<void>;
 	};
 
+	/* codepoint-iterator must move itself upon prev()/next() and return true, or return false and stay
+	*	and must return the currently pointed to codepoint on get() */
+	template <class Type>
+	concept IsCPIterator = std::copyable<Type> && requires(Type t, const Type ct) {
+		{ t.prev() } -> std::same_as<bool>;
+		{ t.next() } -> std::same_as<bool>;
+		{ ct.get() } -> std::same_as<char32_t>;
+	};
+
 	namespace detail {
 		template <class Type, size_t Buffer>
 		class LocalBuffer {
@@ -123,57 +132,66 @@ namespace cp {
 			}
 		};
 
-		class GraphemeBreak {
-		private:
+		struct GraphemeBreak {
+			static_assert(size_t(detail::gen::GraphemeType::_last) == 21, "Only types 0-20 are known by the state-machine");
+		public:
 			using Type = detail::gen::GraphemeType;
-			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
-
-		private:
 			enum class Break : uint8_t {
-				separate,
-				combine
+				combine,
+				separate
 			};
-			enum class GB9cState : uint8_t {
-				none,
-				linker,
-				match
-			};
-			enum class GB11State : uint8_t {
-				none,
-				zwj,
-				match
-			};
-
-		private:
-			GB9cState pGB9cState = GB9cState::none;
-			GB11State pGB11State = GB11State::none;
-			uint8_t pLast = static_cast<uint8_t>(Type::other);
-			bool pRICountOdd = false;
 
 		public:
-			constexpr GraphemeBreak() {}
-
-		private:
-			constexpr Break fCheck(Type l, Type r, bool rIsInCBConsonant) const {
-				/* GB3/GB4/GB5 */
-				if (l == Type::cr)
-					return (r == Type::lf ? Break::combine : Break::separate);
-				else if (l == Type::control || l == Type::lf || r == Type::control || r == Type::cr || r == Type::lf)
+			static constexpr Type GetType(char32_t cp) {
+				return static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
+			}
+			template <class SelfType>
+			static constexpr Break Test(Type l, Type r, SelfType&& self) {
+				switch (r) {
+				case Type::lf:
+					/* GB3 */
+					if (l == Type::cr)
+						return Break::combine;
+					[[fallthrough]];
+				case Type::control:
+				case Type::cr:
+					/* GB5 */
 					return Break::separate;
 
-				/* GB9/GB9a */
-				if (r == Type::extend || r == Type::zwj || r == Type::spaceMarking)
+				case Type::extendDef:
+				case Type::extendInCBExtend:
+				case Type::extendInCBLinker:
+				case Type::zwjDef:
+				case Type::zwjInCBExtend:
+				case Type::spaceMarking:
+					/* GB4 partial */
+					if (l == Type::control || l == Type::cr || l == Type::lf)
+						return Break::separate;
+					/* GB9/GB9a */
 					return Break::combine;
 
+				case Type::inCBConsonant:
+					/* GB9c */
+					if (self.fGB9cHasConsonant())
+						return Break::combine;
+					break;
+				}
+
 				switch (l) {
-				case Type::zwj:
+				case Type::cr:
+				case Type::lf:
+				case Type::control:
+					/* GB4 */
+					return Break::separate;
+				case Type::zwjDef:
+				case Type::zwjInCBExtend:
 					/* GB11 */
-					if (pGB11State == GB11State::match && r == Type::extendedPictographic)
+					if (self.fGB11HasExtPicto() && r == Type::extendedPictographic)
 						return Break::combine;
 					break;
 				case Type::regionalIndicator:
 					/* GB12/GB13 */
-					if (pRICountOdd && r == Type::regionalIndicator)
+					if (r == Type::regionalIndicator && self.fIsRIChainEven())
 						return Break::combine;
 					break;
 				case Type::prepend:
@@ -198,35 +216,155 @@ namespace cp {
 					break;
 				}
 
-				/* GB9c */
-				if (pGB9cState == GB9cState::match && rIsInCBConsonant)
-					return Break::combine;
-
 				/* GB999 */
 				return Break::separate;
 			}
-			constexpr GB9cState fUpdateGB9cState(uint8_t l) const {
-				if ((l & detail::gen::GraphemeIsInCBConsonant) != 0)
+		};
+		template <class ItType>
+		struct GraphemeIterator {
+			friend struct detail::GraphemeBreak;
+			using Host = detail::GraphemeBreak;
+		private:
+			ItType& pLeft;
+
+		private:
+			constexpr GraphemeIterator(ItType& l) : pLeft{ l } {}
+
+		private:
+			constexpr bool fGB9cHasConsonant() const {
+				ItType t = pLeft;
+				bool linkerFound = false;
+				do {
+					Host::Type type = Host::GetType(t.get());
+					if (type == Host::Type::inCBLinker || type == Host::Type::extendInCBLinker)
+						linkerFound = true;
+					else if (type == Host::Type::inCBConsonant)
+						return linkerFound;
+					else if (type != Host::Type::inCBExtend && type != Host::Type::extendInCBExtend && type != Host::Type::zwjInCBExtend)
+						return false;
+				} while (t.prev());
+				return false;
+			}
+			constexpr bool fGB11HasExtPicto() const {
+				ItType t = pLeft;
+				while (t.prev()) {
+					Host::Type type = Host::GetType(t.get());
+					if (type == Host::Type::extendedPictographic)
+						return true;
+					if (type != Host::Type::extendDef && type != Host::Type::extendInCBExtend && type != Host::Type::extendInCBLinker)
+						return false;
+				}
+				return false;
+			}
+			constexpr bool fIsRIChainEven() const {
+				ItType t = pLeft;
+				size_t count = 0;
+				while (t.prev() && Host::GetType(t.get()) == Host::Type::regionalIndicator)
+					++count;
+				return ((count & 0x01) == 0);
+			}
+
+		public:
+			static constexpr ItType Forwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.next())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(fVal, sVal, GraphemeIterator<ItType>{ fIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+			static constexpr ItType Backwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.prev())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(sVal, fVal, GraphemeIterator<ItType>{ sIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+		};
+		class GraphemeForward {
+			friend struct detail::GraphemeBreak;
+			using Host = detail::GraphemeBreak;
+		private:
+			enum class GB9cState : uint8_t {
+				none,
+				linker,
+				match
+			};
+			enum class GB11State : uint8_t {
+				none,
+				zwj,
+				match
+			};
+
+		private:
+			GB9cState pGB9cState = GB9cState::none;
+			GB11State pGB11State = GB11State::none;
+			Host::Type pLast = Host::Type::other;
+			bool pRICountOdd = false;
+
+		public:
+			constexpr GraphemeForward() {}
+
+		private:
+			constexpr bool fGB9cHasConsonant() const {
+				return (pGB9cState == GB9cState::match);
+			}
+			constexpr bool fGB11HasExtPicto() const {
+				return (pGB11State == GB11State::match);
+			}
+			constexpr bool fIsRIChainEven() const {
+				/* check if odd, as it already contains the trailing RI on the left side of GB12/GB13 */
+				return pRICountOdd;
+			}
+
+		private:
+			constexpr GB9cState fUpdateGB9cState(Host::Type l) const {
+				if (l == Host::Type::inCBConsonant)
 					return GB9cState::linker;
 
 				if (pGB9cState == GB9cState::linker) {
-					if ((l & detail::gen::GraphemeIsInCBExtend) != 0)
+					if (l == Host::Type::inCBExtend || l == Host::Type::extendInCBExtend || l == Host::Type::zwjInCBExtend)
 						return GB9cState::linker;
-					if ((l & detail::gen::GraphemeIsInCBLinker) != 0)
+					if (l == Host::Type::inCBLinker || l == Host::Type::extendInCBLinker)
 						return GB9cState::match;
 				}
-				else if (pGB9cState == GB9cState::match && (l & (detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBLinker)) != 0)
-					return GB9cState::match;
+				else if (pGB9cState == GB9cState::match) {
+					if (l == Host::Type::inCBExtend || l == Host::Type::extendInCBExtend || l == Host::Type::zwjInCBExtend)
+						return GB9cState::match;
+					if (l == Host::Type::inCBLinker || l == Host::Type::extendInCBLinker)
+						return GB9cState::match;
+				}
 				return GB9cState::none;
 			}
-			constexpr GB11State fUpdateGB11State(Type l) const {
-				if (l == Type::extendedPictographic)
+			constexpr GB11State fUpdateGB11State(Host::Type l) const {
+				if (l == Host::Type::extendedPictographic)
 					return GB11State::zwj;
 
 				if (pGB11State == GB11State::zwj) {
-					if (l == Type::extend)
+					if (l == Host::Type::extendDef || l == Host::Type::extendInCBExtend || l == Host::Type::extendInCBLinker)
 						return GB11State::zwj;
-					if (l == Type::zwj)
+					if (l == Host::Type::zwjDef || l == Host::Type::zwjInCBExtend)
 						return GB11State::match;
 				}
 				return GB11State::none;
@@ -235,31 +373,295 @@ namespace cp {
 		public:
 			constexpr void first(uint32_t raw) {
 				/* GB1: initialize the state */
-				pLast = ((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
+				pLast = static_cast<Host::Type>((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
 			}
 			constexpr bool next(uint32_t raw) {
 				/* GB2: no special handling for cleanup necessary */
-				raw = ((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
-				Type left = static_cast<Type>(pLast & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
-				Type right = static_cast<Type>(raw & ~(detail::gen::GraphemeIsInCBExtend | detail::gen::GraphemeIsInCBConsonant | detail::gen::GraphemeIsInCBLinker));
+				Host::Type left = pLast, right = static_cast<Host::Type>((raw >> detail::gen::GraphemeSegmentationOff) & detail::gen::SegmentationMask);
 
 				/* update the states */
-				pGB9cState = fUpdateGB9cState(pLast);
+				pGB9cState = fUpdateGB9cState(left);
 				pGB11State = fUpdateGB11State(left);
-				pRICountOdd = (left == Type::regionalIndicator ? !pRICountOdd : false);
-				pLast = raw;
+				pRICountOdd = (left == Host::Type::regionalIndicator ? !pRICountOdd : false);
+				pLast = right;
 
 				/* check if the two values should be separated */
-				return (fCheck(left, right, (raw & detail::gen::GraphemeIsInCBConsonant) != 0) == Break::separate);
+				return (Host::Test(left, right, *this) == Host::Break::separate);
 			}
 		};
 
-		template <class SinkType, class PayloadType>
-		class WordBreak {
-		private:
+		struct WordBreak {
+			static_assert(size_t(detail::gen::WordType::_last) == 21, "Only types 0-20 are known by the state-machine");
+		public:
 			using Type = detail::gen::WordType;
-			static_assert(size_t(Type::_last) == 19, "Only types 0-18 are known by the state-machine");
+			enum class Break : uint8_t {
+				separate,
+				combine,
+				uncertain
+			};
 
+		public:
+			static constexpr Type GetType(char32_t cp) {
+				return static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
+			}
+			template <class SelfType>
+			static constexpr Break Test(Type l, Type r, SelfType&& self) {
+				switch (r) {
+				case Type::lf:
+					/* WB3 */
+					if (l == Type::cr)
+						return Break::combine;
+					[[fallthrough]];
+				case Type::newline:
+				case Type::cr:
+					/* WB3b */
+					return Break::separate;
+				case Type::extend:
+				case Type::format:
+				case Type::zwj:
+					/* WB3c */
+					if (l == Type::newline || l == Type::cr || l == Type::lf)
+						return Break::separate;
+					/* WB4 */
+					return Break::combine;
+				case Type::wSegSpace:
+					/* Wb3d */
+					if (l == Type::wSegSpace)
+						return Break::combine;
+					break;
+				case Type::extendedPictographic:
+				case Type::aLetterExtendedPictographic:
+					/* WB3c */
+					if (l == Type::zwj)
+						return Break::combine;
+					break;
+				}
+
+				switch (self.fWB4SkipIgnorables(l)) {
+				case Type::cr:
+				case Type::newline:
+				case Type::lf:
+					/* WB3a */
+					return Break::separate;
+				case Type::hebrewLetter:
+					/* WB7b/WB7c */
+					if (r == Type::doubleQuote)
+						return self.fWB7bCheck();
+
+					/* WB7a */
+					if (r == Type::singleQuote)
+						return self.fWB7aCheck();
+					[[fallthrough]];
+				case Type::aLetterDef:
+				case Type::aLetterExtendedPictographic:
+					/* WB5/WB9 */
+					if (r == Type::aLetterDef || r == Type::aLetterExtendedPictographic || r == Type::hebrewLetter || r == Type::numeric)
+						return Break::combine;
+
+					/* WB6/WB7 */
+					if (r == Type::midLetter || r == Type::midNumLetter || r == Type::singleQuote)
+						return self.fWB6Check();
+
+					/* partial: WB13a */
+					if (r == Type::extendNumLet)
+						return Break::combine;
+					break;
+				case Type::numeric:
+					/* WB8/WB10 */
+					if (r == Type::numeric || r == Type::aLetterDef || r == Type::aLetterExtendedPictographic || r == Type::hebrewLetter)
+						return Break::combine;
+
+					/* partial: WB13a */
+					if (r == Type::extendNumLet)
+						return Break::combine;
+
+					/* WB11/WB12 */
+					if (r == Type::midNum || r == Type::midNumLetter || r == Type::singleQuote)
+						return self.fWB12Check();
+					break;
+				case Type::katakana:
+					/* WB13 */
+					if (r == Type::katakana)
+						return Break::combine;
+
+					/* partial: WB13a */
+					if (r == Type::extendNumLet)
+						return Break::combine;
+					break;
+				case Type::midNum:
+					/* WB11 */
+					if (r == Type::numeric)
+						return self.fWB11Check();
+					break;
+				case Type::midNumLetter:
+				case Type::singleQuote:
+					/* WB11 */
+					if (r == Type::numeric)
+						return self.fWB11Check();
+					[[fallthrough]];
+				case Type::midLetter:
+					/* WB7 */
+					if (r == Type::aLetterDef || r == Type::aLetterExtendedPictographic || r == Type::hebrewLetter)
+						return self.fWB7Check();
+					break;
+				case Type::doubleQuote:
+					/* WB7c */
+					if (r == Type::hebrewLetter)
+						return self.fWB7cCheck();
+					break;
+				case Type::extendNumLet:
+					/* partial: WB13a */
+					if (r == Type::extendNumLet)
+						return Break::combine;
+
+					/* WB13b */
+					if (r == Type::aLetterDef || r == Type::aLetterExtendedPictographic || r == Type::hebrewLetter || r == Type::numeric || r == Type::katakana)
+						return Break::combine;
+					break;
+				case Type::regionalIndicator:
+					/* WB15/WB16 */
+					if (r == Type::regionalIndicator && self.fIsLeftRIOdd())
+						return Break::combine;
+					break;
+				}
+
+				/* WB999 */
+				return Break::separate;
+			}
+		};
+		template <class ItType>
+		class WordIterator {
+			friend struct detail::WordBreak;
+			using Host = detail::WordBreak;
+		private:
+			ItType& pLeft;
+			ItType& pRight;
+
+		private:
+			constexpr WordIterator(ItType& l, ItType& r) : pLeft{ l }, pRight{ r } {}
+
+		private:
+			Host::Type fGetPrev() const {
+				ItType t = pLeft;
+				bool firstReached = false;
+				do {
+					Host::Type type = Host::GetType(t.get());
+					if (type == Host::Type::extend || type == Host::Type::format || type == Host::Type::zwj)
+						continue;
+					if (firstReached)
+						return type;
+					firstReached = true;
+				} while (t.prev());
+				return Host::Type::other;
+			}
+			Host::Type fGetNext() const {
+				ItType t = pRight;
+				while (t.next()) {
+					Host::Type type = Host::GetType(t.get());
+					if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
+						return type;
+				}
+				return Host::Type::other;
+			}
+
+		private:
+			constexpr Host::Type fWB4SkipIgnorables(Host::Type l) const {
+				ItType t = pLeft;
+				while ((l == Host::Type::extend || l == Host::Type::format || l == Host::Type::zwj) && t.prev())
+					l = Host::GetType(t.get());
+				return l;
+			}
+			constexpr Host::Break fWB6Check() const {
+				Host::Type r = fGetNext();
+				if (r == Host::Type::aLetterDef || r == Host::Type::aLetterExtendedPictographic || r == Host::Type::hebrewLetter)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB7Check() const {
+				Host::Type r = fGetPrev();
+				if (r == Host::Type::aLetterDef || r == Host::Type::aLetterExtendedPictographic || r == Host::Type::hebrewLetter)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB7aCheck() const {
+				return Host::Break::combine;
+			}
+			constexpr Host::Break fWB7bCheck() const {
+				if (fGetNext() == Host::Type::hebrewLetter)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB7cCheck() const {
+				if (fGetPrev() == Host::Type::hebrewLetter)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB11Check() const {
+				if (fGetPrev() == Host::Type::numeric)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB12Check() const {
+				if (fGetNext() == Host::Type::numeric)
+					return Host::Break::combine;
+				return Host::Break::separate;
+			}
+			constexpr bool fIsLeftRIOdd() const {
+				ItType t = pLeft;
+				size_t count = 0;
+				Host::Type type{};
+				do {
+					type = Host::GetType(t.get());
+					if (type == Host::Type::regionalIndicator)
+						++count;
+					else if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
+						break;
+				} while (t.prev());
+				return ((count & 0x01) != 0);
+			}
+
+		public:
+			static constexpr ItType Forwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.next())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(fVal, sVal, WordIterator<ItType>{ fIt, sIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+			static constexpr ItType Backwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.prev())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(sVal, fVal, WordIterator<ItType>{ sIt, fIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+		};
+		template <class SinkType, class PayloadType>
+		class WordForward {
+			friend struct detail::WordBreak;
+			using Host = detail::WordBreak;
 		private:
 			enum class State : uint8_t {
 				none,
@@ -274,182 +676,104 @@ namespace cp {
 				combineExcludingRight,
 				breakBeforeCached
 			};
-			enum class Break : uint8_t {
-				separate,
-				combine,
-				uncertain
-			};
 
 		private:
 			detail::LocalBuffer<PayloadType, 2> pCache;
 			SinkType pSink;
 			PayloadType pUncertainPayload{};
-			Type pLast = Type::other;
-			Type pLastActual = Type::other;
+			Host::Type pLast = Host::Type::other;
+			Host::Type pLastActual = Host::Type::other;
 			State pState = State::none;
-			int8_t pRICountEven = -1;
+			bool pRICountOdd = false;
 
 		public:
-			constexpr WordBreak(SinkType&& sink) : pSink{ sink } {}
+			constexpr WordForward(SinkType&& sink) : pSink{ sink } {}
 
 		private:
-			constexpr Continue fCheckState(Type right) const {
+			constexpr Host::Type fWB4SkipIgnorables(Host::Type) const {
+				return pLast;
+			}
+			constexpr Host::Break fWB6Check() {
+				pState = State::wb6;
+				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fWB7Check() const {
+				/* never needs to be checked separately (implicitly handled by WB6) */
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB7aCheck() {
+				pState = State::wb7a;
+				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fWB7bCheck() {
+				pState = State::wb7b;
+				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fWB7cCheck() const {
+				/* never needs to be checked separately (implicitly handled by WB7b) */
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB11Check() const {
+				/* never needs to be checked separately (implicitly handled by WB12) */
+				return Host::Break::separate;
+			}
+			constexpr Host::Break fWB12Check() {
+				pState = State::wb11;
+				return Host::Break::uncertain;
+			}
+			constexpr bool fIsLeftRIOdd() const {
+				return pRICountOdd;
+			}
+
+		private:
+			constexpr Continue fCheckState(Host::Type right) const {
 				/* right will be 'other' for the final iteration and automatically clean it up properly */
 
 				/* check if this is a silent reduction */
-				if (right == Type::extend || right == Type::format || right == Type::zwj)
+				if (right == Host::Type::extend || right == Host::Type::format || right == Host::Type::zwj)
 					return Continue::uncertain;
 
 				/* cleanup the state */
 				switch (pState) {
 				case State::wb6:
-					if (right == Type::aLetter || right == Type::hebrewLetter)
+					if (right == Host::Type::aLetterDef || right == Host::Type::aLetterExtendedPictographic || right == Host::Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
 				case State::wb7a:
-					if (right == Type::aLetter || right == Type::hebrewLetter)
+					if (right == Host::Type::aLetterDef || right == Host::Type::aLetterExtendedPictographic || right == Host::Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::combineExcludingRight;
 				case State::wb7b:
-					if (right == Type::hebrewLetter)
+					if (right == Host::Type::hebrewLetter)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
 				case State::wb11:
-					if (right == Type::numeric)
+					if (right == Host::Type::numeric)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
 				}
 				return Continue::combineExcludingRight;
 			}
-			constexpr Break fCheck(Type l, Type lActual, Type r, bool rPictographic) {
-				switch (lActual) {
-				case Type::cr:
-					/* WB3 */
-					if (r == Type::lf)
-						return Break::combine;
-					[[fallthrough]];
-				case Type::newline:
-				case Type::lf:
-					/* WB3a */
-					return Break::separate;
-				case Type::zwj:
-					/* WB3c */
-					if (rPictographic)
-						return Break::combine;
-					break;
-				case Type::wSegSpace:
-					/* WB3d */
-					if (r == Type::wSegSpace)
-						return Break::combine;
-					break;
+			constexpr void fUpdateLeft(Host::Type r) {
+				/* update the regionalIndicator counter and update the last-state */
+				if (r != Host::Type::extend && r != Host::Type::format && r != Host::Type::zwj) {
+					pRICountOdd = (r == Host::Type::regionalIndicator ? !pRICountOdd : false);
+					pLast = r;
 				}
-
-				/* WB3b */
-				if (r == Type::newline || r == Type::cr || r == Type::lf)
-					return Break::separate;
-
-				/* WB4 */
-				if (r == Type::extend || r == Type::format || r == Type::zwj)
-					return Break::combine;
-
-				/* handle the remaining cases based on the left-side type */
-				switch (l) {
-				case Type::hebrewLetter:
-					/* WB7b/WB7c */
-					if (r == Type::doubleQuote) {
-						pState = State::wb7b;
-						return Break::uncertain;
-					}
-
-					/* WB7a */
-					if (r == Type::singleQuote) {
-						pState = State::wb7a;
-						return Break::uncertain;
-					}
-					[[fallthrough]];
-				case Type::aLetter:
-					/* WB5/WB9 */
-					if (r == Type::aLetter || r == Type::hebrewLetter || r == Type::numeric)
-						return Break::combine;
-
-					/* WB6/WB7 */
-					if (r == Type::midLetter || r == Type::midNumLetter || r == Type::singleQuote) {
-						pState = State::wb6;
-						return Break::uncertain;
-					}
-
-					/* partial: WB13a */
-					if (r == Type::extendNumLet)
-						return Break::combine;
-					return Break::separate;
-				case Type::numeric:
-					/* WB8/WB10 */
-					if (r == Type::numeric || r == Type::aLetter || r == Type::hebrewLetter)
-						return Break::combine;
-
-					/* partial: WB13a */
-					if (r == Type::extendNumLet)
-						return Break::combine;
-
-					/* WB11/WB12 */
-					if (r == Type::midNum || r == Type::midNumLetter || r == Type::singleQuote) {
-						pState = State::wb11;
-						return Break::uncertain;
-					}
-					return Break::separate;
-				case Type::katakana:
-					/* WB13 */
-					if (r == Type::katakana)
-						return Break::combine;
-
-					/* partial: WB13a */
-					if (r == Type::extendNumLet)
-						return Break::combine;
-					return Break::separate;
-				case Type::extendNumLet:
-					/* partial: WB13a */
-					if (r == Type::extendNumLet)
-						return Break::combine;
-
-					/* WB13b */
-					if (r == Type::aLetter || r == Type::hebrewLetter || r == Type::numeric || r == Type::katakana)
-						return Break::combine;
-					return Break::separate;
-				case Type::regionalIndicator:
-					/* WB15/WB16 */
-					if (pRICountEven == 1)
-						return Break::combine;
-					return Break::separate;
-				}
-
-				/* WB999 */
-				return Break::separate;
+				pLastActual = r;
 			}
 
 		public:
 			constexpr void first(char32_t cp) {
-				uint8_t raw = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
-				Type right = static_cast<Type>(raw & ~detail::gen::WordIsPictographic);
+				Host::Type right = Host::GetType(cp);
 
-				/* WB1: initialize the regionalIndicator counter and the last-state */
-				pRICountEven = (right == Type::regionalIndicator ? 0 : -1);
+				/* WB1: initialize the last-state */
+				pRICountOdd = (right == Host::Type::regionalIndicator ? !pRICountOdd : false);
 				pLast = right;
 				pLastActual = right;
 			}
 			constexpr void next(char32_t cp, const PayloadType& payload) {
-				uint8_t raw = ((detail::gen::GetSegmentation(cp) >> detail::gen::WordSegmentationOff) & detail::gen::SegmentationMask);
-				Type right = static_cast<Type>(raw & ~detail::gen::WordIsPictographic);
-
-				/* update the regionalIndicator counter and update the last-state */
-				Type left = pLast, lActual = pLastActual;
-				if (right != Type::extend && right != Type::format && right != Type::zwj) {
-					if (right != Type::regionalIndicator)
-						pRICountEven = -1;
-					else
-						pRICountEven = (pRICountEven < 0 ? 0 : 1 - pRICountEven);
-					pLast = right;
-				}
-				pLastActual = right;
+				Host::Type right = Host::GetType(cp);
 
 				/* check if a current state for longer chains has been entered and handle it */
 				if (pState != State::none) {
@@ -457,6 +781,7 @@ namespace cp {
 					Continue cont = fCheckState(right);
 					if (cont == Continue::uncertain) {
 						pCache.push(payload);
+						fUpdateLeft(right);
 						return;
 					}
 					pState = State::none;
@@ -469,22 +794,24 @@ namespace cp {
 					/* check if the upcoming element can be consumed as well */
 					if (cont == Continue::combineIncludingRight) {
 						pSink(payload, false);
+						fUpdateLeft(right);
 						return;
 					}
 				}
 
 				/* check the current values and update the state */
-				switch (fCheck(left, lActual, right, (raw & detail::gen::WordIsPictographic) != 0)) {
-				case Break::combine:
+				switch (Host::Test(pLastActual, right, *this)) {
+				case Host::Break::combine:
 					pSink(payload, false);
 					break;
-				case Break::separate:
+				case Host::Break::separate:
 					pSink(payload, true);
 					break;
-				case Break::uncertain:
+				case Host::Break::uncertain:
 					pUncertainPayload = payload;
 					break;
 				}
+				fUpdateLeft(right);
 			}
 			constexpr void done() {
 				/* WB2: check if a cached state needs to be ended */
@@ -492,19 +819,16 @@ namespace cp {
 					return;
 
 				/* flush the cached characters */
-				pSink(pUncertainPayload, fCheckState(Type::other) == Continue::breakBeforeCached);
+				pSink(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached);
 				while (pCache.size() > 0)
 					pSink(pCache.pop(), false);
 			}
 		};
 
-		template <class SinkType, class PayloadType>
-		class SentenceBreak {
-		private:
+		struct SentenceBreak {
+			static_assert(size_t(detail::gen::SentenceType::_last) == 15, "Only types 0-14 are known by the state-machine");
+		public:
 			using Type = detail::gen::SentenceType;
-			static_assert(size_t(Type::_last) == 15, "Only types 0-14 are known by the state-machine");
-
-		private:
 			enum class Break : uint8_t {
 				separate,
 				combine,
@@ -512,212 +836,341 @@ namespace cp {
 			};
 			enum class Chain : uint8_t {
 				none,
+				lowUp,
+				aTermLowUp,
+				aTerm,
+				sTerm,
 				aClose,
 				sClose,
 				aSpace,
-				sSpace,
-				paraSep
+				sSpace
 			};
-			enum class SB7State : uint8_t {
-				none,
-				aTerm,
-				match
-			};
+
+		public:
+			static constexpr Type GetType(char32_t cp) {
+				return static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
+			}
+			template <class SelfType>
+			static constexpr Break Test(Type l, Type r, SelfType&& self) {
+				/* SB3/SB4 */
+				if (l == Type::cr)
+					return (r == Type::lf ? Break::combine : Break::separate);
+				if (l == Type::lf || l == Type::separator)
+					return Break::separate;
+
+				Chain c = self.fGetChainState();
+				switch (r) {
+				case Type::extend:
+				case Type::format:
+					/* SB4 */
+					return Break::combine;
+
+				case Type::numeric:
+					/* SB6 */
+					if (c == Chain::aTermLowUp || c == Chain::aTerm)
+						return Break::combine;
+
+					/* SB8 */
+					if (c == Chain::aClose || c == Chain::aSpace)
+						return self.fSB8Check();
+					break;
+				case Type::upper:
+					/* SB7 */
+					if (c == Chain::aTermLowUp)
+						return Break::combine;
+					break;
+				case Type::close:
+					/* SB8 */
+					if (c == Chain::aSpace)
+						return self.fSB8Check();
+
+					/* SB9 */
+					if (c != Chain::none && c != Chain::lowUp && c != Chain::sSpace)
+						return Break::combine;
+					break;
+				case Type::sContinue:
+				case Type::aTerm:
+				case Type::sTerm:
+					/* SB8a */
+					if (c != Chain::none && c != Chain::lowUp)
+						return Break::combine;
+					break;
+				case Type::space:
+				case Type::separator:
+				case Type::cr:
+				case Type::lf:
+					/* SB10 */
+					if (c != Chain::none && c != Chain::lowUp)
+						return Break::combine;
+					break;
+				case Type::lower:
+					/* SB8 */
+					if (c == Chain::aTermLowUp || c == Chain::aTerm || c == Chain::aClose || c == Chain::aSpace)
+						return Break::combine;
+					break;
+				case Type::other:
+					/* SB8 */
+					if (c == Chain::aTermLowUp || c == Chain::aTerm || c == Chain::aClose || c == Chain::aSpace)
+						return self.fSB8Check();
+					break;
+				}
+
+				/* SB11 */
+				if (c != Chain::none && c != Chain::lowUp)
+					return Break::separate;
+
+				/* SB998 */
+				return Break::combine;
+			}
+		};
+		template <class ItType>
+		struct SentenceIterator {
+			friend struct detail::SentenceBreak;
+			using Host = detail::SentenceBreak;
+		private:
+			ItType& pLeft;
+			ItType& pRight;
+
+		private:
+			constexpr SentenceIterator(ItType& l, ItType& r) : pLeft{ l }, pRight{ r } {}
+
+		private:
+			constexpr Host::Chain fGetChainState() const {
+				ItType t = pLeft;
+				bool hasSpace = false, hasClose = false, hasATerm = false;
+
+				do {
+					switch (Host::GetType(t.get())) {
+					case Host::Type::lower:
+					case Host::Type::upper:
+						return (hasATerm ? Host::Chain::aTermLowUp : Host::Chain::lowUp);
+					case Host::Type::sTerm:
+						if (hasATerm)
+							return Host::Chain::aTerm;
+						if (hasSpace)
+							return Host::Chain::sSpace;
+						return (hasClose ? Host::Chain::sClose : Host::Chain::sTerm);
+					case Host::Type::aTerm:
+						if (hasATerm)
+							return Host::Chain::aTerm;
+						if (hasSpace)
+							return Host::Chain::aSpace;
+						if (hasClose)
+							return Host::Chain::aClose;
+						hasATerm = true;
+						break;
+					case Host::Type::close:
+						if (hasATerm)
+							return Host::Chain::aTerm;
+						hasClose = true;
+						break;
+					case Host::Type::space:
+						if (hasATerm)
+							return Host::Chain::aTerm;
+						if (hasClose)
+							return Host::Chain::none;
+						hasSpace = true;
+						break;
+					case Host::Type::extend:
+					case Host::Type::format:
+						break;
+					default:
+						return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
+					}
+				} while (t.prev());
+				return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
+			}
+			constexpr Host::Break fSB8Check() const {
+				ItType t = pRight;
+
+				while (t.next()) {
+					Host::Type type = Host::GetType(t.get());
+					if (type == Host::Type::lower)
+						return Host::Break::combine;
+					if (type != Host::Type::other && type != Host::Type::extend && type != Host::Type::format && type != Host::Type::space &&
+						type != Host::Type::numeric && type != Host::Type::sContinue && type != Host::Type::close)
+						break;
+				}
+				return Host::Break::separate;
+			}
+
+		public:
+			static constexpr ItType Forwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.next())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(fVal, sVal, SentenceIterator<ItType>{ fIt, sIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+			static constexpr ItType Backwards(ItType fIt) {
+				/* fetch the initial type */
+				ItType sIt = fIt;
+				Host::Type fVal = Host::GetType(fIt.get());
+				while (true) {
+					/* check if the next token exists, and otherwise this is the last character before the break
+					*	(this also ensures that a fully invalid iterator will immediately be returned as-is) */
+					if (!sIt.prev())
+						return fIt;
+					Host::Type sVal = Host::GetType(sIt.get());
+
+					/* check if the edge exists between the two slots and otherwise step once to the right */
+					if (Host::Test(sVal, fVal, SentenceIterator<ItType>{ sIt, fIt }) == Host::Break::separate)
+						return fIt;
+					fIt = sIt;
+					fVal = sVal;
+				}
+			}
+		};
+		template <class SinkType, class PayloadType>
+		class SentenceForward {
+			friend struct detail::SentenceBreak;
+			using Host = detail::SentenceBreak;
+		private:
 			struct Cache {
 				PayloadType payload{};
-				Type type = Type::other;
+				Host::Type type = Host::Type::other;
 			};
 
 		private:
 			detail::LocalBuffer<Cache, 2> pCache;
 			PayloadType pUncertainPayload{};
 			SinkType pSink;
-			Type pLast = Type::other;
-			Type pActual = Type::other;
-			Chain pChain = Chain::none;
-			SB7State pSB7State = SB7State::none;
+			Host::Type pLast = Host::Type::other;
+			Host::Chain pChain = Host::Chain::none;
 			bool pUncertain = false;
 
 		public:
-			constexpr SentenceBreak(SinkType&& sink) : pSink{ sink } {}
+			constexpr SentenceForward(SinkType&& sink) : pSink{ sink } {}
 
 		private:
-			constexpr Chain fChainState(Type l) const {
-				if (l == Type::aTerm)
-					return Chain::aClose;
-				if (l == Type::sTerm)
-					return Chain::sClose;
-
-				if (l == Type::separator || l == Type::cr || l == Type::lf)
-					return (pChain == Chain::none ? Chain::none : Chain::paraSep);
-
-				switch (pChain) {
-				case Chain::aClose:
-					if (l == Type::close)
-						return Chain::aClose;
-					if (l == Type::space)
-						return Chain::aSpace;
-					break;
-				case Chain::sClose:
-					if (l == Type::close)
-						return Chain::sClose;
-					if (l == Type::space)
-						return Chain::sSpace;
-					break;
-				case Chain::aSpace:
-					if (l == Type::space)
-						return Chain::aSpace;
-					break;
-				case Chain::sSpace:
-					if (l == Type::space)
-						return Chain::sSpace;
-					break;
-				}
-				return Chain::none;
+			constexpr Host::Chain fGetChainState() const {
+				return pChain;
 			}
-			constexpr SB7State fSB7State(Type l) const {
-				if (l == Type::upper || l == Type::lower)
-					return SB7State::aTerm;
-				if (pSB7State == SB7State::aTerm && l == Type::aTerm)
-					return SB7State::match;
-				return SB7State::none;
+			constexpr Host::Break fSB8Check() const {
+				return Host::Break::uncertain;
 			}
-			constexpr Break fNext(Type r) {
-				bool isExtFmt = (r == Type::extend || r == Type::format);
 
-				/* update the last-states and the state-machine */
-				Type l = pLast, lActual = pActual;
-				if (!isExtFmt) {
-					pChain = fChainState(l);
-					pSB7State = fSB7State(l);
-					pLast = r;
+		private:
+			constexpr Host::Chain fUpdateChain(Host::Type r) const {
+				/* check if the character is excluded from modifying the state-machine */
+				if (r == Host::Type::extend || r == Host::Type::format)
+					return pChain;
+
+				/* update the state-machine based on the next character and current state */
+				switch (r) {
+				case Host::Type::lower:
+				case Host::Type::upper:
+					return Host::Chain::lowUp;
+				case Host::Type::aTerm:
+					if (pChain == Host::Chain::lowUp)
+						return Host::Chain::aTermLowUp;
+					return Host::Chain::aTerm;
+				case Host::Type::sTerm:
+					return Host::Chain::sTerm;
+				case Host::Type::close:
+					if (pChain == Host::Chain::aTerm || pChain == Host::Chain::aTermLowUp || pChain == Host::Chain::aClose)
+						return Host::Chain::aClose;
+					if (pChain == Host::Chain::sTerm || pChain == Host::Chain::sClose)
+						return Host::Chain::sClose;
+					break;
+				case Host::Type::space:
+					if (pChain == Host::Chain::sTerm || pChain == Host::Chain::sClose || pChain == Host::Chain::sSpace)
+						return Host::Chain::sSpace;
+					else if (pChain != Host::Chain::none)
+						return Host::Chain::aSpace;
+					break;
 				}
-				pActual = r;
-
-				/* SB3/SB4 */
-				if (lActual == Type::cr || lActual == Type::lf || lActual == Type::separator) {
-					if (lActual == Type::cr && r == Type::lf)
-						return Break::combine;
-					pLast = r;
-					return Break::separate;
-				}
-
-				/* fast-path */
-				if (l == Type::other)
-					return Break::combine;
-
-				/* SB5 */
-				if (isExtFmt)
-					return Break::combine;
-
-				/* SB6/SB7 */
-				if (l == Type::aTerm) {
-					if (r == Type::numeric)
-						return Break::combine;
-					if (pSB7State == SB7State::match && r == Type::upper)
-						return Break::combine;
-				}
-
-				/* SB9/SB10 partial (consume as many spaces/closes as possible) */
-				if (pChain == Chain::aClose || pChain == Chain::sClose) {
-					if (r == Type::close || r == Type::space)
-						return Break::combine;
-				}
-				else if ((pChain == Chain::aSpace || pChain == Chain::sSpace) && r == Type::space)
-					return Break::combine;
-
-				/* SB8a */
-				if (pChain != Chain::none && pChain != Chain::paraSep && (r == Type::sContinue || r == Type::sTerm || r == Type::aTerm))
-					return Break::combine;
-
-				/* SB8 */
-				if (pChain == Chain::aClose || pChain == Chain::aSpace) {
-					if (r == Type::lower)
-						return Break::combine;
-					if (r == Type::other || r == Type::numeric || r == Type::close)
-						return Break::uncertain;
-				}
-
-				if (r == Type::cr || r == Type::lf || r == Type::separator) {
-					/* SB9/SB10 rest */
-					if (pChain != Chain::none && pChain != Chain::paraSep)
-						return Break::combine;
-				}
-
-				/* SB11 */
-				if (pChain != Chain::none)
-					return Break::separate;
-
-				/* SB998 */
-				return Break::combine;
+				return Host::Chain::none;
 			}
-			constexpr Break fCloseState(Type r) const {
+			constexpr Host::Break fCheckState(Host::Type r) const {
 				/* check if a determined end has been encountered */
-				if (r == Type::lower)
-					return Break::combine;
+				if (r == Host::Type::lower)
+					return Host::Break::combine;
 
 				/* check if the chain remains uncertain */
-				if (r == Type::other || r == Type::extend || r == Type::format || r == Type::space || r == Type::numeric || r == Type::sContinue || r == Type::close)
-					return Break::uncertain;
-				return Break::separate;
+				if (r == Host::Type::other || r == Host::Type::extend || r == Host::Type::format || r == Host::Type::space ||
+					r == Host::Type::numeric || r == Host::Type::sContinue || r == Host::Type::close)
+					return Host::Break::uncertain;
+				return Host::Break::separate;
 			}
 			template <bool IsCleanup>
-			constexpr void fProcessQueue(Break brk) {
+			constexpr void fProcessQueue(Host::Break _break) {
 				/* process the cached characters */
 				while (true) {
 					/* check if the last state needs to be forcefully aborted or if the result is incomplete */
-					if (brk == Break::uncertain) {
+					if (_break == Host::Break::uncertain) {
 						if constexpr (!IsCleanup)
 							return;
-						brk = Break::separate;
+						_break = Host::Break::separate;
 					}
-					pSink(pUncertainPayload, brk == Break::separate);
+					pSink(pUncertainPayload, _break == Host::Break::separate);
 
 					/* process the next character */
 					if (pCache.size() == 0) {
 						pUncertain = false;
 						return;
 					}
-					brk = fNext(pCache.front().type);
+					Host::Type right = pCache.front().type;
 					pUncertainPayload = pCache.pop().payload;
+					_break = Host::Test(pLast, right, *this);
+					pLast = right;
+					pChain = fUpdateChain(right);
 
 					/* feed the cached characters to it to try to complete the state */
-					for (size_t i = 0; brk == Break::uncertain && i < pCache.size(); ++i)
-						brk = fCloseState(pCache.get(i).type);
+					for (size_t i = 0; _break == Host::Break::uncertain && i < pCache.size(); ++i)
+						_break = fCheckState(pCache.get(i).type);
 				}
 			}
 
 		public:
 			constexpr void first(char32_t cp) {
 				/* SB1: initialize the state */
-				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
-				pLast = type;
-				pActual = type;
+				pLast = Host::GetType(cp);
+				pChain = fUpdateChain(pLast);
 			}
 			constexpr void next(char32_t cp, const PayloadType& payload) {
-				Type type = static_cast<Type>((detail::gen::GetSegmentation(cp) >> detail::gen::SentenceSegmentationOff) & detail::gen::SegmentationMask);
+				Host::Type right = Host::GetType(cp);
 
 				/* fast-path of not being in a look-ahead state */
 				if (!pUncertain) {
-					if (Break brk = fNext(type); brk != Break::uncertain)
-						pSink(payload, brk == Break::separate);
+					Host::Break _break = Host::Test(pLast, right, *this);
+					if (_break != Host::Break::uncertain)
+						pSink(payload, _break == Host::Break::separate);
 					else {
 						pUncertainPayload = payload;
 						pUncertain = true;
 					}
+					pLast = right;
+					pChain = fUpdateChain(right);
 					return;
 				}
 
 				/* add the character to the cache and update the current state */
-				pCache.push({ payload, type });
-				fProcessQueue<false>(fCloseState(type));
+				pCache.push({ payload, right });
+				fProcessQueue<false>(fCheckState(right));
 			}
 			constexpr void done() {
 				/* SB2: clear the cache and abort the current cached state */
 				if (pUncertain)
-					fProcessQueue<true>(Break::separate);
+					fProcessQueue<true>(Host::Break::separate);
 			}
 		};
+
+
+
+
+
 
 		template <class SinkType, class PayloadType>
 		class LineBreak {
@@ -758,7 +1211,7 @@ namespace cp {
 			};
 
 		private:
-			detail::GraphemeBreak pGrapheme;
+			detail::GraphemeForward pGrapheme;
 			detail::LocalBuffer<Cache, 2> pCache;
 			PayloadType pUncertainPayload{};
 			SinkType pSink;
@@ -1255,15 +1708,15 @@ namespace cp {
 
 				/* check if a current state for longer chains has been entered and handle it */
 				if (pState != State::none) {
-					Break brk = fCheckState(right);
-					if (brk == Break::uncertain) {
+					Break _break = fCheckState(right);
+					if (_break == Break::uncertain) {
 						pCache.push({ payload, (pCheckEmergency != Emergency::emergency) });
 						return;
 					}
 					pState = State::none;
 
 					/* clear all cached characters */
-					fPopQueue(brk == Break::combine);
+					fPopQueue(_break == Break::combine);
 				}
 
 				/* check the current values and update the state */
@@ -1292,6 +1745,9 @@ namespace cp {
 
 
 
+
+
+
 		template <class SinkType>
 		class WordBreakSeparate {
 		private:
@@ -1304,7 +1760,7 @@ namespace cp {
 			};
 
 		private:
-			detail::WordBreak<Lambda, uint8_t> pBreaker;
+			detail::WordForward<Lambda, uint8_t> pBreaker;
 			SinkType pSink;
 			bool pInitialized = false;
 
@@ -1325,9 +1781,6 @@ namespace cp {
 					pBreaker.done();
 			}
 		};
-
-
-
 
 		enum class CaseLocale : uint8_t {
 			none,
@@ -1736,14 +2189,14 @@ namespace cp {
 	}
 
 	/* create a sink, which receives the 'grapheme-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
 	*	OutSink(size_t, bool): insert break before codepoint at given index */
 	class GraphemeBreak {
 	private:
 		template <class SinkType>
 		class Impl {
 		private:
-			detail::GraphemeBreak pBreaker;
+			detail::GraphemeForward pBreaker;
 			SinkType pSink;
 			bool pInitialized = false;
 
@@ -1772,14 +2225,14 @@ namespace cp {
 
 	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
 	*	OutSink(cp::Range): range of a single grapheme-cluster */
 	class GraphemeRanges {
 	private:
 		template <class SinkType>
 		class Impl {
 		private:
-			detail::GraphemeBreak pBreaker;
+			detail::GraphemeForward pBreaker;
 			SinkType pSink;
 			size_t pStart = 0;
 			size_t pLast = 0;
@@ -1820,7 +2273,7 @@ namespace cp {
 
 	/* create a sink, which receives the 'word-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
 	*	OutSink(size_t, bool): insert break before codepoint at given index */
 	class WordBreak {
 	private:
@@ -1836,7 +2289,7 @@ namespace cp {
 			};
 
 		private:
-			detail::WordBreak<Lambda, size_t> pBreaker;
+			detail::WordForward<Lambda, size_t> pBreaker;
 			SinkType pSink;
 			bool pInitialized = false;
 
@@ -1867,7 +2320,7 @@ namespace cp {
 
 	/* create a sink, which splits the stream into ranges of words and writes them to the sink (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
 	*	OutSink(cp::Range): range of a single word */
 	class WordRanges {
 	private:
@@ -1887,7 +2340,7 @@ namespace cp {
 			};
 
 		private:
-			detail::WordBreak<Lambda, size_t> pBreaker;
+			detail::WordForward<Lambda, size_t> pBreaker;
 			SinkType pSink;
 			size_t pStart = 0;
 			size_t pLast = 0;
@@ -1924,7 +2377,7 @@ namespace cp {
 
 	/* create a sink, which receives the 'sentence-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
 	*	OutSink(size_t, bool): insert break before codepoint at given index */
 	class SentenceBreak {
 	private:
@@ -1940,7 +2393,7 @@ namespace cp {
 			};
 
 		private:
-			detail::SentenceBreak<Lambda, size_t> pBreaker;
+			detail::SentenceForward<Lambda, size_t> pBreaker;
 			SinkType pSink;
 			bool pInitialized = false;
 
@@ -1971,7 +2424,7 @@ namespace cp {
 
 	/* create a sink, which splits the stream into ranges of sentence-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
 	*	OutSink(cp::Range): range of a single sentence */
 	class SentenceRanges {
 	private:
@@ -1991,7 +2444,7 @@ namespace cp {
 			};
 
 		private:
-			detail::SentenceBreak<Lambda, size_t> pBreaker;
+			detail::SentenceForward<Lambda, size_t> pBreaker;
 			SinkType pSink;
 			size_t pStart = 0;
 			size_t pLast = 0;
@@ -2028,7 +2481,7 @@ namespace cp {
 
 	/* create a sink, which receives the 'line-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Additionally specify whether to not break grapheme-clusters, produce emergency-breaks (based on grapheme-clusters), or perform default line-breaking
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
 	*	OutSink(size_t, cp::LineMode): insert corresponding break before codepoint at given index */
 	class LineBreak {
 	private:
@@ -2082,7 +2535,7 @@ namespace cp {
 
 	/* create a sink, which splits the stream into ranges of line-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
 	*	Additionally specify whether to not break grapheme-clusters, produce emergency-breaks (based on grapheme-clusters), or perform default line-breaking
-	*	InSink(char32_t, size_t): code-point and index used to reference it in the output-ranges
+	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
 	*	OutSink(cp::LRange): range of a single line-token and corresponding behavior before the range (cp::BreakMode::emergency for first range) */
 	class LineRanges {
 	private:
@@ -2148,9 +2601,56 @@ namespace cp {
 
 
 
+	class GraphemeNext {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::GraphemeIterator<ItType>::Forwards(it);
+		}
+	};
+	class GraphemePrev {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::GraphemeIterator<ItType>::Backwards(it);
+		}
+	};
+
+	class WordNext {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::WordIterator<ItType>::Forwards(it);
+		}
+	};
+	class WordPrev {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::WordIterator<ItType>::Backwards(it);
+		}
+	};
+
+	class SentenceNext {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::SentenceIterator<ItType>::Forwards(it);
+		}
+	};
+	class SentencePrev {
+	public:
+		template <cp::IsCPIterator ItType>
+		constexpr ItType operator()(ItType it) {
+			return detail::SentenceIterator<ItType>::Backwards(it);
+		}
+	};
+
+
+
 	/* create a sink, which writes the upper-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): code-point
-	*	OutSink(char32_t): code-point */
+	*	InSink(char32_t): codepoint
+	*	OutSink(char32_t): codepoint */
 	struct UpperCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -2166,8 +2666,8 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the lower-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): code-point
-	*	OutSink(char32_t): code-point */
+	*	InSink(char32_t): codepoint
+	*	OutSink(char32_t): codepoint */
 	struct LowerCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -2183,8 +2683,8 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the title-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): code-point
-	*	OutSink(char32_t): code-point */
+	*	InSink(char32_t): codepoint
+	*	OutSink(char32_t): codepoint */
 	struct TitleCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;

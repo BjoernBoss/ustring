@@ -1850,6 +1850,10 @@ def MakeMappingLookup(outPath: str, config: SystemConfig):
 		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
 
 # GetSegmentation (encodes: word/grapheme/sentence/line segmentation)
+def _SegmentationMergeConflicts(a: tuple[int], b: tuple[int], conflictMap: dict[tuple[int, int], int], desc: str) -> tuple[int]:
+	if (a[0], b[0]) not in conflictMap:
+		raise RuntimeError(f'Unexpected conflict encountered while merging {desc}')
+	return (conflictMap[(a[0], b[0])],)
 def _CnPictographicMerge(a: tuple[int], idCnPictographic: int, id: int) -> tuple[int]:
 	if a[0] != id:
 		raise RuntimeError('Cn&Extended_Pictographic is expected to at most collide with [ID]')
@@ -1871,31 +1875,26 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 		_type8: LookupType = LookupType.intType(0, 'uint8_t')
 
 		# setup the word-break boundary ranges (https://unicode.org/reports/tr29/#Word_Boundaries)
-		wordIsPictographic = 0x80
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
 			'Katakana': 8, 'Hebrew_Letter': 9, 'ALetter': 10, 'Single_Quote': 11, 'Double_Quote': 12, 'MidNumLet': 13, 'MidLetter': 14,
 			'MidNum': 15, 'Numeric': 16, 'ExtendNumLet': 17, 'WSegSpace': 18 }
 		wordRanges, wordRangesDef = wordBreak.extractAll(1, 0, wordEnumMap)
 		if wordRangesDef != wordEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
-		if len(wordEnumMap) >= wordIsPictographic:
-			raise RuntimeError('Flags too small for word-break enum')
-		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordIsPictographic if fs[0] == 'Extended_Pictographic' else None), lambda a, b: (a[0] | b[0],))
+		wordEnumMap |= { 'Extended_Pictographic': 19, 'ALetterExtendedPictographic': 20 }
+		wordConflictMap = { (wordEnumMap['ALetter'], wordEnumMap['Extended_Pictographic']): wordEnumMap['ALetterExtendedPictographic'] }
+		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None), lambda a, b: _SegmentationMergeConflicts(a, b, wordConflictMap, 'word ranges and emoji properties'))
 
 		# write the word-ranges to the file
-		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetter', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', '_last'])
+		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_last'])
 		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty')
 		segmentationOffset = 0
-		_gen.addConstInt(_type8, 'WordIsPictographic', wordIsPictographic)
 		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (wordRangesDef << segmentationOffset) | segmentationDefValue
 		
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
-		graphemeIsInCBExtend = 0x80
-		graphemeIsInCBConsonant = 0x40
-		graphemeIsInCBLinker = 0x20
 		graphemeEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
 			'Regional_Indicator': 6, 'Prepend': 7, 'SpacingMark': 8, 'L': 9, 'V': 10,
@@ -1904,18 +1903,18 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 		if graphemeRangesDef != graphemeEnumMap['Other']:
 			raise RuntimeError('Default break-value is expected to be [other]')
 		graphemeRanges = Ranges.union(graphemeRanges, emojiData.filter(1, lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
-		if len(graphemeEnumMap) >= min(graphemeIsInCBLinker, graphemeIsInCBExtend, graphemeIsInCBConsonant):
-			raise RuntimeError('Flags too small for word-break enum')
-		InCBMap = { 'Extend': graphemeIsInCBExtend, 'Consonant': graphemeIsInCBConsonant, 'Linker': graphemeIsInCBLinker }
-		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: InCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: (a[0] | b[0],))
+		graphemeEnumMap |= { 'InCBExtend': 15, 'InCBConsonant': 16, 'InCBLinker': 17, 'ExtendInCBExtend': 18, 'ExtendInCBLinker': 19, 'ZWJInCBExtend': 20 }
+		inCBMap = { 'Extend': graphemeEnumMap['InCBExtend'], 'Consonant': graphemeEnumMap['InCBConsonant'], 'Linker': graphemeEnumMap['InCBLinker'] }
+		inCBConflictMap = { 
+			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ExtendInCBExtend'], 
+			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBLinker']): graphemeEnumMap['ExtendInCBLinker'], 
+			(graphemeEnumMap['ZWJ'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ZWJInCBExtend'] }
+		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
 
 		# write the grapheme-ranges to the file
-		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extend', 'zwj', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', '_last'])
+		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_last'])
 		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
 		segmentationOffset += segmentationBits
-		_gen.addConstInt(_type8, 'GraphemeIsInCBExtend', graphemeIsInCBExtend)
-		_gen.addConstInt(_type8, 'GraphemeIsInCBConsonant', graphemeIsInCBConsonant)
-		_gen.addConstInt(_type8, 'GraphemeIsInCBLinker', graphemeIsInCBLinker)
 		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
