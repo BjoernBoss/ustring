@@ -5,8 +5,7 @@
 #include "generated/unicode-property.h"
 
 #include <algorithm>
-#include <string>
-#include <limits>
+#include <type_traits>
 
 /*
 *	CodePoint is identical to char32_t and thereby utf-32
@@ -342,4 +341,20 @@ namespace cp {
 				|| val == detail::gen::CategoryType::cn);
 		}
 	}
+
+	/* valid sinks for char32_t must receive zero or more valid codepoints and a final call to done(), after which
+	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
+	template <class Type, class... ValType>
+	concept IsSink = requires(Type t, ValType... v) {
+		{ t(v...) } -> std::same_as<void>;
+	};
+
+	/* codepoint-iterator must move itself upon prev()/next() and return true, or return false and stay
+	*	and must return the currently pointed to codepoint on get() */
+	template <class Type>
+	concept IsCPIterator = std::copyable<Type> && requires(Type t, const Type ct) {
+		{ t.prev() } -> std::same_as<bool>;
+		{ t.next() } -> std::same_as<bool>;
+		{ ct.get() } -> std::same_as<char32_t>;
+	};
 }
