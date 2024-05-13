@@ -149,7 +149,7 @@ namespace cp {
 		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
-			static_assert(size_t(Cond::_last) == 11, "Only conditions 0-10 are known by the state-machine");
+			static_assert(size_t(Cond::_last) == 12, "Only conditions 0-11 are known by the state-machine");
 
 		private:
 			enum class Condition : uint8_t {
@@ -235,6 +235,10 @@ namespace cp {
 						pAfter.testCombClass = true;
 						return Condition::incomplete;
 					}
+					break;
+				case Cond::trOrAz:
+					if (pLocale == detail::CaseLocale::tr || pLocale == detail::CaseLocale::az)
+						return Condition::match;
 					break;
 				case Cond::lt:
 					if (pLocale == detail::CaseLocale::lt)
@@ -445,42 +449,19 @@ namespace cp {
 		};
 
 		template <class SinkType>
-		class FoldingMapper {
+		class FoldingMapper final : public detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>> {
+			friend class detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>>;
 		private:
-			SinkType pSink;
-			detail::CaseLocale pLocale = detail::CaseLocale::none;
+			using Super = detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>>;
 
 		public:
-			constexpr FoldingMapper(SinkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
+			using Super::Super;
 
 		private:
-			constexpr void fWriteOut(char32_t cp, const uint32_t* data, size_t count) {
-				for (size_t i = 0; i < count; ++i) {
-					if (data[i] & detail::gen::FoldIsNegative)
-						pSink(cp - (data[i] & detail::gen::FoldValueMask));
-					else
-						pSink(cp + (data[i] & detail::gen::FoldValueMask));
-				}
+			constexpr uint32_t fTypeFlag() {
+				return detail::gen::CaseIsFold;
 			}
-
-		public:
-			constexpr void next(char32_t cp) {
-				auto [size, data] = detail::gen::MapFoldAndTest(cp);
-
-				/* fast way out for not t-type */
-				if ((data[0] & detail::gen::FoldIsTType) == 0) {
-					fWriteOut(cp, data, size);
-					return;
-				}
-
-				/* handle the tr/az locales */
-				size_t tSize = (data[0] >> detail::gen::FoldTSizeShift) & detail::gen::FoldSizeMask;
-				if (pLocale == detail::CaseLocale::tr || pLocale == detail::CaseLocale::az)
-					fWriteOut(cp, data + 1, tSize);
-				else
-					fWriteOut(cp, data + 1 + tSize, (data[0] & detail::gen::FoldSizeMask));
-			}
-			constexpr void done() {}
+			constexpr void fDone() {}
 		};
 
 		template <class SelfType>
@@ -494,12 +475,25 @@ namespace cp {
 
 		public:
 			constexpr void next(char32_t cp) {
-				auto [size, data] = detail::gen::MapFoldAndTest(cp);
+				auto [size, data] = detail::gen::MapCase(cp);
 				pChars = true;
 
-				/* check if the character would change */
-				if (data[0] & static_cast<SelfType*>(this)->fTypeFlag())
+				/* check the fast path of no conditions existing if the character would change */
+				if (size == 1) {
+					if (data[0] & static_cast<SelfType*>(this)->fTypeFlag())
+						pMatches = false;
+					return;
+				}
+
+				/* iterate over the conditions and look for any null-conditions */
+				for (size_t i = 0; i < size; i += 2 + size_t(data[i + 1])) {
+					if (static_cast<detail::gen::CaseCond>(data[i] & detail::gen::CaseValueMask) != detail::gen::CaseCond::none)
+						continue;
+					if ((data[i] & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
+						continue;
 					pMatches = false;
+					break;
+				}
 			}
 			constexpr bool done() {
 				return (pChars && pMatches);
@@ -530,7 +524,7 @@ namespace cp {
 
 		private:
 			constexpr uint32_t fTypeFlag() const {
-				return (Super0::lower() ? detail::gen::ChangesWhenLower : detail::gen::ChangesWhenTitle);
+				return (Super0::lower() ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
 			}
 			constexpr void fNext(char32_t cp) {
 				Super1::next(cp);
@@ -553,6 +547,10 @@ namespace cp {
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): upper-cased codepoint(s) */
 	class UpperCase {
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		using Type = detail::UpperMapper<SinkType>;
+
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -560,9 +558,11 @@ namespace cp {
 		constexpr UpperCase(const char8_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
-		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::UpperMapper<SnkType> operator()(SnkType&& sink) {
-			return detail::UpperMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		constexpr Type<SinkType> operator()(SinkType&& sink) {
+			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
 	};
 
@@ -570,6 +570,10 @@ namespace cp {
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): lower-cased codepoint(s) */
 	class LowerCase {
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		using Type = detail::LowerMapper<SinkType>;
+
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -577,9 +581,11 @@ namespace cp {
 		constexpr LowerCase(const char8_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
-		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::LowerMapper<SnkType> operator()(SnkType&& sink) {
-			return detail::LowerMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		constexpr Type<SinkType> operator()(SinkType&& sink) {
+			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
 	};
 
@@ -587,6 +593,10 @@ namespace cp {
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): title-cased codepoint(s) */
 	class TitleCase {
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		using Type = detail::TitleMapper<SinkType>;
+
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -594,9 +604,11 @@ namespace cp {
 		constexpr TitleCase(const char8_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
-		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::TitleMapper<SnkType> operator()(SnkType&& sink) {
-			return detail::TitleMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		constexpr Type<SinkType> operator()(SinkType&& sink) {
+			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
 	};
 
@@ -604,6 +616,10 @@ namespace cp {
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): case-folded codepoint(s) */
 	class FoldCase {
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		using Type = detail::FoldingMapper<SinkType>;
+
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -611,20 +627,22 @@ namespace cp {
 		constexpr FoldCase(const char8_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
-		template <cp::IsSink<char32_t> SnkType>
-		constexpr detail::FoldingMapper<SnkType> operator()(SnkType&& sink) {
-			return detail::FoldingMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+
+	public:
+		template <cp::IsSink<char32_t> SinkType>
+		constexpr Type<SinkType> operator()(SinkType&& sink) {
+			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
 	};
 
 	/* check if the entire stream of codepoints is not empty and upper-cased (i.e. UpperCase(...) would result in the same codepoints) */
-	class TestUpperCase : public detail::TestConstCasing<detail::gen::ChangesWhenUpper> {
+	class TestUpperCase : public detail::TestConstCasing<detail::gen::CaseIsUpper> {
 	public:
 		constexpr TestUpperCase() = default;
 	};
 
 	/* check if the entire stream of codepoints is not empty and lower-cased (i.e. LowerCase(...) would result in the same codepoints) */
-	class TestLowerCase : public detail::TestConstCasing<detail::gen::ChangesWhenLower> {
+	class TestLowerCase : public detail::TestConstCasing<detail::gen::CaseIsLower> {
 	public:
 		constexpr TestLowerCase() = default;
 	};
@@ -636,7 +654,7 @@ namespace cp {
 	};
 
 	/* check if the entire stream of codepoints is not empty and case-folded (i.e. FoldCase(...) would result in the same codepoints) */
-	class TestFoldCase : public detail::TestConstCasing<detail::gen::ChangesWhenFolding> {
+	class TestFoldCase : public detail::TestConstCasing<detail::gen::CaseIsFold> {
 	public:
 		constexpr TestFoldCase() = default;
 	};
