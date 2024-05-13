@@ -6,13 +6,7 @@
 
 #include "generated/unicode-mapping.h"
 
-#include <algorithm>
-#include <string>
-#include <concepts>
-#include <vector>
 #include <utility>
-#include <variant>
-#include <type_traits>
 
 namespace cp {
 	namespace detail {
@@ -542,7 +536,6 @@ namespace cp {
 		};
 	}
 
-
 	/* create a sink, which writes the upper-cased stream to the given sink (will be produced in-order)
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): upper-cased codepoint(s) */
@@ -635,25 +628,29 @@ namespace cp {
 		}
 	};
 
-	/* check if the entire stream of codepoints is not empty and upper-cased (i.e. UpperCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is not empty and upper-cased (i.e. UpperCase(...) would result in the same codepoints; for simplification
+	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
 	class TestUpperCase : public detail::TestConstCasing<detail::gen::CaseIsUpper> {
 	public:
 		constexpr TestUpperCase() = default;
 	};
 
-	/* check if the entire stream of codepoints is not empty and lower-cased (i.e. LowerCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is not empty and lower-cased (i.e. LowerCase(...) would result in the same codepoints; for simplification
+	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
 	class TestLowerCase : public detail::TestConstCasing<detail::gen::CaseIsLower> {
 	public:
 		constexpr TestLowerCase() = default;
 	};
 
-	/* check if the entire stream of codepoints is not empty and title-cased (i.e. TitleCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is not empty and title-cased (i.e. TitleCase(...) would result in the same codepoints; for simplification
+	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
 	class TestTitleCase : public detail::TestTitleCasing {
 	public:
 		constexpr TestTitleCase() = default;
 	};
 
-	/* check if the entire stream of codepoints is not empty and case-folded (i.e. FoldCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is not empty and case-folded (i.e. FoldCase(...) would result in the same codepoints; for simplification
+	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
 	class TestFoldCase : public detail::TestConstCasing<detail::gen::CaseIsFold> {
 	public:
 		constexpr TestFoldCase() = default;
