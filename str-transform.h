@@ -16,37 +16,75 @@
 
 namespace cp {
 	namespace detail {
-		template <class SinkType>
-		class WordBreakSeparate {
+		template <class SelfType>
+		class TitleCasing {
 		private:
 			struct Lambda {
-				WordBreakSeparate<SinkType>& self;
-				constexpr Lambda(WordBreakSeparate<SinkType>& s) : self{ s } {}
-				constexpr void operator()(uint8_t, cp::BreakMode mode) {
-					self.pSink(mode != cp::BreakMode::none);
+				TitleCasing& self;
+				constexpr Lambda(TitleCasing& s) : self{ s } {}
+				constexpr void operator()(size_t, cp::BreakMode mode) {
+					self.fSeparate(mode != cp::BreakMode::none);
 				}
 			};
 
 		private:
-			detail::WordForward<Lambda, uint8_t> pBreaker;
-			SinkType pSink;
-			bool pInitialized = false;
+			detail::LocalBuffer<size_t, 2> pWords;
+			detail::LocalBuffer<char32_t, 2> pChars;
+			cp::WordBreak::Type<Lambda> pSeparator;
+			bool pLower = false;
 
 		public:
-			constexpr WordBreakSeparate(SinkType&& sink) : pBreaker{ Lambda{ *this } }, pSink{ sink } {}
+			constexpr TitleCasing() : pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
+				pWords.push(1);
+			}
 
-		public:
-			constexpr void next(char32_t cp) {
-				if (pInitialized)
-					pBreaker.next(cp, 0);
-				else {
-					pInitialized = true;
-					pBreaker.first(cp);
+		private:
+			constexpr void fSeparate(bool separate) {
+				if (pWords.size() == 0) {
+					pLower = !separate;
+					pWords.push(1);
+				}
+				else if (separate)
+					pWords.push(1);
+				else
+					++pWords.back();
+			}
+
+		protected:
+			constexpr void processed() {
+				pLower = true;
+				if (--pWords.front() == 0) {
+					pWords.pop();
+					pLower = false;
 				}
 			}
 			constexpr void done() {
-				if (pInitialized)
-					pBreaker.done();
+				/* finalize the separator and flush the last cached characters (word-counter can be ignored) */
+				pSeparator.done();
+				while (pChars.size() > 0)
+					static_cast<SelfType*>(this)->fNext(pChars.pop());
+			}
+			constexpr bool lower() const {
+				return pLower;
+			}
+			constexpr void next(char32_t cp) {
+				pSeparator.next(cp, 0);
+
+				/* fast-path of no characters being cached and characters being immediately processable */
+				if (pChars.size() == 0) {
+					static_cast<SelfType*>(this)->fNext(cp);
+					return;
+				}
+
+				/* flush as many of the cached characters as possible */
+				while (pWords.size() > 0 && pChars.size() > 0)
+					static_cast<SelfType*>(this)->fNext(pChars.pop());
+
+				/* process the current most-recent codepoint */
+				if (pWords.size() > 0)
+					static_cast<SelfType*>(this)->fNext(cp);
+				else
+					pChars.push(cp);
 			}
 		};
 
@@ -120,7 +158,7 @@ namespace cp {
 				failed
 			};
 			struct Cache {
-				const int32_t* data = 0;
+				const uint32_t* data = 0;
 				size_t size = 0;
 				char32_t cp = 0;
 			};
@@ -129,10 +167,10 @@ namespace cp {
 			detail::LocalBuffer<Cache, 2> pCached;
 			SinkType pSink;
 			struct {
-				const int32_t* begin = 0;
-				const int32_t* end = 0;
+				const uint32_t* begin = 0;
+				const uint32_t* end = 0;
 				char32_t cp = 0;
-				int32_t first = 0;
+				uint32_t first = 0;
 			} pActive;
 			struct {
 				bool cased = false;
@@ -149,7 +187,7 @@ namespace cp {
 			constexpr CaseMapper(SinkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
 
 		private:
-			constexpr Condition fAfterState(int32_t val) const {
+			constexpr Condition fAfterState(uint32_t val) const {
 				/* check the 'finalSigma: After C' condition (is inverted) */
 				if (pAfter.testNotCased) {
 					if ((val & detail::gen::CaseIsIgnorable) != 0)
@@ -179,7 +217,7 @@ namespace cp {
 					return Condition::failed;
 
 				/* setup the state for the corresponding condition */
-				switch (static_cast<Cond>(*pActive.begin & detail::gen::CaseBitsOfPayload)) {
+				switch (static_cast<Cond>(*pActive.begin & detail::gen::CaseValueMask)) {
 				case Cond::none:
 					return Condition::match;
 				case Cond::finalSigma:
@@ -231,7 +269,7 @@ namespace cp {
 				}
 				return Condition::failed;
 			}
-			constexpr void fCompleteChar(int32_t val) {
+			constexpr void fCompleteChar(uint32_t val) {
 				/* update the state-machine for 'finalSigma: Before C' */
 				if ((val & detail::gen::CaseIsIgnorable) == 0)
 					pBefore.cased = ((val & detail::gen::CaseIsCased) != 0);
@@ -245,13 +283,14 @@ namespace cp {
 				/* notify the self-type of the completed character */
 				static_cast<SelfType*>(this)->fDone();
 			}
-			constexpr void fProcessSingle(char32_t cp, int32_t data) {
+			constexpr void fProcessSingle(char32_t cp, uint32_t data) {
 				/* extract the proper codepoint to be used */
 				if ((data & static_cast<SelfType*>(this)->fTypeFlag()) != 0) {
-					int32_t value = (data & detail::gen::CaseBitsOfPayload);
+					uint32_t value = (data & detail::gen::CaseValueMask);
 					if (data & detail::gen::CaseIsNegative)
-						value = -value;
-					cp = char32_t(int32_t(cp) + value);
+						cp = char32_t(uint32_t(cp) - value);
+					else
+						cp = char32_t(uint32_t(cp) + value);
 				}
 
 				/* write the codepoint to the sink and update the before state */
@@ -274,8 +313,13 @@ namespace cp {
 					if (cond == Condition::match) {
 						pActive.begin += 2;
 						pActive.end = pActive.begin + pActive.begin[-1];
-						while (pActive.begin != pActive.end)
-							pSink(pActive.cp + *(pActive.begin++));
+						while (pActive.begin != pActive.end) {
+							uint32_t value = (*pActive.begin & detail::gen::CaseValueMask);
+							if (*(pActive.begin++) & detail::gen::CaseIsNegative)
+								pSink(pActive.cp - value);
+							else
+								pSink(pActive.cp + value);
+						}
 						fCompleteChar(pActive.first);
 					}
 					else if ((pActive.begin += 2 + pActive.begin[1]) == pActive.end) {
@@ -337,7 +381,7 @@ namespace cp {
 		};
 
 		template <class SinkType>
-		class UpperMapper final : private detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>> {
+		class UpperMapper final : public detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>> {
 			friend class detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
 		private:
 			using Super = detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
@@ -346,22 +390,14 @@ namespace cp {
 			using Super::Super;
 
 		private:
-			constexpr int32_t fTypeFlag() {
+			constexpr uint32_t fTypeFlag() {
 				return detail::gen::CaseIsUpper;
 			}
 			constexpr void fDone() {}
-
-		public:
-			constexpr void next(char32_t cp) {
-				Super::next(cp);
-			}
-			constexpr void done() {
-				Super::done();
-			}
 		};
 
 		template <class SinkType>
-		class LowerMapper final : private detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>> {
+		class LowerMapper final : public detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>> {
 			friend class detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
 		private:
 			using Super = detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
@@ -370,186 +406,153 @@ namespace cp {
 			using Super::Super;
 
 		private:
-			constexpr int32_t fTypeFlag() {
+			constexpr uint32_t fTypeFlag() {
 				return detail::gen::CaseIsLower;
 			}
 			constexpr void fDone() {}
+		};
+
+		template <class SinkType>
+		class TitleMapper final : private detail::TitleCasing<detail::TitleMapper<SinkType>>, private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
+			friend class detail::TitleCasing<detail::TitleMapper<SinkType>>;
+			friend class detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+		private:
+			using Super0 = detail::TitleCasing<detail::TitleMapper<SinkType>>;
+			using Super1 = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+
+		public:
+			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super1{ std::forward<SinkType>(sink), locale } {}
+
+		private:
+			constexpr uint32_t fTypeFlag() {
+				return (Super0::lower() ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
+			}
+			constexpr void fDone() {
+				Super0::processed();
+			}
+			constexpr void fNext(char32_t cp) {
+				Super1::next(cp);
+			}
 
 		public:
 			constexpr void next(char32_t cp) {
-				Super::next(cp);
+				Super0::next(cp);
 			}
 			constexpr void done() {
-				Super::done();
+				Super0::done();
+				Super1::done();
 			}
 		};
 
 		template <class SinkType>
-		class TitleMapper final : private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
-			friend class detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+		class FoldingMapper {
 		private:
-			using Super = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
-			struct Lambda {
-				TitleMapper<SinkType>& self;
-				constexpr Lambda(TitleMapper<SinkType>& s) : self{ s } {}
-				constexpr void operator()(bool separate) {
-					self.fSeparate(separate);
-				}
-			};
-
-		private:
-			detail::LocalBuffer<size_t, 2> pWords;
-			detail::LocalBuffer<char32_t, 2> pChars;
-			detail::WordBreakSeparate<Lambda> pSeparator;
-			bool pLower = false;
+			SinkType pSink;
+			detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 		public:
-			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SinkType>(sink), locale }, pSeparator{ Lambda{ *this } } {
-				pWords.push(1);
-			}
+			constexpr FoldingMapper(SinkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
 
 		private:
-			constexpr void fSeparate(bool separate) {
-				if (pWords.size() == 0) {
-					pLower = !separate;
-					pWords.push(1);
-				}
-				else if (separate)
-					pWords.push(1);
-				else
-					++pWords.back();
-			}
-			constexpr int32_t fTypeFlag() {
-				return (pLower ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
-			}
-			constexpr void fDone() {
-				pLower = true;
-				if (--pWords.front() == 0) {
-					pWords.pop();
-					pLower = false;
+			constexpr void fWriteOut(char32_t cp, const uint32_t* data, size_t count) {
+				for (size_t i = 0; i < count; ++i) {
+					if (data[i] & detail::gen::FoldIsNegative)
+						pSink(cp - (data[i] & detail::gen::FoldValueMask));
+					else
+						pSink(cp + (data[i] & detail::gen::FoldValueMask));
 				}
 			}
 
 		public:
 			constexpr void next(char32_t cp) {
-				pSeparator.next(cp);
+				auto [size, data] = detail::gen::MapFoldAndTest(cp);
 
-				/* flush the characters to the mapper */
-				if (pChars.size() == 0) {
-					Super::next(cp);
+				/* fast way out for not t-type */
+				if ((data[0] & detail::gen::FoldIsTType) == 0) {
+					fWriteOut(cp, data, size);
 					return;
 				}
-				while (pWords.size() > 0 && pChars.size() > 0)
-					Super::next(pChars.pop());
-				if (pWords.size() > 0)
-					Super::next(cp);
-				else
-					pChars.push(cp);
-			}
-			constexpr void done() {
-				pSeparator.done();
 
-				while (pChars.size() > 0)
-					Super::next(pChars.pop());
-				Super::done();
+				/* handle the tr/az locales */
+				size_t tSize = (data[0] >> detail::gen::FoldTSizeShift) & detail::gen::FoldSizeMask;
+				if (pLocale == detail::CaseLocale::tr || pLocale == detail::CaseLocale::az)
+					fWriteOut(cp, data + 1, tSize);
+				else
+					fWriteOut(cp, data + 1 + tSize, (data[0] & detail::gen::FoldSizeMask));
+			}
+			constexpr void done() {}
+		};
+
+		template <class SelfType>
+		class TestCasing {
+		private:
+			bool pMatches = true;
+			bool pChars = false;
+
+		public:
+			constexpr TestCasing() = default;
+
+		public:
+			constexpr void next(char32_t cp) {
+				auto [size, data] = detail::gen::MapFoldAndTest(cp);
+				pChars = true;
+
+				/* check if the character would change */
+				if (data[0] & static_cast<SelfType*>(this)->fTypeFlag())
+					pMatches = false;
+			}
+			constexpr bool done() {
+				return (pChars && pMatches);
+			}
+		};
+
+		template <size_t TypeFlag>
+		class TestConstCasing : public detail::TestCasing<TestConstCasing<TypeFlag>> {
+			friend class detail::TestCasing<TestConstCasing<TypeFlag>>;
+		public:
+			constexpr TestConstCasing() = default;
+
+		private:
+			constexpr uint32_t fTypeFlag() const {
+				return TypeFlag;
+			}
+		};
+
+		class TestTitleCasing : private detail::TitleCasing<detail::TestTitleCasing>, private detail::TestCasing<detail::TestTitleCasing> {
+			friend class detail::TitleCasing<detail::TestTitleCasing>;
+			friend class detail::TestCasing<detail::TestTitleCasing>;
+		private:
+			using Super0 = detail::TitleCasing<detail::TestTitleCasing>;
+			using Super1 = detail::TestCasing<detail::TestTitleCasing>;
+
+		public:
+			constexpr TestTitleCasing() = default;
+
+		private:
+			constexpr uint32_t fTypeFlag() const {
+				return (Super0::lower() ? detail::gen::ChangesWhenLower : detail::gen::ChangesWhenTitle);
+			}
+			constexpr void fNext(char32_t cp) {
+				Super1::next(cp);
+				Super0::processed();
+			}
+
+		public:
+			constexpr void next(char32_t cp) {
+				Super0::next(cp);
+			}
+			constexpr bool done() {
+				Super0::done();
+				return Super1::done();
 			}
 		};
 	}
 
 
-	class GraphemeNext {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::GraphemeIterator{}(it);
-			while (gIt.next() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class GraphemePrev {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::GraphemeIterator{}(it);
-			while (gIt.prev() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class WordNext {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::WordIterator{}(it);
-			while (gIt.next() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class WordPrev {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::WordIterator{}(it);
-			while (gIt.prev() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class SentenceNext {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::SentenceIterator{}(it);
-			while (gIt.next() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class SentencePrev {
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::SentenceIterator{}(it);
-			while (gIt.prev() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class LineNext {
-	private:
-		bool pEmergency = false;
-		bool pGraphemes = false;
-
-	public:
-		constexpr LineNext(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::LineIterator{ pEmergency, pGraphemes }(it);
-			while (gIt.next() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-	class LinePrev {
-	private:
-		bool pEmergency = false;
-		bool pGraphemes = false;
-
-	public:
-		constexpr LinePrev(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr ItType operator()(ItType it) {
-			auto gIt = cp::LineIterator{ pEmergency, pGraphemes }(it);
-			while (gIt.prev() == cp::BreakMode::none);
-			return gIt.get();
-		}
-	};
-
-
-
 	/* create a sink, which writes the upper-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): codepoint
-	*	OutSink(char32_t): codepoint */
-	struct UpperCase {
+	*	InSink(char32_t): source codepoint
+	*	OutSink(char32_t): upper-cased codepoint(s) */
+	class UpperCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -564,9 +567,9 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the lower-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): codepoint
-	*	OutSink(char32_t): codepoint */
-	struct LowerCase {
+	*	InSink(char32_t): source codepoint
+	*	OutSink(char32_t): lower-cased codepoint(s) */
+	class LowerCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -581,9 +584,9 @@ namespace cp {
 	};
 
 	/* create a sink, which writes the title-cased stream to the given sink (will be produced in-order)
-	*	InSink(char32_t): codepoint
-	*	OutSink(char32_t): codepoint */
-	struct TitleCase {
+	*	InSink(char32_t): source codepoint
+	*	OutSink(char32_t): title-cased codepoint(s) */
+	class TitleCase {
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
@@ -595,5 +598,46 @@ namespace cp {
 		constexpr detail::TitleMapper<SnkType> operator()(SnkType&& sink) {
 			return detail::TitleMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
 		}
+	};
+
+	/* create a sink, which writes the case-folded stream to the given sink (will be produced in-order)
+	*	InSink(char32_t): source codepoint
+	*	OutSink(char32_t): case-folded codepoint(s) */
+	class FoldCase {
+	private:
+		detail::CaseLocale pLocale = detail::CaseLocale::none;
+
+	public:
+		constexpr FoldCase(const char8_t* locale = 0) {
+			pLocale = detail::ParseCaseLocale(locale);
+		}
+		template <cp::IsSink<char32_t> SnkType>
+		constexpr detail::FoldingMapper<SnkType> operator()(SnkType&& sink) {
+			return detail::FoldingMapper<SnkType>{ std::forward<SnkType>(sink), pLocale };
+		}
+	};
+
+	/* check if the entire stream of codepoints is not empty and upper-cased (i.e. UpperCase(...) would result in the same codepoints) */
+	class TestUpperCase : public detail::TestConstCasing<detail::gen::ChangesWhenUpper> {
+	public:
+		constexpr TestUpperCase() = default;
+	};
+
+	/* check if the entire stream of codepoints is not empty and lower-cased (i.e. LowerCase(...) would result in the same codepoints) */
+	class TestLowerCase : public detail::TestConstCasing<detail::gen::ChangesWhenLower> {
+	public:
+		constexpr TestLowerCase() = default;
+	};
+
+	/* check if the entire stream of codepoints is not empty and title-cased (i.e. TitleCase(...) would result in the same codepoints) */
+	class TestTitleCase : public detail::TestTitleCasing {
+	public:
+		constexpr TestTitleCase() = default;
+	};
+
+	/* check if the entire stream of codepoints is not empty and case-folded (i.e. FoldCase(...) would result in the same codepoints) */
+	class TestFoldCase : public detail::TestConstCasing<detail::gen::ChangesWhenFolding> {
+	public:
+		constexpr TestFoldCase() = default;
 	};
 }

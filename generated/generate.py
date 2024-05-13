@@ -39,12 +39,12 @@ class Range:
 		return left, right
 	def span(self) -> int:
 		return (self.last - self.first + 1)
-	def neighbors(self, other: 'Range') -> bool:
-		return (self.last + 1 == other.first or self.first - 1 == other.last)
+	def neighbors(self, right: 'Range') -> bool:
+		return (self.last + 1 == right.first)
 	def overlap(self, other: 'Range') -> bool:
 		return (self.last >= other.first and self.first <= other.last)
-	def distant(self, other: 'Range') -> bool:
-		return (self.last + 1 < other.first or self.first - 1 > other.last)
+	def distant(self, right: 'Range') -> bool:
+		return (self.last + 1 < right.first)
 
 class LookupType:
 	def __init__(self) -> None:
@@ -245,7 +245,7 @@ class Ranges:
 		# remove any initial non-conflicting region
 		if conflict[0].first < other.first:
 			leading, conflict[0] = conflict[0].split(other.first - conflict[0].first)
-			out.append(leading)
+			Ranges._appOrMerge(out, leading)
 
 		# iterate over the conflicting range and process it
 		otherRemaining: Range|None = other
@@ -255,22 +255,22 @@ class Ranges:
 				left, right, conflict, otherRemaining = conflict[0], otherRemaining, [], None
 			elif conflict[0].span() < otherRemaining.span():
 				left, conflict = conflict[0], conflict[1:]
-				right, otherRemaining = other.split(left.span())
+				right, otherRemaining = otherRemaining.split(left.span())
 			else:
 				left, conflict[0] = conflict[0].split(otherRemaining.span())
 				right, otherRemaining = otherRemaining, None
 
 			# check if the conflict is trivial or left the handler process it
 			if left.values == right.values:
-				out.append(left.merge(right))
+				Ranges._appOrMerge(out, left.merge(right))
 			else:
-				out.append(Range(left.first, left.last, conflictHandler(left.values, right.values)))
+				Ranges._appOrMerge(out, Range(left.first, left.last, conflictHandler(left.values, right.values)))
 
 		# append the remainder to the output
 		for c in conflict:
-			out.append(c)
+			Ranges._appOrMerge(out, c)
 		if otherRemaining is not None:
-			out.append(otherRemaining)
+			Ranges._appOrMerge(out, otherRemaining)
 	@staticmethod
 	def _setIteration(a: list[Range], b: list[Range], binaryOp: bool, fn) -> list[Range]:
 		if binaryOp and (any(_a.values != (1,) for _a in a) or any(_b.values != (1,) for _b in b)):
@@ -1406,7 +1406,8 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		'EastAsianWidth.txt': 'ucd/EastAsianWidth.txt',
 		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt',
 		'SentenceBreakProperty.txt': 'ucd/auxiliary/SentenceBreakProperty.txt',
-		'LineBreak.txt': 'ucd/LineBreak.txt'
+		'LineBreak.txt': 'ucd/LineBreak.txt',
+		'CaseFolding.txt': 'ucd/CaseFolding.txt'
 	}
 	dirPath = './ucd'
 	testPath = './tests'
@@ -1661,29 +1662,30 @@ def _ExpandSpecialCaseMap(conditions: dict[str, int], lowerFlag: int, upperFlag:
 	return tuple([conditions[condition] | lowerFlag, len(lowerValues)] + lowerValues
 				+ [conditions[condition] | upperFlag, len(upperValues)] + upperValues
 				+ [conditions[condition] | titleFlag, len(titleValues)] + titleValues)
-def _TranslateSpecialCaseMap(cIndex: int, values: tuple[int], nullCondition: int, bitsOfValue: int) -> tuple[int]:
+def _TranslateSpecialCaseMap(cIndex: int, values: tuple[int], nullCondition: int, negativeFlag: int, valueMask: int) -> tuple[int]:
 	index, out, nulls = 0, [], []
 
 	# skip all conditions and only offset all actual values by the character and separate the null-conditions out to append them in the end
 	while index < len(values):
-		to = (nulls if (values[index] & bitsOfValue) == nullCondition else out)
-
+		# write the condition and value-count out
+		to = (nulls if (values[index] & valueMask) == nullCondition else out)
 		to.append(values[index])
 		to.append(values[index + 1])
+
+		# validate all separate values of the payload and write them out
 		for i in range(index + 2, index + 2 + values[index + 1]):
-			to.append(values[i] - cIndex)
+			val = values[i] - cIndex
+			if abs(val) > valueMask:
+				raise RuntimeError('Too few bits to encode value')
+			to.append(abs(val) | (negativeFlag if val < 0 else 0))
 		index += 2 + values[index + 1]
 	return tuple(out + nulls)
-def _TranslateSimpleCaseValue(nullCondition: int, tpFlag: int, negativeFlag: int, bitsOfValue: int, value: int) -> tuple[int]:
+def _TranslateSimpleCaseValue(tpFlag: int, negativeFlag: int, valueMask: int, value: int) -> tuple[int]:
 	# check if the value can fit into a single cell
-	if abs(value) <= bitsOfValue:
-		return (abs(value) | tpFlag | (0 if value >= 0 else negativeFlag),)
-
-	# add the null-condition and the entire value (negative-flag only necessary for single-cell values)
-	return (nullCondition | tpFlag, 1, value)
-def _HandleSpecialOrConflict(a: tuple[int], b: tuple[int]) -> tuple[int]:
-	return (a[0] | b[0],) + a[1:]
-def _TranslateCleanupCaseMap(values: tuple[int], lowerFlag: int, upperFlag: int, titleFlag: int, nullCondition: int, bitsOfValue: int) -> tuple[int]:
+	if abs(value) > valueMask:
+		raise RuntimeError('Too few bits to encode simple casing values')
+	return (abs(value) | tpFlag | (0 if value >= 0 else negativeFlag),)
+def _TranslateCleanupCaseMap(values: tuple[int], lowerFlag: int, upperFlag: int, titleFlag: int, nullCondition: int, valueMask: int) -> tuple[int]:
 	if len(values) == 1:
 		return values
 	indices, modified = [0], [v for v in values]
@@ -1709,7 +1711,7 @@ def _TranslateCleanupCaseMap(values: tuple[int], lowerFlag: int, upperFlag: int,
 
 		# update the default values for all null-conditions and clear the current condition-bits for
 		# all upcoming values, as this is a null-condition and will therefore be true at all times
-		if (modified[indices[i]] & bitsOfValue) == nullCondition:
+		if (modified[indices[i]] & valueMask) == nullCondition:
 			for j in range(i + 1, len(indices)):
 				modified[indices[j]] &= ~(modified[indices[i]] & (lowerFlag | upperFlag | titleFlag))
 			if (modified[indices[i]] & lowerFlag) != 0:
@@ -1734,86 +1736,118 @@ def _TranslateCleanupCaseMap(values: tuple[int], lowerFlag: int, upperFlag: int,
 		if (modified[index] & typeFlags) == 0:
 			continue
 		iValues = modified[index:index + 2 + modified[index + 1]]
-		
+
 		# check if the value is identical to the last value (except for the type-flags)
 		if last is not None and out[last + 2:] == iValues[2:] and (out[last] & ~typeFlags) == (modified[index] & ~typeFlags):
 			out[last] |= (modified[index] & typeFlags)
 		else:
 			last, out = len(out), out + iValues
 	return tuple(out)
-def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: int, negativeFlag: int, bitsOfValue: int) -> tuple[int]:
+def _MergeCaseMap(a: tuple[int], b: tuple[int], nullCondition: int, typeFlags: int, negativeFlag: int, valueMask: int) -> tuple[int]:
 	# check if the values are the same and only differ by the type-flats
 	if len(a) == 1 and len(b) == 1 and ((a[0] ^ b[0]) & ~typeFlags) == 0:
 		return (a[0] | b[0],)
 
 	# check if any of the values is a single cell, in which case it must be expanded to the null-condition
 	if len(a) == 1:
-		a = (nullCondition | (a[0] & ~(bitsOfValue | negativeFlag)), 1, -(a[0] & bitsOfValue) if (a[0] & negativeFlag) else (a[0] & bitsOfValue))
+		a = (nullCondition | (a[0] & ~(valueMask | negativeFlag)), 1, a[0] & (valueMask | negativeFlag))
 	if len(b) == 1:
-		b = (nullCondition | (b[0] & ~(bitsOfValue | negativeFlag)), 1, -(b[0] & bitsOfValue) if (b[0] & negativeFlag) else (b[0] & bitsOfValue))
+		b = (nullCondition | (b[0] & ~(valueMask | negativeFlag)), 1, b[0] & (valueMask | negativeFlag))
 	return a + b
+def _ExpandCaseFolding(tValues: bool, typeVal: str, values: str) -> tuple[int]|None:
+	if typeVal == 'S' or (typeVal != 'T' if tValues else typeVal == 'T'):
+		return None
+	if typeVal != 'C' and typeVal != 'F' and typeVal != 'T':
+		raise RuntimeError('Unsupported type for case-folding encountered')
+	values: list[int] = [int(u, 16) for u in values.split(' ')]
+	return tuple(values)
+def _TranslateCaseFolding(cIndex: int, values: tuple[int], negativeFlag: int, valueMask: int, sizeMask: int, tSizeShift: int, flagTType: int|None) -> tuple[int]:
+	out = []
+
+	# ensure that all values are small enough and make them relative to the c-index
+	for v in values:
+		v = v - cIndex
+		if abs(v) > valueMask:
+			raise RuntimeError('Value too large to be encoded in the current encoding-scheme')
+		out.append((-v | negativeFlag) if v < 0 else v)
+
+	# check if the t-flag encoding needs to be set-up (set the normal-size to 1 to ensure it is not encoded to the empty character)
+	if flagTType is not None:
+		if len(out) > sizeMask:
+			raise RuntimeError('Number of values too large for current encoding-scheme')
+		out = [flagTType | (len(out) << tSizeShift) | 1] + out + [0]
+	return tuple(out)
+def _MergeCaseFolding(fold: tuple[int], tFold: tuple[int], sizeMask: int) -> tuple[int]:
+	out = list(tFold)
+
+	# patch the size of the folding-values into the output
+	if len(fold) > sizeMask:
+		raise RuntimeError('Number of values too large for current encoding-scheme')
+	out[0] = (out[0] & ~sizeMask) + len(fold)
+	return tuple(out[:-1] + list(fold))
 def MakeMappingLookup(outPath: str, config: SystemConfig):
 	# parse the relevant files
 	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
 	specialCasing = ParsedFile(config.mapping['SpecialCasing.txt'], False)
 	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
 	propList = ParsedFile(config.mapping['PropList.txt'], False)
+	caseFolding = ParsedFile(config.mapping['CaseFolding.txt'], False)
 
 	# write all map functions to the file
 	with GeneratedFile(outPath, config) as file:
 		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
-		flagIsNegative = 0x4000_0000
-		flagIsCased = 0x2000_0000
-		flagIsIgnorable = 0x1000_0000
-		flagIsSoftDotted = 0x0800_0000
-		flagCombClass0or230 = 0x0400_0000
-		flagCombClass230 = 0x0200_0000
-		flagIsLower = 0x0100_0000
-		flagIsUpper = 0x0080_0000
-		flagIsTitle = 0x0040_0000
-		flagIs0049 = 0x0020_0000
-		flagIs0307 = 0x0010_0000
-		bitsOfValue = 0x000f_ffff
+		flagIsNegative = 0x8000_0000
+		flagIsCased = 0x4000_0000
+		flagIsIgnorable = 0x2000_0000
+		flagIsSoftDotted = 0x1000_0000
+		flagCombClass0or230 = 0x0800_0000
+		flagCombClass230 = 0x0400_0000
+		flagIsLower = 0x0200_0000
+		flagIsUpper = 0x0100_0000
+		flagIsTitle = 0x0080_0000
+		flagIs0049 = 0x0040_0000
+		flagIs0307 = 0x0020_0000
+		valueMask = 0x001f_ffff
 
 		# extract all attributes and merge them together
 		propertyMask = derivedProperties.filter(1, lambda fs: flagIsCased if fs[0] == 'Cased' else None)
-		propertyMask = Ranges.merge(propertyMask, derivedProperties.filter(1, lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), _HandleSpecialOrConflict)
-		propertyMask = Ranges.merge(propertyMask, propList.filter(1, lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), _HandleSpecialOrConflict)
-		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0or230 if (fs[2] == '0' or fs[2] == '230') else None), _HandleSpecialOrConflict)
-		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass230 if fs[2] == '230' else None), _HandleSpecialOrConflict)
-		propertyMask = Ranges.merge(propertyMask, [Range(0x0049, 0x0049, flagIs0049), Range(0x0307, 0x0307, flagIs0307)], _HandleSpecialOrConflict)
+		propertyMask = Ranges.merge(propertyMask, derivedProperties.filter(1, lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, propList.filter(1, lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0or230 if (fs[2] == '0' or fs[2] == '230') else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass230 if fs[2] == '230' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, [Range(0x0049, 0x0049, flagIs0049), Range(0x0307, 0x0307, flagIs0307)], lambda a, b: (a[0] | b[0],))
 
 		# extract all special casing rules (as 'sorted' is stable, values are guaranteed to be ordered by appearance)
 		caseConditions = { 'none': 0 }
 		specialRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(caseConditions, flagIsLower, flagIsUpper, flagIsTitle, fs[0], fs[1], fs[2], fs[3]), True, lambda a, b: _MergeCaseMap(a, b, 0, 0, 0, 0))
 
 		# sanitize and cleanup the special ranges, as all none-conditions must lie in the end, as conditions are more relevant, if they match
-		specialRanges = Ranges.translate(specialRanges, lambda c, v: _TranslateSpecialCaseMap(c, v, caseConditions['none'], bitsOfValue))
+		specialRanges = Ranges.translate(specialRanges, lambda c, v: _TranslateSpecialCaseMap(c, v, caseConditions['none'], flagIsNegative, valueMask))
 		caseConditions['_last'] = len(caseConditions)
-		if len(caseConditions) > bitsOfValue:
+		if len(caseConditions) > valueMask:
 			raise RuntimeError('Conditions overflow values')
 
 		# extract all simple lower-case mappings
 		simpleLowerRanges = unicodeData.filter(14, lambda fs: int(fs[12], 16) if fs[12] != '' else None)
-		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsLower, flagIsNegative, bitsOfValue, v[0] - c))
+		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsLower, flagIsNegative, valueMask, v[0] - c))
 
 		# extract all simple upper-case mappings
 		simpleUpperRanges = unicodeData.filter(14, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
-		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsUpper, flagIsNegative, bitsOfValue, v[0] - c))
+		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsUpper, flagIsNegative, valueMask, v[0] - c))
 
 		# extract all simple title-case mappings
 		simpleTitleRanges = unicodeData.filter(14, lambda fs: int(fs[13], 16) if fs[13] != '' else None)
-		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda c, v: _TranslateSimpleCaseValue(caseConditions['none'], flagIsTitle, flagIsNegative, bitsOfValue, v[0] - c))
+		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsTitle, flagIsNegative, valueMask, v[0] - c))
 
 		# merge the simple values together
-		simpleRanges = Ranges.merge(simpleLowerRanges, simpleUpperRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
-		simpleRanges = Ranges.merge(simpleRanges, simpleTitleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
+		simpleRanges = Ranges.merge(simpleLowerRanges, simpleUpperRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, valueMask))
+		simpleRanges = Ranges.merge(simpleRanges, simpleTitleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, valueMask))
 
 		# merge the special ranges and simple ranges together (special-ranges before simple-ranges to preserve order in
 		# reconstructed final ranges) and clean the ranges up to remove irrelevant conditions and combine the properties into it
-		caseRanges = Ranges.merge(specialRanges, simpleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, bitsOfValue))
-		caseRanges = Ranges.translate(caseRanges, lambda _, v: _TranslateCleanupCaseMap(v, flagIsLower, flagIsUpper, flagIsTitle, caseConditions['none'], bitsOfValue))
-		caseRanges = Ranges.merge(caseRanges, propertyMask, _HandleSpecialOrConflict)
+		caseRanges = Ranges.merge(specialRanges, simpleRanges, lambda a, b: _MergeCaseMap(a, b, caseConditions['none'], flagIsLower | flagIsUpper | flagIsTitle, flagIsNegative, valueMask))
+		caseRanges = Ranges.translate(caseRanges, lambda _, v: _TranslateCleanupCaseMap(v, flagIsLower, flagIsUpper, flagIsTitle, caseConditions['none'], valueMask))
+		caseRanges = Ranges.merge(caseRanges, propertyMask, lambda a, b: (a[0] | b[0],) + a[1:])
 
 		# update the casing of the condition map
 		tempConditions, caseConditions = caseConditions, {}
@@ -1832,22 +1866,59 @@ def MakeMappingLookup(outPath: str, config: SystemConfig):
 			caseConditions[n] = tempConditions[k]
 
 		# write the case-mapping and enum to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Casemapping)
-		caseType: LookupType = LookupType.intType(0, 'int32_t')
-		_gen: CodeGen = file.next('MapCase', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
-		_gen.addConstInt(caseType, 'CaseIsNegative', flagIsNegative)
-		_gen.addConstInt(caseType, 'CaseIsCased', flagIsCased)
-		_gen.addConstInt(caseType, 'CaseIsIgnorable', flagIsIgnorable)
-		_gen.addConstInt(caseType, 'CaseIsSoftDotted', flagIsSoftDotted)
-		_gen.addConstInt(caseType, 'CaseIsCombClass0or230', flagCombClass0or230)
-		_gen.addConstInt(caseType, 'CaseIsCombClass230', flagCombClass230)
-		_gen.addConstInt(caseType, 'CaseIsLower', flagIsLower)
-		_gen.addConstInt(caseType, 'CaseIsUpper', flagIsUpper)
-		_gen.addConstInt(caseType, 'CaseIsTitle', flagIsTitle)
-		_gen.addConstInt(caseType, 'CaseIs0049', flagIs0049)
-		_gen.addConstInt(caseType, 'CaseIs0307', flagIs0307)
-		_gen.addConstInt(caseType, 'CaseBitsOfPayload', bitsOfValue)
+		_type: LookupType = LookupType.intType(0, 'uint32_t')
+		_gen: CodeGen = file.next('Case', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addConstInt(_type, 'CaseIsNegative', flagIsNegative)
+		_gen.addConstInt(_type, 'CaseIsCased', flagIsCased)
+		_gen.addConstInt(_type, 'CaseIsIgnorable', flagIsIgnorable)
+		_gen.addConstInt(_type, 'CaseIsSoftDotted', flagIsSoftDotted)
+		_gen.addConstInt(_type, 'CaseIsCombClass0or230', flagCombClass0or230)
+		_gen.addConstInt(_type, 'CaseIsCombClass230', flagCombClass230)
+		_gen.addConstInt(_type, 'CaseIsLower', flagIsLower)
+		_gen.addConstInt(_type, 'CaseIsUpper', flagIsUpper)
+		_gen.addConstInt(_type, 'CaseIsTitle', flagIsTitle)
+		_gen.addConstInt(_type, 'CaseIs0049', flagIs0049)
+		_gen.addConstInt(_type, 'CaseIs0307', flagIs0307)
+		_gen.addConstInt(_type, 'CaseValueMask', valueMask)
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
-		_gen.listFunction('MapCase', LookupType.intType(0, 'int32_t'), caseRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
+		_gen.listFunction('MapCase', _type, caseRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
+
+		# parse the casing-testing flags
+		flagChangesLower = 0x8000_0000
+		flagChangesUpper = 0x4000_0000
+		flagChangesTitle = 0x2000_0000
+		flagChangesFolding = 0x1000_0000
+		flagIsNegative = 0x0800_0000
+		flagIsTType = 0x0400_0000
+		valueMask = 0x03ff_ffff
+		sizeMask = 0x0000_00ff
+		tSizeShift = 8
+		if sizeMask + (sizeMask << tSizeShift) > valueMask:
+			raise RuntimeError('Number of size-bits too large for current encoding-scheme')
+		flagChangesMap = { 'Changes_When_Lowercased': flagChangesLower, 'Changes_When_Uppercased': flagChangesUpper, 'Changes_When_Titlecased': flagChangesTitle, 'Changes_When_Casefolded': flagChangesFolding }
+		changesRanges = derivedProperties.filter(1, lambda fs: flagChangesMap[fs[0]] if fs[0] in flagChangesMap else None, False, lambda a, b: (a[0] | b[0],))
+
+		# parse the case-folding data and merge the lists together
+		foldingRanges = Ranges.translate(caseFolding.filter(2, lambda fs: _ExpandCaseFolding(False, fs[0], fs[1])), lambda c, v: _TranslateCaseFolding(c, v, flagIsNegative, valueMask, sizeMask, tSizeShift, None))
+		tempRanges = Ranges.translate(caseFolding.filter(2, lambda fs: _ExpandCaseFolding(True, fs[0], fs[1])), lambda c, v: _TranslateCaseFolding(c, v, flagIsNegative, valueMask, sizeMask, tSizeShift, flagIsTType))
+		foldingRanges = Ranges.merge(foldingRanges, tempRanges, lambda a, b: _MergeCaseFolding(a, b, sizeMask))
+
+		# merge the folding-ranges and the properties together
+		foldingRanges = Ranges.merge(foldingRanges, changesRanges, lambda a, b: (a[0] | b[0],) + a[1:])
+
+		# write the folding-mapping to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Case_Folding)
+		_type: LookupType = LookupType.intType(0, 'uint32_t')
+		_gen: CodeGen = file.next('Fold', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
+		_gen.addConstInt(_type, 'ChangesWhenLower', flagChangesLower)
+		_gen.addConstInt(_type, 'ChangesWhenUpper', flagChangesUpper)
+		_gen.addConstInt(_type, 'ChangesWhenTitle', flagChangesTitle)
+		_gen.addConstInt(_type, 'ChangesWhenFolding', flagChangesFolding)
+		_gen.addConstInt(_type, 'FoldIsNegative', flagIsNegative)
+		_gen.addConstInt(_type, 'FoldIsTType', flagIsTType)
+		_gen.addConstInt(_type, 'FoldValueMask', valueMask)
+		_gen.addConstInt(_type, 'FoldSizeMask', sizeMask)
+		_gen.addConstInt(_type, 'FoldTSizeShift', tSizeShift)
+		_gen.listFunction('MapFoldAndTest', _type, foldingRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
 
 # GetSegmentation (encodes: word/grapheme/sentence/line segmentation)
 def _SegmentationMergeConflicts(a: tuple[int], b: tuple[int], conflictMap: dict[tuple[int, int], int], desc: str) -> tuple[int]:
@@ -1893,7 +1964,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (wordRangesDef << segmentationOffset) | segmentationDefValue
-		
+
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		graphemeEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
@@ -1919,7 +1990,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (graphemeRangesDef << segmentationOffset) | segmentationDefValue
-		
+
 		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
 		sentenceEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Extend': 3, 'Sep': 4, 'Format': 5, 'Sp': 6, 'Lower': 7, 'Upper': 8,

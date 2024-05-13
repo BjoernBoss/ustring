@@ -46,13 +46,13 @@ namespace cp {
 			Type* pEnd = 0;
 
 		public:
-			LocalBuffer() : pBuffer{ Static{} } {
+			constexpr LocalBuffer() : pBuffer{ Static{} } {
 				pBegin = std::get<Static>(pBuffer).buffer;
 				pEnd = pBegin;
 			}
 
 		public:
-			void push(const Type& t) {
+			constexpr void push(const Type& t) {
 				if (std::holds_alternative<Dynamic>(pBuffer)) {
 					Dynamic& d = std::get<Dynamic>(pBuffer);
 					if (size_t(pEnd - d.data()) >= d.size()) {
@@ -73,7 +73,7 @@ namespace cp {
 				*pEnd = t;
 				++pEnd;
 			}
-			Type pop() {
+			constexpr Type pop() {
 				Type val = *pBegin;
 				if (++pBegin == pEnd) {
 					if (std::holds_alternative<Static>(pBuffer))
@@ -84,16 +84,16 @@ namespace cp {
 				}
 				return val;
 			}
-			size_t size() const {
+			constexpr size_t size() const {
 				return (pEnd - pBegin);
 			}
-			Type& get(size_t i) {
+			constexpr Type& get(size_t i) {
 				return pBegin[i];
 			}
-			Type& front() {
+			constexpr Type& front() {
 				return pBegin[0];
 			}
-			Type& back() {
+			constexpr Type& back() {
 				return pEnd[-1];
 			}
 		};
@@ -191,7 +191,7 @@ namespace cp {
 			ItType pPrevIt{};
 			uint32_t pNextRaw = 0;
 			uint32_t pPrevRaw = 0;
-			std::conditional_t<HasState, State, uint8_t> pState;
+			std::conditional_t<HasState, State, uint8_t> pState{};
 			bool pPrevIsResult = false;
 
 		public:
@@ -2028,19 +2028,13 @@ namespace cp {
 		}
 	};
 
-	/* create an iterator, which allows iteration over codepoints and finding the corresponding grapheme breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	/* iterator which allows iteration over codepoints and finding the corresponding grapheme breaks between two codepoints, as well as query the corresponding codepoint-iterators
 	*	Less efficient than cp::GraphemeBreak/cp::GraphemeRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	class GraphemeIterator {
+	template <cp::IsCPIterator ItType>
+	class GraphemeIterator : public detail::BreakIterator<ItType, detail::GraphemeRandom> {
 	public:
-		template <cp::IsCPIterator ItType>
-		using Type = detail::BreakIterator<ItType, detail::GraphemeRandom>;
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr Type<ItType> operator()(const ItType& it) {
-			return Type<ItType>{ it, 0 };
-		}
+		constexpr GraphemeIterator(const ItType& it) : detail::BreakIterator<ItType, detail::GraphemeRandom>{ it, 0 } {}
 	};
 
 
@@ -2076,19 +2070,13 @@ namespace cp {
 		}
 	};
 
-	/* create an iterator, which allows iteration over codepoints and finding the corresponding word breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	/* iterator which allows iteration over codepoints and finding the corresponding word breaks between two codepoints, as well as query the corresponding codepoint-iterators
 	*	Less efficient than cp::WordBreak/cp::WordRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	class WordIterator {
+	template <cp::IsCPIterator ItType>
+	class WordIterator : public detail::BreakIterator<ItType, detail::WordRandom> {
 	public:
-		template <cp::IsCPIterator ItType>
-		using Type = detail::BreakIterator<ItType, detail::WordRandom>;
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr Type<ItType> operator()(const ItType& it) {
-			return Type<ItType>{ it, 0 };
-		}
+		constexpr WordIterator(const ItType& it) : detail::BreakIterator<ItType, detail::WordRandom>{ it, 0 } {}
 	};
 
 
@@ -2124,19 +2112,13 @@ namespace cp {
 		}
 	};
 
-	/* create an iterator, which allows iteration over codepoints and finding the corresponding sentence breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	/* iterator which allows iteration over codepoints and finding the corresponding sentence breaks between two codepoints, as well as query the corresponding codepoint-iterators
 	*	Less efficient than cp::SentenceBreak/cp::SentenceRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	class SentenceIterator {
+	template <cp::IsCPIterator ItType>
+	class SentenceIterator : public detail::BreakIterator<ItType, detail::SentenceRandom> {
 	public:
-		template <cp::IsCPIterator ItType>
-		using Type = detail::BreakIterator<ItType, detail::SentenceRandom>;
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr Type<ItType> operator()(const ItType& it) {
-			return Type<ItType>{ it, 0 };
-		}
+		constexpr SentenceIterator(const ItType& it) : detail::BreakIterator<ItType, detail::SentenceRandom>{ it, 0 } {}
 	};
 
 
@@ -2186,26 +2168,13 @@ namespace cp {
 		}
 	};
 
-	/* create an iterator, which allows iteration over codepoints and finding the corresponding line breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	/* iterator which allows iteration over codepoints and finding the corresponding line breaks between two codepoints, as well as query the corresponding codepoint-iterators
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
 	*	Less efficient than cp::LineBreak/cp::LineRanges; Specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries and perform default line-breaking
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in all values) */
-	class LineIterator {
+	template <cp::IsCPIterator ItType>
+	class LineIterator : public detail::BreakIterator<ItType, detail::LineRandom> {
 	public:
-		template <cp::IsCPIterator ItType>
-		using Type = detail::BreakIterator<ItType, detail::LineRandom>;
-
-	private:
-		bool pEmergency = false;
-		bool pGraphemes = false;
-
-	public:
-		constexpr LineIterator(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
-
-	public:
-		template <cp::IsCPIterator ItType>
-		constexpr Type<ItType> operator()(const ItType& it) {
-			return Type<ItType>{ it, { pEmergency, pGraphemes } };
-		}
+		constexpr LineIterator(const ItType& it, bool emergencyBreak = true, bool graphemeAware = true) : detail::BreakIterator<ItType, detail::LineRandom>{ it, { emergencyBreak, graphemeAware } } {}
 	};
 }
