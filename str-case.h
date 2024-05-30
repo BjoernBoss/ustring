@@ -4,7 +4,7 @@
 #include "str-codepoint.h"
 #include "str-segmentation.h"
 
-#include "generated/unicode-mapping.h"
+#include "generated/unicode-casing.h"
 
 #include <utility>
 
@@ -14,8 +14,8 @@ namespace cp {
 		class TitleCasing {
 		private:
 			struct Lambda {
-				TitleCasing& self;
-				constexpr Lambda(TitleCasing& s) : self{ s } {}
+				detail::TitleCasing<SelfType>& self;
+				constexpr Lambda(detail::TitleCasing<SelfType>& s) : self{ s } {}
 				constexpr void operator()(size_t, cp::BreakMode mode) {
 					self.fSeparate(mode != cp::BreakMode::none);
 				}
@@ -536,7 +536,7 @@ namespace cp {
 		};
 	}
 
-	/* create a sink, which writes the upper-cased stream to the given sink (will be produced in-order)
+	/* create a sink, which writes the upper-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): upper-cased codepoint(s) */
 	class UpperCase {
@@ -559,7 +559,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the lower-cased stream to the given sink (will be produced in-order)
+	/* create a sink, which writes the lower-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): lower-cased codepoint(s) */
 	class LowerCase {
@@ -582,7 +582,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the title-cased stream to the given sink (will be produced in-order)
+	/* create a sink, which writes the title-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): title-cased codepoint(s) */
 	class TitleCase {
@@ -605,7 +605,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the case-folded stream to the given sink (will be produced in-order)
+	/* create a sink, which writes the case-folded stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): case-folded codepoint(s) */
 	class FoldCase {

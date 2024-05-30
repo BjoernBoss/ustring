@@ -1,12 +1,11 @@
 #pragma once
 
+#include "str-common.h"
 #include "str-codepoint.h"
 
 #include "generated/unicode-segmentation.h"
 
-#include <vector>
 #include <utility>
-#include <variant>
 #include <type_traits>
 
 namespace cp {
@@ -32,78 +31,12 @@ namespace cp {
 	};
 
 	namespace detail {
-		template <class Type, size_t Buffer>
-		class LocalBuffer {
-		private:
-			struct Static {
-				Type buffer[Buffer]{};
-			};
-			using Dynamic = std::vector<Type>;
-
-		private:
-			std::variant<Static, Dynamic> pBuffer;
-			Type* pBegin = 0;
-			Type* pEnd = 0;
-
-		public:
-			constexpr LocalBuffer() : pBuffer{ Static{} } {
-				pBegin = std::get<Static>(pBuffer).buffer;
-				pEnd = pBegin;
-			}
-
-		public:
-			constexpr void push(const Type& t) {
-				if (std::holds_alternative<Dynamic>(pBuffer)) {
-					Dynamic& d = std::get<Dynamic>(pBuffer);
-					if (size_t(pEnd - d.data()) >= d.size()) {
-						size_t bOff = pBegin - d.data(), eOff = pEnd - d.data();
-						d.resize(d.size() + Buffer);
-						pBegin = d.data() + bOff;
-						pEnd = d.data() + eOff;
-					}
-				}
-				else if (pEnd - std::get<Static>(pBuffer).buffer >= Buffer) {
-					Dynamic v{ pBegin, pEnd };
-					v.push_back(t);
-					pBuffer = std::move(v);
-					pBegin = std::get<Dynamic>(pBuffer).data();
-					pEnd = pBegin + std::get<Dynamic>(pBuffer).size();
-					return;
-				}
-				*pEnd = t;
-				++pEnd;
-			}
-			constexpr Type pop() {
-				Type val = *pBegin;
-				if (++pBegin == pEnd) {
-					if (std::holds_alternative<Static>(pBuffer))
-						pBegin = std::get<Static>(pBuffer).buffer;
-					else
-						pBegin = std::get<Dynamic>(pBuffer).data();
-					pEnd = pBegin;
-				}
-				return val;
-			}
-			constexpr size_t size() const {
-				return (pEnd - pBegin);
-			}
-			constexpr Type& get(size_t i) {
-				return pBegin[i];
-			}
-			constexpr Type& front() {
-				return pBegin[0];
-			}
-			constexpr Type& back() {
-				return pEnd[-1];
-			}
-		};
-
 		template <class SinkType, template <class, class> class BreakType>
 		class BreakSingle {
 		private:
 			struct Lambda {
-				BreakSingle<SinkType, BreakType>& self;
-				constexpr Lambda(BreakSingle<SinkType, BreakType>& s) : self{ s } {}
+				detail::BreakSingle<SinkType, BreakType>& self;
+				constexpr Lambda(detail::BreakSingle<SinkType, BreakType>& s) : self{ s } {}
 				constexpr void operator()(size_t payload, cp::BreakMode mode) {
 					self.pSink(payload, mode);
 				}

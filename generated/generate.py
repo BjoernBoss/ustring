@@ -1158,7 +1158,7 @@ class CodeGen:
 		self._file.writeln(f'inline constexpr {lookupType.typeName()} {fnName}(char32_t cp) {{')
 		self._file.write(StrHelp.indent(lookupCode))
 		self._file.writeln('}')
-	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range], config: CodeGenConfig) -> None:
+	def listFunction(self, fnName: str, lookupType: LookupType, ranges: list[Range], dataOnly: bool, config: CodeGenConfig) -> None:
 		print(f'Creating list-lookup {fnName}...')
 		Ranges.wellFormed(ranges, lookupType)
 
@@ -1168,7 +1168,7 @@ class CodeGen:
 
 		# check if a sparse buffer should be created for the map (data-buffer contains either single value, or null
 		#	followed by size followed by values; null-value also needs special encoding) or simply write size, and data out
-		sparseBuffer = (sum(1 for r in ranges if len(r.values) > 1) <= len(ranges) * config.listConsideredSparse)
+		sparseBuffer = not dataOnly and (sum(1 for r in ranges if len(r.values) > 1) <= len(ranges) * config.listConsideredSparse)
 
 		# create the data buffer for the ranges and remap the ranges to indices into the data-buffer
 		dataBuffer, dataIndex = [], {}
@@ -1178,7 +1178,9 @@ class CodeGen:
 			# check if the value needs to be added to the buffer
 			if values not in dataIndex:
 				dataIndex[values] = len(dataBuffer)
-				if not sparseBuffer:
+				if dataOnly:
+					dataBuffer += [v for v in values]
+				elif not sparseBuffer:
 					dataBuffer += [len(values)] + [v for v in values]
 				elif len(values) == 1 and values[0] != 0:
 					dataBuffer.append(values[0])
@@ -1197,12 +1199,17 @@ class CodeGen:
 		self._writeBuffers()
 
 		# generate the actual function and insert the generated code
-		self._file.writeln(f'inline constexpr std::pair<size_t, const {lookupType.typeName()}*> {fnName}(char32_t cp) {{')
+		if dataOnly:
+			self._file.writeln(f'inline constexpr const {lookupType.typeName()}* {fnName}(char32_t cp) {{')
+		else:
+			self._file.writeln(f'inline constexpr std::pair<size_t, const {lookupType.typeName()}*> {fnName}(char32_t cp) {{')
 		self._file.writeln(f'\tsize_t {indexVarName} = 0;')
 		self._file.write(StrHelp.indent(lookupCode))
 
 		# add the logic to extract the size and data
-		if sparseBuffer:
+		if dataOnly:
+			self._file.writeln(f'\treturn {dataBufferName} + {indexVarName};')
+		elif sparseBuffer:
 			self._file.writeln(f'\tif ({dataBufferName}[{indexVarName}] != 0)')
 			self._file.writeln(f'\t\treturn {{ 1, {dataBufferName} + {indexVarName} }};')
 			self._file.writeln(f'\treturn {{ size_t({dataBufferName}[{indexVarName} + 1]), {dataBufferName} + {indexVarName} + 2 }};')
@@ -1398,26 +1405,29 @@ class ParsedFile:
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
 def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
 	files = {
-		'ReadMe.txt': 'ReadMe.txt',
-		'UnicodeData.txt': 'ucd/UnicodeData.txt', 
-		'PropList.txt': 'ucd/PropList.txt', 
-		'DerivedCoreProperties.txt': 'ucd/DerivedCoreProperties.txt',
-		'SpecialCasing.txt': 'ucd/SpecialCasing.txt',
-		'WordBreakProperty.txt': 'ucd/auxiliary/WordBreakProperty.txt',
-		'EmojiData.txt': 'ucd/emoji/emoji-data.txt',
-		'EastAsianWidth.txt': 'ucd/EastAsianWidth.txt',
-		'GraphemeBreakProperty.txt': 'ucd/auxiliary/GraphemeBreakProperty.txt',
-		'SentenceBreakProperty.txt': 'ucd/auxiliary/SentenceBreakProperty.txt',
-		'LineBreak.txt': 'ucd/LineBreak.txt',
-		'CaseFolding.txt': 'ucd/CaseFolding.txt'
+		'ReadMe': 'ReadMe.txt',
+		'UnicodeData': 'ucd/UnicodeData.txt',
+		'PropList': 'ucd/PropList.txt',
+		'DerivedCoreProperties': 'ucd/DerivedCoreProperties.txt',
+		'SpecialCasing': 'ucd/SpecialCasing.txt',
+		'WordBreakProperty': 'ucd/auxiliary/WordBreakProperty.txt',
+		'EmojiData': 'ucd/emoji/emoji-data.txt',
+		'EastAsianWidth': 'ucd/EastAsianWidth.txt',
+		'GraphemeBreakProperty': 'ucd/auxiliary/GraphemeBreakProperty.txt',
+		'SentenceBreakProperty': 'ucd/auxiliary/SentenceBreakProperty.txt',
+		'LineBreak': 'ucd/LineBreak.txt',
+		'CaseFolding': 'ucd/CaseFolding.txt',
+		'DerivedNormalizationProps': 'ucd/DerivedNormalizationProps.txt',
+		'NormalizationCorrections': 'ucd/NormalizationCorrections.txt'
 	}
 	dirPath = './ucd'
 	testPath = './tests'
 	if includeTest:
-		files['WordBreakTest.txt'] = 'ucd/auxiliary/WordBreakTest.txt'
-		files['SentenceBreakTest.txt'] = 'ucd/auxiliary/SentenceBreakTest.txt'
-		files['GraphemeBreakTest.txt'] = 'ucd/auxiliary/GraphemeBreakTest.txt'
-		files['LineBreakTest.txt'] = 'ucd/auxiliary/LineBreakTest.txt'
+		files['WordBreakTest'] = 'ucd/auxiliary/WordBreakTest.txt'
+		files['SentenceBreakTest'] = 'ucd/auxiliary/SentenceBreakTest.txt'
+		files['GraphemeBreakTest'] = 'ucd/auxiliary/GraphemeBreakTest.txt'
+		files['LineBreakTest'] = 'ucd/auxiliary/LineBreakTest.txt'
+		files['NormalizationTest'] = 'ucd/NormalizationTest.txt'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
@@ -1428,7 +1438,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 	# download all of the files (only if they should either be refreshed, or do not exist yet)
 	mapping = {}
 	for file in files:
-		url, path = f'{baseUrl}/{files[file]}', f'{dirPath}/{file}'
+		url, path = f'{baseUrl}/{files[file]}', f'{dirPath}/{file}.txt'
 		mapping[file] = path
 
 		if not refreshFiles and os.path.isfile(path):
@@ -1444,8 +1454,8 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		raise RuntimeError('Unable to extract the version')
 	return (version[0][0], mapping, f'{testPath}/')
 
-# parse test-file for separators and create source-code test file
-def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
+# parse test-file for separators/normalization and create source-code test file
+def CreateSeparatorTestFile(outPath: str, inPath: str, name: str) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [{name}]...')
 	tests: list[tuple[str, list[tuple[int, int]]]] = []
 
@@ -1475,7 +1485,6 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 		file.write('#pragma once\n')
 		file.write('\n')
 		file.write('#include <vector>\n')
-		file.write('#include <string>\n')
 		file.write('#include <utility>\n')
 		file.write('\n')
 		file.write('namespace test {\n')
@@ -1483,7 +1492,7 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 		file.write('\n')
 
 		# write all strings to the file
-		file.write(f'\tstatic std::u32string {name}Words[test::{name}Count] = {{')
+		file.write(f'\tstatic const char32_t* {name}Words[test::{name}Count] = {{')
 		for i in range(len(tests)):
 			file.write('\n\t\t' if i == 0 else ',\n\t\t')
 			file.write(f'U\"{tests[i][0]}\"')
@@ -1501,13 +1510,65 @@ def CreateTestFile(outPath: str, inPath: str, name: str) -> None:
 			file.write(' }')
 		file.write('\n\t};\n')
 		file.write('}\n')
+def CreateNormalizationTestFile(outPath: str, inPath: str) -> None:
+	print(f'Creating [{outPath}] from [{inPath}] for test [normalization]...')
+	tests: list[tuple[str, str, str]] = []
+
+	# open the file which contains the test-sequences and parse it
+	with open(inPath, 'r', encoding='utf-8') as file:
+		for line in file:
+			# remove any comments and skip empty lines
+			line = line.split('#')[0].strip()
+			if len(line) == 0 or line.startswith('@Part'):
+				continue
+			if line.endswith(';'):
+				line = line[:-1]
+			words = [[int(c.strip(), 16) for c in w.strip().split(' ')] for w in line.split(';')]
+			words = [''.join([f'\\U{i:08x}' for i in w]) for w in words]
+
+			# add the string to the tests (only source, nfc, nfd)
+			tests.append((words[0], words[1], words[2]))
+
+	# open the file to contain the testing code and write it to the file
+	with open(outPath, 'w', encoding='utf-8') as file:
+		file.write('#pragma once\n')
+		file.write('\n')
+		file.write('#include <cinttypes>\n')
+		file.write('\n')
+		file.write('namespace test {\n')
+		file.write(f'\tstatic constexpr size_t NormalizationCount = {len(tests)};\n')
+		file.write('\n')
+
+		# write all source-strings to the file
+		file.write(f'\tstatic const char32_t* NormalizationSource[test::NormalizationCount] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write(f'U\"{tests[i][0]}\"')
+		file.write('\n\t};\n')
+		file.write('\n')
+
+		# write all nfc-strings to the file
+		file.write(f'\tstatic const char32_t* NormalizationComposed[test::NormalizationCount] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write(f'U\"{tests[i][1]}\"')
+		file.write('\n\t};\n')
+		file.write('\n')
+
+		# write all nfd-strings to the file
+		file.write(f'\tstatic const char32_t* NormalizationDecomposed[test::NormalizationCount] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write(f'U\"{tests[i][2]}\"')
+		file.write('\n\t};\n')
+		file.write('}\n')
 
 # TestUnicode, TestAscii, TestAsciiAlphabetic, TestAsciiNumeric, GetAsciiRadix, TestWhiteSpace, TestControl, GetProperty (encodes: assigned/alphabetic/numeric/decimal/printable/case/category)
-def MakePropertyLookup(outPath: str, config: SystemConfig):
+def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 	# parse the relevant files
-	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
-	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
-	propList = ParsedFile(config.mapping['PropList.txt'], False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties'], False)
+	propList = ParsedFile(config.mapping['PropList'], False)
 
 	# write all lookup functions to the file
 	with GeneratedFile(outPath, config) as file:
@@ -1784,25 +1845,46 @@ def _TranslateFolding(cIndex: int, values: tuple[int], flagIsFold: int, conditio
 		out = [condition, len(out)] + out
 	out[0] = out[0] | flagIsFold
 	return tuple(out)
-def MakeMappingLookup(outPath: str, config: SystemConfig):
+def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 	# parse the relevant files
-	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
-	specialCasing = ParsedFile(config.mapping['SpecialCasing.txt'], False)
-	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
-	propList = ParsedFile(config.mapping['PropList.txt'], False)
-	caseFolding = ParsedFile(config.mapping['CaseFolding.txt'], False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
+	specialCasing = ParsedFile(config.mapping['SpecialCasing'], False)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties'], False)
+	propList = ParsedFile(config.mapping['PropList'], False)
+	caseFolding = ParsedFile(config.mapping['CaseFolding'], False)
 
 	# write all map functions to the file
 	with GeneratedFile(outPath, config) as file:
+		# encoding:
+		#	uint20_t valueOrCondition
+		#	uint1_t valueIsFoldingMapping
+		#	uint1_t valueIsTitleMapping
+		#	uint1_t valueIsUpperMapping
+		#	uint1_t valueIsLowerMapping
+		#	uint1_t valueIsNegative
+		#	uint1_t is \u0307 - value (Before_Dot; OnlyInFirstValue)
+		#	uint1_t is \u0049 - value (After_I; OnlyInFirstValue)
+		#	uint1_t is ccc=230 (More_Above; OnlyInFirstValue)
+		#	uint1_t is ccc=0|ccc=230 (After_Soft_Dotted; More_Above; Before_Dot; After_I; OnlyInFirstValue)
+		#	uint1_t is soft-dotted type (After_Soft_Dotted; OnlyInFirstValue)
+		#	uint1_t is case-ignorable (Final_Sigma; OnlyInFirstValue)
+		#	uint1_t is cased (Final_Sigma; OnlyInFirstValue)
+		#
+		#	all values are relative to current codepoint to support further reduction/merging of the ranges
+		#	If length of chain is 1: value is the direct mapping, and value-negative flag applies (for all, which match the is...Mapping flag)
+		#	Otherwise, it consists of chain of condition-values, followed by single size-byte and the given size-number of values.
+		#		for each value, valueIsNegative is used
+		#		for each condition: is...Mapping is used
+
 		# define the flags used for the separate values (keep the topmost bit clear as value is signed)
-		flagIsNegative = 0x8000_0000
-		flagIsCased = 0x4000_0000
-		flagIsIgnorable = 0x2000_0000
-		flagIsSoftDotted = 0x1000_0000
-		flagCombClass0or230 = 0x0800_0000
-		flagCombClass230 = 0x0400_0000
-		flagIs0049 = 0x0200_0000
-		flagIs0307 = 0x0100_0000
+		flagIsCased = 0x8000_0000
+		flagIsIgnorable = 0x4000_0000
+		flagIsSoftDotted = 0x2000_0000
+		flagCombClass0or230 = 0x1000_0000
+		flagCombClass230 = 0x0800_0000
+		flagIs0049 = 0x0400_0000
+		flagIs0307 = 0x0200_0000
+		flagIsNegative = 0x0100_0000
 		flagIsLower = 0x0080_0000
 		flagIsUpper = 0x0040_0000
 		flagIsTitle = 0x0020_0000
@@ -1890,7 +1972,7 @@ def MakeMappingLookup(outPath: str, config: SystemConfig):
 		_gen.addConstInt(_type, 'CaseIsFold', flagIsFold)
 		_gen.addConstInt(_type, 'CaseValueMask', valueMask)
 		_gen.addEnum(LookupType.enumType('CaseCond', 'none', caseConditions))
-		_gen.listFunction('MapCase', _type, caseRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
+		_gen.listFunction('MapCase', _type, caseRanges, False, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/4)))
 
 # GetSegmentation (encodes: word/grapheme/sentence/line segmentation)
 def _SegmentationMergeConflicts(a: tuple[int], b: tuple[int], conflictMap: dict[tuple[int, int], int], desc: str) -> tuple[int]:
@@ -1901,16 +1983,16 @@ def _CnPictographicMerge(a: tuple[int], idCnPictographic: int, id: int) -> tuple
 	if a[0] != id:
 		raise RuntimeError('Cn&Extended_Pictographic is expected to at most collide with [ID]')
 	return (idCnPictographic,)
-def MakeSegmentationLookup(outPath: str, config: SystemConfig):
+def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 	# parse the relevant files
-	wordBreak = ParsedFile(config.mapping['WordBreakProperty.txt'], False)
-	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty.txt'], False)
-	sentenceBreak = ParsedFile(config.mapping['SentenceBreakProperty.txt'], False)
-	lineBreak = ParsedFile(config.mapping['LineBreak.txt'], False)
-	emojiData = ParsedFile(config.mapping['EmojiData.txt'], False)
-	eastAsianWidth = ParsedFile(config.mapping['EastAsianWidth.txt'], False)
-	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties.txt'], False)
-	unicodeData = ParsedFile(config.mapping['UnicodeData.txt'], True)
+	wordBreak = ParsedFile(config.mapping['WordBreakProperty'], False)
+	graphemeBreak = ParsedFile(config.mapping['GraphemeBreakProperty'], False)
+	sentenceBreak = ParsedFile(config.mapping['SentenceBreakProperty'], False)
+	lineBreak = ParsedFile(config.mapping['LineBreak'], False)
+	emojiData = ParsedFile(config.mapping['EmojiData'], False)
+	eastAsianWidth = ParsedFile(config.mapping['EastAsianWidth'], False)
+	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties'], False)
+	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
 
 	# write all maps functions to the file
 	with GeneratedFile(outPath, config) as file:
@@ -2047,6 +2129,138 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig):
 		_gen.addConstInt(_type8, 'SegmentationMask', 0xff)
 		_gen.intFunction('GetSegmentation', _type32, segmentationRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
+# GetNormalization (encodes ccc/decomposition/composition states)
+def _ParseCCC(val: str) -> int|None:
+	if val == '0':
+		return None
+	out = int(val)
+	if out > 0xff:
+		raise RuntimeError('CCC value cannot be encoded in current encoding')
+	return out
+def _ParseDecomposition(line: str, shift: int) -> tuple[int]|None:
+	# check if the line defines any decomposition rules
+	if len(line) == 0:
+		return None
+
+	# check if the rule starts with a formatting tag, in which case it is used for the compatibility-mapping and can be ignored
+	if line[0] == '<':
+		for tag in ['<font>', '<noBreak>', '<initial>', '<medial>', '<final>', '<isolated>', '<circle>', '<super>',
+			  '<sub>', '<vertical>', '<wide>', '<narrow>', '<small>', '<square>', '<fraction>', '<compat>']:
+			if line.startswith(tag):
+				return None
+		raise RuntimeError('Unknown tag encountered in decomposition mapping')
+
+	# parse the list of single codepoint-values
+	values = tuple(int(v, 16) for v in line.split(' '))
+
+	# check if the size is valid
+	if len(values) > 2:
+		raise RuntimeError('Value count unexpected')
+	return (len(values) << shift,) + values
+def _ApplyCorrection(r: list[Range], c: int, v: tuple[int]) -> list[Range]:
+	val = Ranges.lookup(r, c)
+	if val is None:
+		raise RuntimeError('Unable to apply normalization correction')
+	if len(val) == 1 and val[0] == v[0]:
+		return Ranges.merge(r, [Range(c, c, v[1])], lambda _, b: b)
+	return r
+def _TranslateComposition(v: tuple[int], shift: int, sizeMask: int) -> tuple[int]:
+	count = len(v) // 2
+	if count > sizeMask:
+		raise RuntimeError('Too few size-bits to encode compositions')
+	return (count << shift,) + v
+def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
+	# parse the relevant files
+	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
+	derivedNorm = ParsedFile(config.mapping['DerivedNormalizationProps'], False)
+	normCorrections = ParsedFile(config.mapping['NormalizationCorrections'], False)
+
+	# write all maps functions to the file
+	with GeneratedFile(outPath, config) as file:
+		# encoding:
+		#	uint8_t: ccc-value
+		#	uint8_t: len-decomposition (0 => no decomposition; directly following first value)
+		#	uint8_t: num-compositions (pairs of combining-char and matching composition-char; must always be pair, hence count divided by two)
+		#	uint1_t: isHangulSyllableComposition
+		#	uint1_t: isHangulSyllableL
+		#	uint1_t: isHangulSyllableV
+		#	uint1_t: isHangulSyllableT
+		#	uint1_t: isNormExclusion
+		#
+		#	all values are absolute as many compositions/decompositions to not benefit from relative values, as they might be partially static and dynamic
+
+		# parse the canonical combining class values (https://www.unicode.org/reports/tr44/#Canonical_Combining_Class)
+		cccRanges = unicodeData.filter(3, lambda fs: _ParseCCC(fs[2]))
+
+		# parse the exclusion flags (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf#page=70)
+		exclusionFlag: int = 0x01 << 28
+		excludedRanges = derivedNorm.filter(1, lambda fs: exclusionFlag if fs[0] == 'Full_Composition_Exclusion' else None)
+		excludedSet: set = set()
+		for r in excludedRanges:
+			for c in range(r.first, r.last + 1):
+				excludedSet.add(c)
+
+		# parse the hangulsyllable flags (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf#page=75)
+		hangulSylComposition: int = 0x01 << 24
+		hangulSyllableL: int = 0x01 << 25
+		hangulSyllableV: int = 0x01 << 26
+		hangulSyllableT: int = 0x01 << 27
+		hangulSylRanges = Ranges.fromConflictingRawList([
+			Range(0xac00, 0xac00 + 11172 - 1, hangulSylComposition), Range(0x1100, 0x1100 + 19 - 1, hangulSyllableL),
+			Range(0x1161, 0x1161 + 21 - 1, hangulSyllableV), Range(0x11a7, 0x11a7 + 28 - 1, hangulSyllableT)
+		], lambda a, b: (a[0] | b[0],))
+
+		# fetch the decomposition mapping, but ignoring compatibility-mapping [length is guaranteed to be in 0..2] (https://www.unicode.org/reports/tr44/#Character_Decomposition_Mappings)
+		decompSizeShift: int = 8
+		decompRanges = unicodeData.filter(5, lambda fs: _ParseDecomposition(fs[4], decompSizeShift))
+
+		# apply all normalization-corrections where necessary
+		for r in normCorrections.filter(3, lambda fs: (int(fs[0], 16), int(fs[1], 16)), True):
+			for c in range(r.first, r.last + 1):
+				decompRanges = _ApplyCorrection(decompRanges, c, r.values)
+
+		# collect all of the composition mappings [Primary Composites: must all be exactly length two; Must not be excluded] (Starter => [(CombiningChar,ComposedChar)])
+		compSizeShift: int = 16
+		compSizeMask: int = 0xff
+		compRanges: list[Range] = []
+		for r in decompRanges:
+			if len(r.values) < 3:
+				continue
+			for c in range(r.first, r.last + 1):
+				if c not in excludedSet:
+					compRanges.append(Range(r.values[1], r.values[1], (r.values[2], c)))
+		compRanges = Ranges.fromConflictingRawList(compRanges, lambda a, b: a + b)
+		compRanges = Ranges.translate(compRanges, lambda _, v: _TranslateComposition(v, compSizeShift, compSizeMask))
+
+		# merge the ranges together
+		normRanges = Ranges.merge(cccRanges, excludedRanges, lambda a, b: (a[0] | b[0],))
+		normRanges = Ranges.merge(normRanges, hangulSylRanges, lambda a, b: (a[0] | b[0],))
+		normRanges = Ranges.merge(normRanges, decompRanges, lambda a, b: (a[0] | b[0],) + b[1:])
+		normRanges = Ranges.merge(normRanges, compRanges, lambda a, b: (a[0] | b[0],) + a[1:] + b[1:])
+
+		# create the function to encode the normalization properties (requires less memory than separate lookups)
+		_type32: LookupType = LookupType.intType(0, 'uint32_t')
+		_gen: CodeGen = file.next('Normalization', 'Lookup normalization properties (Decomposition, Composition, CCC, NormFlags)')
+		_gen.addConstInt(_type32, 'NormIsHSComposition', hangulSylComposition)
+		_gen.addConstInt(_type32, 'NormIsHSTypeL', hangulSyllableL)
+		_gen.addConstInt(_type32, 'NormIsHSTypeV', hangulSyllableV)
+		_gen.addConstInt(_type32, 'NormIsHSTypeT', hangulSyllableT)
+		_gen.addConstInt(_type32, 'NormIsExcluded', exclusionFlag)
+		_gen.addConstInt(_type32, 'NormCCCMask', 0xff)
+		_gen.addConstInt(_type32, 'NormDecompShift', decompSizeShift)
+		_gen.addConstInt(_type32, 'NormDecompMask', 0xff)
+		_gen.addConstInt(_type32, 'NormDecompNone', 0)
+		_gen.addConstInt(_type32, 'NormCompShift', compSizeShift)
+		_gen.addConstInt(_type32, 'NormCompMask', compSizeMask)
+		_gen.addConstInt(_type32, 'NormHSSBase', 0xac00)
+		_gen.addConstInt(_type32, 'NormHSLBase', 0x1100)
+		_gen.addConstInt(_type32, 'NormHSVBase', 0x1161)
+		_gen.addConstInt(_type32, 'NormHSTBase', 0x11a7)
+		_gen.addConstInt(_type32, 'NormHSLCount', 19)
+		_gen.addConstInt(_type32, 'NormHSVCount', 21)
+		_gen.addConstInt(_type32, 'NormHSTCount', 28)
+		_gen.addConstInt(_type32, 'NormHSNCount', 588)
+		_gen.listFunction('GetNormalization', _type32, normRanges, True, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
 
 
@@ -2055,8 +2269,9 @@ os.chdir(os.path.split(os.path.abspath(__file__))[0])
 doTests: bool = ('--tests' in sys.argv)
 doRefresh: bool = ('--refresh' in sys.argv)
 doProperty: bool = not ('--noproperty' in sys.argv)
-doMap: bool = not ('--nomap' in sys.argv)
+doCase: bool = not ('--nocase' in sys.argv)
 doSegment: bool = not ('--nosegment' in sys.argv)
+doNormalization: bool = not ('--nonormal' in sys.argv)
 if not doRefresh:
 	print('Hint: use --refresh to download already cached files again')
 
@@ -2068,10 +2283,11 @@ systemConfig = SystemConfig(generatedURLOrigin, generatedVersion, generatedDateT
 
 # generate the test files
 if doTests:
-	CreateTestFile(testPath + 'test-words.h', systemConfig.mapping['WordBreakTest.txt'], 'Word')
-	CreateTestFile(testPath + 'test-graphemes.h', systemConfig.mapping['GraphemeBreakTest.txt'], 'Grapheme')
-	CreateTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest.txt'], 'Sentence')
-	CreateTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest.txt'], 'Line')
+	CreateSeparatorTestFile(testPath + 'test-words.h', systemConfig.mapping['WordBreakTest'], 'Word')
+	CreateSeparatorTestFile(testPath + 'test-graphemes.h', systemConfig.mapping['GraphemeBreakTest'], 'Grapheme')
+	CreateSeparatorTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest'], 'Sentence')
+	CreateSeparatorTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest'], 'Line')
+	CreateNormalizationTestFile(testPath + 'test-normalization.h', systemConfig.mapping['NormalizationTest'])
 else:
 	print('Hint: use --tests to generate test-source-code')
 
@@ -2079,9 +2295,12 @@ else:
 if doProperty:
 	print('Hint: use --noproperty to prevent property-code from being generated again')
 	MakePropertyLookup('unicode-property.h', systemConfig)
-if doMap:
-	print('Hint: use --nomap to prevent mapping-code from being generated again')
-	MakeMappingLookup('unicode-mapping.h', systemConfig)
+if doCase:
+	print('Hint: use --nocase to prevent case-code from being generated again')
+	MakeCasingLookup('unicode-casing.h', systemConfig)
 if doSegment:
 	print('Hint: use --nosegment to prevent segmentation-code from being generated again')
 	MakeSegmentationLookup('unicode-segmentation.h', systemConfig)
+if doNormalization:
+	print('Hint: use --nonormal to prevent normalization-code from being generated again')
+	MakeNormalizationLookup('unicode-normalization.h', systemConfig)
