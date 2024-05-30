@@ -344,22 +344,6 @@ namespace cp {
 		}
 	}
 
-	/* valid sinks for char32_t must receive zero or more valid codepoints and a final call to done(), after which
-	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
-	template <class Type, class... ValType>
-	concept IsSink = requires(Type t, ValType... v) {
-		{ t(v...) } -> std::same_as<void>;
-	};
-
-	/* codepoint-iterator must move itself upon prev()/next() and return true, or return false and stay
-	*	and must return the currently pointed to codepoint on get() */
-	template <class Type>
-	concept IsCPIterator = std::copyable<Type> && requires(Type t, const Type ct) {
-		{ t.prev() } -> std::same_as<bool>;
-		{ t.next() } -> std::same_as<bool>;
-		{ ct.get() } -> std::same_as<char32_t>;
-	};
-
 	namespace detail {
 		template <class Type, size_t Buffer>
 		class LocalBuffer {
@@ -439,5 +423,40 @@ namespace cp {
 				return pEnd;
 			}
 		};
+
+		using EmptyLambda = decltype([](char32_t) {});
 	}
+
+	/* valid sinks for char32_t must receive zero or more valid codepoints and a final call to done(), after which
+	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
+	template <class Type, class... ValType>
+	concept IsSink = requires(Type t, ValType... v) {
+		{ t(v...) } -> std::same_as<void>;
+	};
+
+	/* codepoint-iterator must move itself upon prev()/next() and return true or return false (in which case it must stay)
+	*	and must return the currently pointed to codepoint on get() */
+	template <class Type>
+	concept IsCPIterator = std::copyable<Type> && requires(Type t, const Type ct) {
+		{ t.prev() } -> std::same_as<bool>;
+		{ t.next() } -> std::same_as<bool>;
+		{ ct.get() } -> std::same_as<char32_t>;
+	};
+
+	/* codepoint-mapper must receive a callable sink of type void(char32_t) and return an object, which provides next/done
+	*	functions to consume the next codepoints and process them and the type of the object must be exposed as ::Type */
+	template <class Type>
+	concept IsMapper = requires(const Type t, char32_t c, detail::EmptyLambda l) {
+		typename Type::template Type<detail::EmptyLambda>;
+		{ t(l) } -> std::same_as<typename Type::template Type<detail::EmptyLambda>>;
+		{ t(l).next(c) } -> std::same_as<void>;
+		{ t(l).done() } -> std::same_as<void>;
+	};
+
+	/* codepoint-tester must provide next/done functions to consume the next codepoints and process them and return the final result on done */
+	template <class Type, class ResType>
+	concept IsTester = requires(Type t, char32_t c) {
+		{ t.next(c) } -> std::same_as<void>;
+		{ t.done() } -> std::same_as<ResType>;
+	};
 }

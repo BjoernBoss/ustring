@@ -10,78 +10,6 @@
 
 namespace cp {
 	namespace detail {
-		template <class SelfType>
-		class TitleCasing {
-		private:
-			struct Lambda {
-				detail::TitleCasing<SelfType>& self;
-				constexpr Lambda(detail::TitleCasing<SelfType>& s) : self{ s } {}
-				constexpr void operator()(size_t, cp::BreakMode mode) {
-					self.fSeparate(mode != cp::BreakMode::none);
-				}
-			};
-
-		private:
-			detail::LocalBuffer<size_t, 2> pWords;
-			detail::LocalBuffer<char32_t, 2> pChars;
-			cp::WordBreak::Type<Lambda> pSeparator;
-			bool pLower = false;
-
-		public:
-			constexpr TitleCasing() : pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
-				pWords.push(1);
-			}
-
-		private:
-			constexpr void fSeparate(bool separate) {
-				if (pWords.size() == 0) {
-					pLower = !separate;
-					pWords.push(1);
-				}
-				else if (separate)
-					pWords.push(1);
-				else
-					++pWords.back();
-			}
-
-		protected:
-			constexpr void processed() {
-				pLower = true;
-				if (--pWords.front() == 0) {
-					pWords.pop();
-					pLower = false;
-				}
-			}
-			constexpr void done() {
-				/* finalize the separator and flush the last cached characters (word-counter can be ignored) */
-				pSeparator.done();
-				while (pChars.size() > 0)
-					static_cast<SelfType*>(this)->fNext(pChars.pop());
-			}
-			constexpr bool lower() const {
-				return pLower;
-			}
-			constexpr void next(char32_t cp) {
-				pSeparator.next(cp, 0);
-
-				/* fast-path of no characters being cached and characters being immediately processable */
-				if (pChars.size() == 0) {
-					static_cast<SelfType*>(this)->fNext(cp);
-					return;
-				}
-
-				/* flush as many of the cached characters as possible */
-				while (pWords.size() > 0 && pChars.size() > 0)
-					static_cast<SelfType*>(this)->fNext(pChars.pop());
-
-				/* process the current most-recent codepoint */
-				if (pWords.size() > 0)
-					static_cast<SelfType*>(this)->fNext(cp);
-				else
-					pChars.push(cp);
-			}
-		};
-
 		enum class CaseLocale : uint8_t {
 			none,
 			lt, /* lt; lit */
@@ -411,34 +339,78 @@ namespace cp {
 		};
 
 		template <class SinkType>
-		class TitleMapper final : private detail::TitleCasing<detail::TitleMapper<SinkType>>, private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
-			friend class detail::TitleCasing<detail::TitleMapper<SinkType>>;
+		class TitleMapper final : private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
 			friend class detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
 		private:
-			using Super0 = detail::TitleCasing<detail::TitleMapper<SinkType>>;
-			using Super1 = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
-
-		public:
-			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super1{ std::forward<SinkType>(sink), locale } {}
+			using Super = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+			struct Lambda {
+				detail::TitleMapper<SinkType>& self;
+				constexpr Lambda(detail::TitleMapper<SinkType>& s) : self{ s } {}
+				constexpr void operator()(size_t, cp::BreakMode mode) {
+					self.fSeparate(mode != cp::BreakMode::none);
+				}
+			};
 
 		private:
+			detail::LocalBuffer<size_t, 2> pWords;
+			detail::LocalBuffer<char32_t, 2> pChars;
+			cp::WordBreak::Type<Lambda> pSeparator;
+			bool pLower = false;
+
+		public:
+			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SinkType>(sink), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
+				pWords.push(1);
+			}
+
+		private:
+			constexpr void fSeparate(bool separate) {
+				if (pWords.size() == 0) {
+					pLower = !separate;
+					pWords.push(1);
+				}
+				else if (separate)
+					pWords.push(1);
+				else
+					++pWords.back();
+			}
 			constexpr uint32_t fTypeFlag() {
-				return (Super0::lower() ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
+				return (pLower ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
 			}
 			constexpr void fDone() {
-				Super0::processed();
-			}
-			constexpr void fNext(char32_t cp) {
-				Super1::next(cp);
+				pLower = true;
+				if (--pWords.front() == 0) {
+					pWords.pop();
+					pLower = false;
+				}
 			}
 
 		public:
 			constexpr void next(char32_t cp) {
-				Super0::next(cp);
+				pSeparator.next(cp, 0);
+
+				/* fast-path of no characters being cached and characters being immediately processable */
+				if (pChars.size() == 0) {
+					Super::next(cp);
+					return;
+				}
+
+				/* flush as many of the cached characters as possible */
+				while (pWords.size() > 0 && pChars.size() > 0)
+					Super::next(pChars.pop());
+
+				/* process the current most-recent codepoint */
+				if (pWords.size() > 0)
+					Super::next(cp);
+				else
+					pChars.push(cp);
 			}
 			constexpr void done() {
-				Super0::done();
-				Super1::done();
+				/* finalize the separator and flush the last cached characters (word-counter can be ignored, as
+				*	flushing the separator will already have matched the word-counter to the actual codepoints) */
+				pSeparator.done();
+				while (pChars.size() > 0)
+					Super::next(pChars.pop());
+				Super::done();
 			}
 		};
 
@@ -458,85 +430,47 @@ namespace cp {
 			constexpr void fDone() {}
 		};
 
-		template <class SelfType>
+		template <template<class> class MapType>
 		class TestCasing {
 		private:
+			struct Lambda {
+				detail::TestCasing<MapType>& self;
+				constexpr Lambda(detail::TestCasing<MapType>& s) : self{ s } {}
+				constexpr void operator()(char32_t cp) {
+					self.fNext(cp);
+				}
+			};
+
+		private:
+			MapType<Lambda> pMapper;
+			detail::LocalBuffer<char32_t, 2> pChars;
 			bool pMatches = true;
-			bool pChars = false;
 
 		public:
-			constexpr TestCasing() = default;
-
-		public:
-			constexpr void next(char32_t cp) {
-				auto [size, data] = detail::gen::MapCase(cp);
-				pChars = true;
-
-				/* check the fast path of no conditions existing if the character would change */
-				if (size == 1) {
-					if (data[0] & static_cast<SelfType*>(this)->fTypeFlag())
-						pMatches = false;
-					return;
-				}
-
-				/* iterate over the conditions and look for any null-conditions */
-				for (size_t i = 0; i < size; i += 2 + size_t(data[i + 1])) {
-					if (static_cast<detail::gen::CaseCond>(data[i] & detail::gen::CaseValueMask) != detail::gen::CaseCond::none)
-						continue;
-					if ((data[i] & static_cast<SelfType*>(this)->fTypeFlag()) == 0)
-						continue;
-					pMatches = false;
-					break;
-				}
-			}
-			constexpr bool done() {
-				return (pChars && pMatches);
-			}
-		};
-
-		template <size_t TypeFlag>
-		class TestConstCasing : public detail::TestCasing<TestConstCasing<TypeFlag>> {
-			friend class detail::TestCasing<TestConstCasing<TypeFlag>>;
-		public:
-			constexpr TestConstCasing() = default;
+			constexpr TestCasing(const char8_t* locale = 0) : pMapper{ Lambda{ *this }, detail::ParseCaseLocale(locale) } {}
 
 		private:
-			constexpr uint32_t fTypeFlag() const {
-				return TypeFlag;
-			}
-		};
-
-		class TestTitleCasing : private detail::TitleCasing<detail::TestTitleCasing>, private detail::TestCasing<detail::TestTitleCasing> {
-			friend class detail::TitleCasing<detail::TestTitleCasing>;
-			friend class detail::TestCasing<detail::TestTitleCasing>;
-		private:
-			using Super0 = detail::TitleCasing<detail::TestTitleCasing>;
-			using Super1 = detail::TestCasing<detail::TestTitleCasing>;
-
-		public:
-			constexpr TestTitleCasing() = default;
-
-		private:
-			constexpr uint32_t fTypeFlag() const {
-				return (Super0::lower() ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
-			}
 			constexpr void fNext(char32_t cp) {
-				Super1::next(cp);
-				Super0::processed();
+				if (pChars.size() == 0 || pChars.pop() != cp)
+					pMatches = false;
 			}
 
 		public:
 			constexpr void next(char32_t cp) {
-				Super0::next(cp);
+				if (pMatches) {
+					pChars.push(cp);
+					pMapper.next(cp);
+				}
 			}
 			constexpr bool done() {
-				Super0::done();
-				return Super1::done();
+				if (pMatches)
+					pMapper.done();
+				return pMatches;
 			}
 		};
 	}
 
-	/* create a sink, which writes the upper-cased stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the upper-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): upper-cased codepoint(s) */
 	class UpperCase {
@@ -559,7 +493,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the lower-cased stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the lower-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): lower-cased codepoint(s) */
 	class LowerCase {
@@ -582,7 +516,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the title-cased stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the title-cased stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): title-cased codepoint(s) */
 	class TitleCase {
@@ -605,7 +539,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the case-folded stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the case-folded stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): case-folded codepoint(s) */
 	class FoldCase {
@@ -628,31 +562,27 @@ namespace cp {
 		}
 	};
 
-	/* check if the entire stream of codepoints is not empty and upper-cased (i.e. UpperCase(...) would result in the same codepoints; for simplification
-	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
-	class TestUpperCase : public detail::TestConstCasing<detail::gen::CaseIsUpper> {
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
+	class TestUpperCase : public detail::TestCasing<detail::UpperMapper> {
 	public:
-		constexpr TestUpperCase() = default;
+		constexpr TestUpperCase(const char8_t* locale = 0) : detail::TestCasing<detail::UpperMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is not empty and lower-cased (i.e. LowerCase(...) would result in the same codepoints; for simplification
-	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
-	class TestLowerCase : public detail::TestConstCasing<detail::gen::CaseIsLower> {
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
+	class TestLowerCase : public detail::TestCasing<detail::LowerMapper> {
 	public:
-		constexpr TestLowerCase() = default;
+		constexpr TestLowerCase(const char8_t* locale = 0) : detail::TestCasing<detail::LowerMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is not empty and title-cased (i.e. TitleCase(...) would result in the same codepoints; for simplification
-	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
-	class TestTitleCase : public detail::TestTitleCasing {
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
+	class TestTitleCase : public detail::TestCasing<detail::TitleMapper> {
 	public:
-		constexpr TestTitleCase() = default;
+		constexpr TestTitleCase(const char8_t* locale = 0) : detail::TestCasing<detail::TitleMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is not empty and case-folded (i.e. FoldCase(...) would result in the same codepoints; for simplification
-	*	purposes locale and codepoint context will not be considered, meaning for very few codepoints in certain locale/context, they might change afterall) */
-	class TestFoldCase : public detail::TestConstCasing<detail::gen::CaseIsFold> {
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
+	class TestFoldCase : public detail::TestCasing<detail::FoldingMapper> {
 	public:
-		constexpr TestFoldCase() = default;
+		constexpr TestFoldCase(const char8_t* locale = 0) : detail::TestCasing<detail::FoldingMapper>(locale) {}
 	};
 }

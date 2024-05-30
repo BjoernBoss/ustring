@@ -240,9 +240,51 @@ namespace cp {
 				fCompleteHS(0, 0);
 			}
 		};
+
+		template <class SinkType>
+		using NoDataDecompMapper = detail::DecompMapper<SinkType, false>;
+
+		template <template<class> class MapType>
+		class TestNormalization {
+		private:
+			struct Lambda {
+				detail::TestNormalization<MapType>& self;
+				constexpr Lambda(detail::TestNormalization<MapType>& s) : self{ s } {}
+				constexpr void operator()(char32_t cp) {
+					self.fNext(cp);
+				}
+			};
+
+		private:
+			MapType<Lambda> pMapper;
+			detail::LocalBuffer<char32_t, 2> pChars;
+			bool pMatches = true;
+
+		public:
+			constexpr TestNormalization() : pMapper{ Lambda{ *this } } {}
+
+		private:
+			constexpr void fNext(char32_t cp) {
+				if (pChars.size() == 0 || pChars.pop() != cp)
+					pMatches = false;
+			}
+
+		public:
+			constexpr void next(char32_t cp) {
+				if (pMatches) {
+					pChars.push(cp);
+					pMapper.next(cp);
+				}
+			}
+			constexpr bool done() {
+				if (pMatches)
+					pMapper.done();
+				return pMatches;
+			}
+		};
 	}
 
-	/* create a sink, which writes the decomposed-normalized (NFD) stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the decomposed-normalized (NFD) stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): decomposed and normalized codepoint(s) */
 	class Decompose {
@@ -260,7 +302,7 @@ namespace cp {
 		}
 	};
 
-	/* create a sink, which writes the composed-normalized (NFC) stream to the given sink
+	/* [cp::IsMapper] create a sink, which writes the composed-normalized (NFC) stream to the given sink
 	*	InSink(char32_t): source codepoint
 	*	OutSink(char32_t): composed and normalized codepoint(s) */
 	class Compose {
@@ -276,5 +318,17 @@ namespace cp {
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
+	};
+
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
+	class TestDecompose : public detail::TestNormalization<detail::NoDataDecompMapper> {
+	public:
+		constexpr TestDecompose() = default;
+	};
+
+	/* [cp::IsTester<bool>] check if the entire stream of codepoints is composed-normalized (NFC) (i.e. cp::Compose(...) would result in the same codepoints) */
+	class TestCompose : public detail::TestNormalization<detail::CompMapper> {
+	public:
+		constexpr TestCompose() = default;
 	};
 }
