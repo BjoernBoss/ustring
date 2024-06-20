@@ -1349,58 +1349,82 @@ class ParsedFile:
 	def __init__(self, path: str, legacyRanges: bool) -> None:
 		self._parsed: list[tuple[int, int, bool, list[str]]] = []
 		self._parseFile(path, legacyRanges)
-	def filter(self, relevantFields: int, assignValue, failIfNotFound: bool = False, conflictHandler = None) -> list[Range]:
+	def singleMissing(self, assignValue) -> tuple[list[Range], tuple[int]]:
+		defMissing, valRanges = None, []
+
+		# iterate over the lines and construct the missing and value-set
+		for (begin, last, missing, fields) in self._parsed:
+			value = assignValue(fields)
+			if value is None:
+				continue
+			r = Range(begin, last, value)
+
+			# check if this is the first overall missing-value and otherwise add it to the proper range
+			if not missing:
+				valRanges.append(r)
+			elif defMissing is None:
+				defMissing = r
+			else:
+				raise RuntimeError('Multiple default values encountered')
+		valRanges = Ranges.fromRawList(valRanges)
+
+		# check that the default-missing range covers the entire range
+		valFirst, valLast = ((Range.RangeLast, Range.RangeFirst) if len(valRanges) == 0 else (valRanges[0].first, valRanges[-1].last))
+		if defMissing is None or defMissing.first > valFirst or defMissing.last < valLast:
+			raise RuntimeError('Invalid default-missing value')
+		return valRanges, defMissing.values
+	def multiMissing(self, assignValue) -> tuple[list[Range], tuple[int]]:
+		defMissing, misRanges, valRanges = None, [], []
+
+		# iterate over the lines and construct the missing and value-set
+		for (begin, last, missing, fields) in self._parsed:
+			value = assignValue(fields)
+			if value is None:
+				continue
+			r = Range(begin, last, value)
+
+			# check if this is the first overall missing-value and otherwise add it to the proper range
+			if not missing:
+				valRanges.append(r)
+			elif defMissing is None:
+				defMissing = r
+			else:
+				misRanges.append(r)
+		misRanges = Ranges.fromRawList(misRanges)
+		valRanges = Ranges.fromRawList(valRanges)
+
+		# check that the default-missing range covers the entire other two ranges
+		misFirst, misLast = ((Range.RangeLast, Range.RangeFirst) if len(misRanges) == 0 else (misRanges[0].first, misRanges[-1].last))
+		valFirst, valLast = ((Range.RangeLast, Range.RangeFirst) if len(valRanges) == 0 else (valRanges[0].first, valRanges[-1].last))
+		if defMissing is None or defMissing.first > min(misFirst, valFirst) or defMissing.last < max(misLast, valLast):
+			raise RuntimeError('Invalid default-missing value')
+		return Ranges.merge(misRanges, valRanges, lambda _, b: b), defMissing.values
+	def values(self, assignValue, ignoreMissing: bool = False) -> list[Range]:
 		ranges: list[Range] = []
 
 		# iterate over the parsed lines and match them against the callback
-		for (begin, last, _missing, fields) in self._parsed:
-			# check if the line can be ignored
-			if _missing or len(fields) < relevantFields:
-				if failIfNotFound:
-					raise RuntimeError(f'Invalid range [{begin:#06x} - {last:#06x}] encountered in filter')
+		for (begin, last, missing, fields) in self._parsed:
+			if missing and ignoreMissing:
 				continue
+			value = assignValue(fields)
+			if value is None:
+				continue
+			if not missing:
+				ranges.append(Range(begin, last, value))
+			else:
+				raise RuntimeError('Unexpected missing default-value')
+		return Ranges.fromRawList(ranges)
+	def conflicting(self, assignValue, conflictHandler) -> list[Range]:
+		ranges: list[Range] = []
 
-			# fetch the assigned value and check if the entry is to be ignored
+		# iterate over the parsed lines and match them against the callback
+		for (begin, last, missing, fields) in self._parsed:
+			if missing:
+				raise RuntimeError('Unexpected missing default-value')
 			value = assignValue(fields)
 			if value is not None:
 				ranges.append(Range(begin, last, value))
-
-		# sanitize and cleanup the found ranges
-		if conflictHandler is None:
-			return Ranges.fromRawList(ranges)
 		return Ranges.fromConflictingRawList(ranges, conflictHandler)
-	def extractAll(self, fieldCount: int, relevantField: int, valueMap: dict[str, int]) -> tuple[list[Range], int]:
-		default, ranges = None, []
-
-		# iterate over the parsed lines and validate them and extract the range-objects
-		for (begin, last, missing, fields) in self._parsed:
-			# check if the line can be ignored
-			if len(fields) < fieldCount:
-				raise RuntimeError(f'Too few fields in line [{begin:06x} - {last:06x}]')
-				continue
-			field = fields[relevantField]
-
-			# check if the value is well defined
-			if field not in valueMap:
-				raise RuntimeError(f'Unknown field encountered [{field}]')
-			valIndex = valueMap[field]
-
-			# check if this is the default value
-			if missing:
-				if default != None:
-					raise RuntimeError('Multiple default values encountered')
-				default = valIndex
-
-			# add the range to the list
-			else:
-				ranges.append(Range(begin, last, valIndex))
-
-		# check if a default value has been found
-		if default is None:
-			raise RuntimeError(f'Default value has not been found')
-
-		# sanitize and organize the ranges
-		return Ranges.fromRawList(ranges), default
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
 def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
@@ -1418,7 +1442,8 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		'LineBreak': 'ucd/LineBreak.txt',
 		'CaseFolding': 'ucd/CaseFolding.txt',
 		'DerivedNormalizationProps': 'ucd/DerivedNormalizationProps.txt',
-		'NormalizationCorrections': 'ucd/NormalizationCorrections.txt'
+		'NormalizationCorrections': 'ucd/NormalizationCorrections.txt',
+		'DerivedBidiClass': 'ucd/extracted/DerivedBidiClass.txt'
 	}
 	dirPath = './ucd'
 	testPath = './tests'
@@ -1428,6 +1453,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tup
 		files['GraphemeBreakTest'] = 'ucd/auxiliary/GraphemeBreakTest.txt'
 		files['LineBreakTest'] = 'ucd/auxiliary/LineBreakTest.txt'
 		files['NormalizationTest'] = 'ucd/NormalizationTest.txt'
+		files['emoji-test'] = '../../emoji/latest/emoji-test.txt'
 
 	# check if the directory needs to be created
 	if not os.path.isdir(dirPath):
@@ -1562,21 +1588,60 @@ def CreateNormalizationTestFile(outPath: str, inPath: str) -> None:
 			file.write(f'U\"{tests[i][2]}\"')
 		file.write('\n\t};\n')
 		file.write('}\n')
+def CreateEmojiTestFile(outPath: str, inPath: str) -> None:
+	print(f'Creating [{outPath}] from [{inPath}] for test [emoji]...')
+	tests: list[str] = []
 
-# TestUnicode, TestAscii, TestAsciiAlphabetic, TestAsciiNumeric, GetAsciiRadix, TestWhiteSpace, TestControl, GetProperty (encodes: assigned/alphabetic/numeric/decimal/printable/case/category)
+	# open the file which contains the test-sequences and parse it
+	with open(inPath, 'r', encoding='utf-8') as file:
+		for line in file:
+			# remove any comments and skip empty lines
+			line = line.split('#')[0].strip()
+			if len(line) == 0 or line.startswith('@Part'):
+				continue
+			if line.endswith(';'):
+				line = line[:-1]
+			chars = [int(c.strip(), 16) for c in line.split(';')[0].strip().split(' ')]
+			chars = ''.join([f'\\U{w:08x}' for w in chars])
+
+			# add the string to the tests (only source, nfc, nfd)
+			tests.append(chars)
+
+	# open the file to contain the testing code and write it to the file
+	with open(outPath, 'w', encoding='utf-8') as file:
+		file.write('#pragma once\n')
+		file.write('\n')
+		file.write('#include <cinttypes>\n')
+		file.write('\n')
+		file.write('namespace test {\n')
+		file.write(f'\tstatic constexpr size_t EmojiCount = {len(tests)};\n')
+		file.write('\n')
+
+		# write all emoji-strings to the file
+		file.write(f'\tstatic const char32_t* EmojiStrings[test::EmojiCount] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write(f'U\"{tests[i]}\"')
+		file.write('\n\t};\n')
+		file.write('}\n')
+
+# TestUnicode, TestAscii, TestAsciiAlphabetic, TestAsciiNumeric, GetAsciiRadix, TestWhiteSpace, TestControl, GetProperty (encodes: assigned/alphabetic/numeric/decimal/printable/case/category/emoji/bidi)
 def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 	# parse the relevant files
 	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
 	derivedProperties = ParsedFile(config.mapping['DerivedCoreProperties'], False)
 	propList = ParsedFile(config.mapping['PropList'], False)
+	eaWidth = ParsedFile(config.mapping['EastAsianWidth'], False)
+	derivedBidi = ParsedFile(config.mapping['DerivedBidiClass'], False)
+	emojiData = ParsedFile(config.mapping['EmojiData'], False)
 
 	# write all lookup functions to the file
 	with GeneratedFile(outPath, config) as file:
-		_type: LookupType = LookupType.intType(0, 'uint16_t')
+		_type: LookupType = LookupType.intType(0, 'uint32_t')
 		propertyDefValue: int = 0
 
 		# write the unicode-test to the file
-		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.filter(2, lambda fs: None if fs[1] != 'Cs' else 1))
+		unicodeRanges = Ranges.difference([Range(0, 0x10ffff, 1)], unicodeData.values(lambda fs: None if fs[1] != 'Cs' else 1))
 		_gen: CodeGen = file.next('Unicode', 'Automatically generated from: Unicode General_Category is not cs (i.e. surrogate pairs) smaller than/equal to 0x10ffff')
 		_gen.intFunction('TestUnicode', LookupType.boolType(), unicodeRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
@@ -1603,51 +1668,51 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.intFunction('GetAsciiRadix', LookupType.intType(radixValueDef, 'uint8_t'), radixRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
 		# write the whitespace-test to the file (https://www.unicode.org/reports/tr44/#White_Space)
-		whiteSpaceRanges = propList.filter(1, lambda fs: None if fs[0] != 'White_Space' else 1)
+		whiteSpaceRanges = propList.values(lambda fs: None if fs[0] != 'White_Space' else 1)
 		_gen: CodeGen = file.next('WhiteSpace', 'Automatically generated from: Unicode White_Space property')
 		_gen.intFunction('TestWhiteSpace', LookupType.boolType(), whiteSpaceRanges, CodeGenConfig(CodeGenDensityIfElse(1, 256)))
 
 		# write the control-test to the file (C0 or C1 in General_Category https://www.unicode.org/reports/tr44/#GC_Values_Table)
-		controlRanges = unicodeData.filter(2, lambda fs: None if fs[1] != 'Cc' else 1)
+		controlRanges = unicodeData.values(lambda fs: None if fs[1] != 'Cc' else 1)
 		_gen: CodeGen = file.next('Control', 'Automatically generated from: Unicode General_Category is cc (i.e. C0, C1)')
 		_gen.intFunction('TestControl', LookupType.boolType(), controlRanges, CodeGenConfig(CodeGenDensityIfElse()))
 
 		# write the assigned-data to the file (default = False is required as default value of UnicodeData is Cn)
-		assignedRanges = unicodeData.filter(2, lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
+		assignedRanges = unicodeData.values(lambda fs: None if fs[1] in ['Cs', 'Co', 'Cn'] else 1)
 		_gen: CodeGen = file.next('Assigned', 'Automatically generated from: Unicode General_Category is not Cn, Cs, Co (i.e. not assigned, surrogate pairs, private use)')
 		propertyOffset, propertyBits = 0, 1
 		_gen.addConstInt(_type, 'PropertyAssignedOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyAssignedBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyAssignedMask', (0x01 << propertyBits) - 1)
 		propertyRanges = Ranges.translate(assignedRanges, lambda _, v: (v[0] << propertyOffset))
 		propertyDefValue = (False << propertyOffset)
 
 		# write the letter-test to the file (https://www.unicode.org/reports/tr44/#Alphabetic)
-		alphabeticRanges = derivedProperties.filter(1, lambda fs: None if fs[0] != 'Alphabetic' else 1)
+		alphabeticRanges = derivedProperties.values(lambda fs: None if fs[0] != 'Alphabetic' else 1)
 		_gen: CodeGen = file.next('Alphabetic', 'Automatically generated from: Unicode derived property Alphabetic')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 1
 		_gen.addConstInt(_type, 'PropertyAlphabeticOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyAlphabeticBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyAlphabeticMask', (0x01 << propertyBits) - 1)
 		propertyRanges = Ranges.merge(Ranges.translate(alphabeticRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (False << propertyOffset) | propertyDefValue
 
 		# write the numeric-test to the file (https://www.unicode.org/reports/tr44/#Numeric_Type)
-		numericRanges = unicodeData.filter(8, lambda fs: 1 if fs[7] != '' else None)
+		numericRanges = unicodeData.values(lambda fs: 1 if fs[7] != '' else None)
 		_gen: CodeGen = file.next('Numeric', 'Automatically generated from: Unicode Numeric_Type=Numeric, Numeric_Type=Decimal, Numeric_Type=Digit')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 1
 		_gen.addConstInt(_type, 'PropertyNumericOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyNumericBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyNumericMask', (0x01 << propertyBits) - 1)
 		propertyRanges = Ranges.merge(Ranges.translate(numericRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (False << propertyOffset) | propertyDefValue
 
 		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Value)
-		decimalRanges = unicodeData.filter(8, lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
+		decimalRanges = unicodeData.values(lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
 		decimalDefNone = 10
 		_gen: CodeGen = file.next('Decimal', 'Automatically generated from: Unicode Numeric_Type=Decimal: [0-9]')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 4
 		if decimalDefNone >= 2**propertyBits:
 			raise RuntimeError('Too few bits to encode all values')
 		_gen.addConstInt(_type, 'PropertyDecimalOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyDecimalBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyDecimalMask', (0x01 << propertyBits) - 1)
 		_gen.addConstInt(_type, 'PropertyDecimalNone', decimalDefNone)
 		propertyRanges = Ranges.merge(Ranges.translate(decimalRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (decimalDefNone << propertyOffset) | propertyDefValue
@@ -1658,29 +1723,29 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 			'Pc': 1, 'Pd': 1, 'Ps': 1, 'Pe': 1, 'Pi': 1, 'Pf': 1, 'Po': 1, 'Sm': 1, 'Sc': 1, 'Sk': 1, 'So': 1,
 			'Zs': 2 
 		}
-		printableRanges = unicodeData.filter(2, lambda fs: printableFilterMap[fs[1]] if fs[1] in printableFilterMap else None)
+		printableRanges = unicodeData.values(lambda fs: printableFilterMap[fs[1]] if fs[1] in printableFilterMap else None)
 		_enum: LookupType = LookupType.enumType('PrintableType', 'none', ['none', 'printable', 'printSpace'])
 		_gen: CodeGen = file.next('Printable', 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
 		if len(_enum.enumValues()) > 2**propertyBits:
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyPrintableOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyPrintableBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyPrintableMask', (0x01 << propertyBits) - 1)
 		_gen.addEnum(_enum)
 		propertyRanges = Ranges.merge(Ranges.translate(printableRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
 		# write the cased-enum to the file (https://www.unicode.org/reports/tr44/#Cased)
 		caseFilterMap = { 'Lowercase': 1, 'Uppercase': 2 }
-		caseRanges = derivedProperties.filter(1, lambda fs: caseFilterMap[fs[0]] if fs[0] in caseFilterMap else None)
-		caseRanges = Ranges.union(caseRanges, unicodeData.filter(2, lambda fs: 3 if fs[1] == 'Lt' else None))
+		caseRanges = derivedProperties.values(lambda fs: caseFilterMap[fs[0]] if fs[0] in caseFilterMap else None)
+		caseRanges = Ranges.union(caseRanges, unicodeData.values(lambda fs: 3 if fs[1] == 'Lt' else None))
 		_enum: LookupType = LookupType.enumType('CaseType', 'none', ['none', 'lowerCase', 'upperCase', 'titleCase'])
 		_gen: CodeGen = file.next('Case', 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
 		if len(_enum.enumValues()) > 2**propertyBits:
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyCaseOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyCaseBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyCaseMask', (0x01 << propertyBits) - 1)
 		_gen.addEnum(_enum)
 		propertyRanges = Ranges.merge(Ranges.translate(caseRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
@@ -1691,20 +1756,87 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 			'Pc': 11, 'Pd': 12, 'Ps': 13, 'Pe': 14, 'Pi': 15, 'Pf': 16, 'Po': 17, 'Sm': 18, 'Sc': 19, 'Sk': 20, 'So': 21,
 			'Zs': 22, 'Zl': 23, 'Zp': 24, 'Cc': 25, 'Cf': 26, 'Cs': 27, 'Co': 28, 'Cn': 29
 		}
-		categoryRanges = unicodeData.filter(2, lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
+		categoryRanges = unicodeData.values(lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
 		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn'])
 		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
 		if len(_enum.enumValues()) > 2**propertyBits:
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyCategoryOff', propertyOffset)
-		_gen.addConstInt(_type, 'PropertyCategoryBits', propertyBits)
+		_gen.addConstInt(_type, 'PropertyCategoryMask', (0x01 << propertyBits) - 1)
 		_gen.addEnum(_enum)
 		propertyRanges = Ranges.merge(Ranges.translate(categoryRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
+		# write the emoji-state to the file (https://www.unicode.org/reports/tr51)
+		emojiType = { 'modBase': 0, 'mod': 1, 'keyCapStart': 2, 'regInd': 3, 'tagSpec': 4, 'textPres': 5, 'emojiPres': 6, 'keyCapEnd': 7, 'zwj': 8, 'tagEnd': 9, '_last': 10 }
+		emojiRanges = emojiData.values(lambda fs: emojiType['modBase'] if fs[0] == 'Emoji_Modifier_Base' else None)
+		emojiRanges = Ranges.union(emojiRanges, emojiData.values(lambda fs: emojiType['mod'] if fs[0] == 'Emoji_Modifier' else None))
+		emojiRanges = Ranges.union(emojiRanges, Ranges.fromRawList([Range(ord(c), ord(c), emojiType['keyCapStart']) for c in '0123456789#*']))
+		emojiRanges = Ranges.union(emojiRanges, propList.values(lambda fs: emojiType['regInd'] if fs[0] == 'Regional_Indicator' else None))
+		emojiRanges = Ranges.union(emojiRanges, Ranges.fromRawList([Range(c, c, emojiType['tagSpec']) for c in range(0xe0020, 0xe007f)]))
+		emojiRanges = Ranges.union(emojiRanges, [Range(0xfe0e, 0xfe0e, emojiType['textPres'])])
+		emojiRanges = Ranges.union(emojiRanges, [Range(0xfe0f, 0xfe0f, emojiType['emojiPres'])])
+		emojiRanges = Ranges.union(emojiRanges, [Range(0x20e3, 0x20e3, emojiType['keyCapEnd'])])
+		emojiRanges = Ranges.union(emojiRanges, [Range(0x200d, 0x200d, emojiType['zwj'])])
+		emojiRanges = Ranges.union(emojiRanges, [Range(0xe007f, 0xe007f, emojiType['tagEnd'])])
+		_enum: LookupType = LookupType.enumType('EmojiType', 'modBase', emojiType)
+		_gen: CodeGen = file.next('Emoji', 'Automatically generated from: Unicode Emoji/Emoji_Modifier_Base/Emoji_Modifier/Emoji_Presentation/...')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 6
+		if 2 + len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		flagIsEmoji = 0x01 << propertyOffset
+		flagIsEmojiPresentation = 0x02 << propertyOffset
+		_gen.addConstInt(_type, 'PropertyIsEmoji', flagIsEmoji)
+		_gen.addConstInt(_type, 'PropertyIsPresentation', flagIsEmojiPresentation)
+		_gen.addConstInt(_type, 'PropertyEmojiOff', propertyOffset + 2)
+		_gen.addConstInt(_type, 'PropertyEmojiMask', (0x01 << (propertyBits - 2)) - 1)
+		_gen.addEnum(_enum)
+		propertyRanges = Ranges.merge(emojiData.values(lambda fs: flagIsEmoji if fs[0] == 'Emoji' else None), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyRanges = Ranges.merge(emojiData.values(lambda fs: flagIsEmojiPresentation if fs[0] == 'Emoji_Presentation' else None), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyRanges = Ranges.merge(Ranges.translate(emojiRanges, lambda _, v: (v[0] << propertyOffset + 2)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset + 2) | propertyDefValue
+
+		# write the east-asian-width data to the file (https://www.unicode.org/reports/tr11)
+		eaIdMap = { 'N': 0, 'F': 1, 'H': 2, 'W': 3, 'Na': 4, 'A': 5 }
+		eaRanges, eaRangesDef = eaWidth.singleMissing(lambda fs: eaIdMap[fs[0]])
+		if eaRangesDef != (eaIdMap['N'],):
+			raise RuntimeError('East-Asian-Width default value is expected to be neutral')
+		_enum: LookupType = LookupType.enumType('EAWidthType', 'neutral', ['neutral', 'fullWidth', 'halfWidth', 'wide', 'narrow', 'ambiguous'])
+		_gen: CodeGen = file.next('EastAsianWidth', 'Automatically generated from: Unicode East_Asian_Width')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 3
+		if len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		_gen.addConstInt(_type, 'PropertyEAWidthOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyEAWidthMask', (0x01 << propertyBits) - 1)
+		_gen.addEnum(_enum)
+		propertyRanges = Ranges.merge(Ranges.translate(eaRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
+
+		# write the bidi-class property to the file (https://www.unicode.org/reports/tr9)
+		bidiLargeToShort = { 'Left_To_Right': 'L', 'Right_To_Left': 'R', 'Arabic_Letter': 'AL', 'European_Number': 'EN', 'European_Separator': 'ES', 'European_Terminator': 'ET', 'Arabic_Number': 'AN', 'Common_Separator': 'CS',
+							'Nonspacing_Mark': 'NSM', 'Boundary_Neutral': 'BN', 'Paragraph_Separator': 'B', 'Segment_Separator': 'S', 'White_Space': 'WS', 'Other_Neutral': 'ON', 'Left_To_Right_Embedding': 'LRE', 'Left_To_Right_Override': 'LRO',
+							'Right_To_Left_Embedding': 'RLE', 'Right_To_Left_Override': 'RLO', 'Pop_Directional_Format': 'PDF', 'Left_To_Right_Isolate': 'LRI', 'Right_To_Left_Isolate': 'RLI', 'First_Strong_Isolate': 'FSI', 'Pop_Directional_Isolate': 'PDI' }
+		bidiMap = { 'L': 0, 'R': 1, 'AL': 2, 'EN': 3, 'ES': 4, 'ET': 5, 'AN': 6, 'CS': 7, 'NSM': 8, 'BN': 9, 'B': 10, 'S': 11, 'WS': 12,
+			'ON': 13, 'LRE': 14, 'LRO': 15, 'RLE': 16, 'RLO': 17, 'PDF': 18, 'LRI': 19, 'RLI': 20, 'FSI': 21, 'PDI': 22 }
+		bidiMap |= { alt: bidiMap[bidiLargeToShort[alt]] for alt in bidiLargeToShort }
+		bidiRanges, bidiRangesDef = derivedBidi.multiMissing(lambda fs: bidiMap[fs[0]])
+		if bidiRangesDef != (bidiMap['Left_To_Right'],):
+			raise RuntimeError('BiDi default value is expected to be Left_To_Right')
+		_enum: LookupType = LookupType.enumType('BidiType', 'l', ['l', 'r', 'al', 'en', 'es', 'et', 'an', 'cs', 'nsm', 'bn', 'b', 's', 'ws', 'on', 'lre', 'lro', 'rle', 'rlo', 'pdf', 'lri', 'rli', 'fsi', 'pdi', '_last'])
+		_gen: CodeGen = file.next('BidiClass', 'Automatically generated from: Bidi_Class (Currently unused)')
+		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
+		if len(_enum.enumValues()) > 2**propertyBits:
+			raise RuntimeError('Too few bits to encode all enum values')
+		_gen.addConstInt(_type, 'PropertyBidiOff', propertyOffset)
+		_gen.addConstInt(_type, 'PropertyBidiMask', (0x01 << propertyBits) - 1)
+		_gen.addConstInt(_type, 'BidiMaxDepth', 125)
+		_gen.addEnum(_enum)
+		propertyRanges = Ranges.merge(Ranges.translate(bidiRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
+		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
+
 		# add the final property-lookup function for all large-lookup values (requires less memory than separate lookups)
-		_gen: CodeGen = file.next('Property', 'Lookup properties (Category, Case, Printable, Decimal, Numeric, Alphabetic, Assigned)')
+		_gen: CodeGen = file.next('Property', 'Lookup properties (BidiClass, Emoji, Category, Case, Printable, Decimal, Numeric, Alphabetic, Assigned)')
 		_gen.intFunction('GetProperty', LookupType.intType(propertyDefValue, _type.typeName()), propertyRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
 # MapCase (encodes: lowercase/uppercase/titlecase/case-folding mappings)
@@ -1892,16 +2024,16 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 		valueMask = 0x000f_ffff
 
 		# extract all attributes and merge them together
-		propertyMask = derivedProperties.filter(1, lambda fs: flagIsCased if fs[0] == 'Cased' else None)
-		propertyMask = Ranges.merge(propertyMask, derivedProperties.filter(1, lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), lambda a, b: (a[0] | b[0],))
-		propertyMask = Ranges.merge(propertyMask, propList.filter(1, lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), lambda a, b: (a[0] | b[0],))
-		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass0or230 if (fs[2] == '0' or fs[2] == '230') else None), lambda a, b: (a[0] | b[0],))
-		propertyMask = Ranges.merge(propertyMask, unicodeData.filter(3, lambda fs: flagCombClass230 if fs[2] == '230' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = derivedProperties.values(lambda fs: flagIsCased if fs[0] == 'Cased' else None)
+		propertyMask = Ranges.merge(propertyMask, derivedProperties.values(lambda fs: flagIsIgnorable if fs[0] == 'Case_Ignorable' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, propList.values(lambda fs: flagIsSoftDotted if fs[0] == 'Soft_Dotted' else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, unicodeData.values(lambda fs: flagCombClass0or230 if (fs[2] == '0' or fs[2] == '230') else None), lambda a, b: (a[0] | b[0],))
+		propertyMask = Ranges.merge(propertyMask, unicodeData.values(lambda fs: flagCombClass230 if fs[2] == '230' else None), lambda a, b: (a[0] | b[0],))
 		propertyMask = Ranges.merge(propertyMask, [Range(0x0049, 0x0049, flagIs0049), Range(0x0307, 0x0307, flagIs0307)], lambda a, b: (a[0] | b[0],))
 
 		# extract all special casing rules (as 'sorted' is stable, values are guaranteed to be ordered by appearance)
 		caseConditions = { 'none': 0, 'trOrAz': 1 }
-		specialRanges = specialCasing.filter(4, lambda fs: _ExpandSpecialCaseMap(caseConditions, flagIsLower, flagIsUpper, flagIsTitle, fs[0], fs[1], fs[2], fs[3]), True, lambda a, b: _MergeCaseMap(a, b, 0, 0, 0, 0))
+		specialRanges = specialCasing.conflicting(lambda fs: _ExpandSpecialCaseMap(caseConditions, flagIsLower, flagIsUpper, flagIsTitle, fs[0], fs[1], fs[2], fs[3]), lambda a, b: _MergeCaseMap(a, b, 0, 0, 0, 0))
 
 		# sanitize and cleanup the special ranges, as all none-conditions must lie in the end, as conditions are more relevant, if they match
 		specialRanges = Ranges.translate(specialRanges, lambda c, v: _TranslateSpecialCaseMap(c, v, caseConditions['none'], flagIsNegative, valueMask))
@@ -1910,21 +2042,21 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 			raise RuntimeError('Conditions overflow values')
 
 		# extract all simple lower-case mappings
-		simpleLowerRanges = unicodeData.filter(14, lambda fs: int(fs[12], 16) if fs[12] != '' else None)
+		simpleLowerRanges = unicodeData.values(lambda fs: int(fs[12], 16) if fs[12] != '' else None)
 		simpleLowerRanges = Ranges.translate(simpleLowerRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsLower, flagIsNegative, valueMask, v[0] - c))
 
 		# extract all simple upper-case mappings
-		simpleUpperRanges = unicodeData.filter(14, lambda fs: int(fs[11], 16) if fs[11] != '' else None)
+		simpleUpperRanges = unicodeData.values(lambda fs: int(fs[11], 16) if fs[11] != '' else None)
 		simpleUpperRanges = Ranges.translate(simpleUpperRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsUpper, flagIsNegative, valueMask, v[0] - c))
 
 		# extract all simple title-case mappings
-		simpleTitleRanges = unicodeData.filter(14, lambda fs: int(fs[13], 16) if fs[13] != '' else None)
+		simpleTitleRanges = unicodeData.values(lambda fs: int(fs[13], 16) if fs[13] != '' else None)
 		simpleTitleRanges = Ranges.translate(simpleTitleRanges, lambda c, v: _TranslateSimpleCaseValue(flagIsTitle, flagIsNegative, valueMask, v[0] - c))
 
 		# extract all fold-case mappings and merge them the complex ranges
-		simpleFoldRanges = caseFolding.filter(2, lambda fs: _ExpandCaseFolding(False, fs[0], fs[1]))
+		simpleFoldRanges = caseFolding.values(lambda fs: _ExpandCaseFolding(False, fs[0], fs[1]))
 		simpleFoldRanges = Ranges.translate(simpleFoldRanges, lambda c, v: _TranslateFolding(c, v, flagIsFold, caseConditions['none'], flagIsNegative, valueMask, True))
-		foldingRanges = caseFolding.filter(2, lambda fs: _ExpandCaseFolding(True, fs[0], fs[1]))
+		foldingRanges = caseFolding.values(lambda fs: _ExpandCaseFolding(True, fs[0], fs[1]))
 		foldingRanges = Ranges.translate(foldingRanges, lambda c, v: _TranslateFolding(c, v, flagIsFold, caseConditions['trOrAz'], flagIsNegative, valueMask, False))
 		specialRanges = Ranges.merge(foldingRanges, specialRanges, lambda a, b: a + b)
 
@@ -2003,12 +2135,12 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		wordEnumMap = { 'Other': 0, 'CR': 1, 'LF': 2, 'Newline': 3, 'Extend': 4, 'ZWJ': 5, 'Regional_Indicator': 6, 'Format': 7,
 			'Katakana': 8, 'Hebrew_Letter': 9, 'ALetter': 10, 'Single_Quote': 11, 'Double_Quote': 12, 'MidNumLet': 13, 'MidLetter': 14,
 			'MidNum': 15, 'Numeric': 16, 'ExtendNumLet': 17, 'WSegSpace': 18 }
-		wordRanges, wordRangesDef = wordBreak.extractAll(1, 0, wordEnumMap)
-		if wordRangesDef != wordEnumMap['Other']:
+		wordRanges, wordRangesDef = wordBreak.singleMissing(lambda fs: wordEnumMap[fs[0]])
+		if wordRangesDef != (wordEnumMap['Other'],):
 			raise RuntimeError('Default break-value is expected to be [other]')
 		wordEnumMap |= { 'Extended_Pictographic': 19, 'ALetterExtendedPictographic': 20 }
 		wordConflictMap = { (wordEnumMap['ALetter'], wordEnumMap['Extended_Pictographic']): wordEnumMap['ALetterExtendedPictographic'] }
-		wordRanges = Ranges.merge(wordRanges, emojiData.filter(1, lambda fs: wordEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None), lambda a, b: _SegmentationMergeConflicts(a, b, wordConflictMap, 'word ranges and emoji properties'))
+		wordRanges = Ranges.merge(wordRanges, emojiData.values(lambda fs: wordEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None), lambda a, b: _SegmentationMergeConflicts(a, b, wordConflictMap, 'word ranges and emoji properties'))
 
 		# write the word-ranges to the file
 		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_last'])
@@ -2017,24 +2149,24 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
-		segmentationDefValue = (wordRangesDef << segmentationOffset) | segmentationDefValue
+		segmentationDefValue = (wordRangesDef[0] << segmentationOffset) | segmentationDefValue
 
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		graphemeEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Control': 3, 'Extend': 4, 'ZWJ': 5,
 			'Regional_Indicator': 6, 'Prepend': 7, 'SpacingMark': 8, 'L': 9, 'V': 10,
 			'T': 11, 'LV': 12, 'LVT': 13, 'Extended_Pictographic': 14 }
-		graphemeRanges, graphemeRangesDef = graphemeBreak.extractAll(1, 0, graphemeEnumMap)
-		if graphemeRangesDef != graphemeEnumMap['Other']:
+		graphemeRanges, graphemeRangesDef = graphemeBreak.singleMissing(lambda fs: graphemeEnumMap[fs[0]])
+		if graphemeRangesDef != (graphemeEnumMap['Other'],):
 			raise RuntimeError('Default break-value is expected to be [other]')
-		graphemeRanges = Ranges.union(graphemeRanges, emojiData.filter(1, lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
+		graphemeRanges = Ranges.union(graphemeRanges, emojiData.values(lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
 		graphemeEnumMap |= { 'InCBExtend': 15, 'InCBConsonant': 16, 'InCBLinker': 17, 'ExtendInCBExtend': 18, 'ExtendInCBLinker': 19, 'ZWJInCBExtend': 20 }
 		inCBMap = { 'Extend': graphemeEnumMap['InCBExtend'], 'Consonant': graphemeEnumMap['InCBConsonant'], 'Linker': graphemeEnumMap['InCBLinker'] }
 		inCBConflictMap = { 
 			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ExtendInCBExtend'], 
 			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBLinker']): graphemeEnumMap['ExtendInCBLinker'], 
 			(graphemeEnumMap['ZWJ'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ZWJInCBExtend'] }
-		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.filter(2, lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
+		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.values(lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None, True), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
 
 		# write the grapheme-ranges to the file
 		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_last'])
@@ -2043,14 +2175,14 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
-		segmentationDefValue = (graphemeRangesDef << segmentationOffset) | segmentationDefValue
+		segmentationDefValue = (graphemeRangesDef[0] << segmentationOffset) | segmentationDefValue
 
 		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
 		sentenceEnumMap = {
 			'Other': 0, 'CR': 1, 'LF': 2, 'Extend': 3, 'Sep': 4, 'Format': 5, 'Sp': 6, 'Lower': 7, 'Upper': 8,
 			'OLetter': 9, 'Numeric': 10, 'ATerm': 11, 'SContinue': 12, 'STerm': 13, 'Close': 14 }
-		sentenceRanges, sentenceRangesDef = sentenceBreak.extractAll(1, 0, sentenceEnumMap)
-		if sentenceRangesDef != sentenceEnumMap['Other']:
+		sentenceRanges, sentenceRangesDef = sentenceBreak.singleMissing(lambda fs: sentenceEnumMap[fs[0]])
+		if sentenceRangesDef != (sentenceEnumMap['Other'],):
 			raise RuntimeError('Default break-value is expected to be [other]')
 
 		# write the sentence-ranges to the file
@@ -2060,7 +2192,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.addConstInt(_type8, 'SentenceSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
-		segmentationDefValue = (sentenceRangesDef << segmentationOffset) | segmentationDefValue
+		segmentationDefValue = (sentenceRangesDef[0] << segmentationOffset) | segmentationDefValue
 
 		# setup the line-break boundary ranges and list of the enum (https://www.unicode.org/reports/tr14/#Algorithm)
 		lineEnumMap = {
@@ -2069,8 +2201,8 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			'IS': 22, 'NU': 23, 'PO': 24, 'PR': 25, 'SY': 26, 'AK': 27, 'AL': 28, 'AP': 29, 'AS': 30, 'EB': 31, 'EM': 32,
 			'H2': 33, 'H3': 34, 'HL': 35, 'ID': 36, 'JL': 37, 'JV': 38, 'JT': 39, 'RI': 40, 'VF': 41, 'VI': 42,
 			'XX': 43, 'CJ': 44, 'AI': 45, 'SG': 46, 'SA': 47 }
-		lineRanges, lineRangesDef = lineBreak.extractAll(1, 0, lineEnumMap)
-		if lineRangesDef != lineEnumMap['XX']:
+		lineRanges, lineRangesDef = lineBreak.singleMissing(lambda fs: lineEnumMap[fs[0]])
+		if lineRangesDef != (lineEnumMap['XX'],):
 			raise RuntimeError('Default break-value is expected to be [XX]')
 		lineEnumList = [0] * len(lineEnumMap)
 		for k in lineEnumMap:
@@ -2082,9 +2214,9 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		lineEnumList[lineEnumMap['ID']] = 'idDef'
 
 		# setup the intermediate helper-ranges
-		categoryMnOrMc = unicodeData.filter(2, lambda fs: 1 if (fs[1] == 'Mn' or fs[1] == 'Mc') else None)
-		fwhAsianRanges = eastAsianWidth.filter(1, lambda fs: 1 if fs[0] in 'FWH' else None)
-		cnPictRanges = Ranges.intersect(Ranges.complement(unicodeData.filter(2, lambda fs: 1 if fs[1] != 'Cn' else None)), emojiData.filter(1, lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
+		categoryMnOrMc = unicodeData.values(lambda fs: 1 if (fs[1] == 'Mn' or fs[1] == 'Mc') else None)
+		fwhAsianRanges = eastAsianWidth.values(lambda fs: 1 if fs[0] in 'FWH' else None)
+		cnPictRanges = Ranges.intersect(Ranges.complement(unicodeData.values(lambda fs: 1 if fs[1] != 'Cn' else None)), emojiData.values(lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
 
 		# LB1 mapping
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['AI'] else v)
@@ -2101,9 +2233,9 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			raise RuntimeError('Dotted-Circle is assumed to be part of the [AL] break-type')
 		lineRanges = Ranges.merge(lineRanges, [Range(0x25cc, 0x25cc, 1)], lambda a, b: len(lineEnumList))
 		lineEnumList.append('alDotCircle')
-		lineRanges = Ranges.modify(lineRanges, unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Pi' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
+		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pi' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPi')
-		lineRanges = Ranges.modify(lineRanges, unicodeData.filter(2, lambda fs: 1 if fs[1] == 'Pf' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
+		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pf' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPf')
 		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['OP'] else a)
 		lineEnumList.append('opNoFWH')
@@ -2190,11 +2322,11 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 		#	all values are absolute as many compositions/decompositions to not benefit from relative values, as they might be partially static and dynamic
 
 		# parse the canonical combining class values (https://www.unicode.org/reports/tr44/#Canonical_Combining_Class)
-		cccRanges = unicodeData.filter(3, lambda fs: _ParseCCC(fs[2]))
+		cccRanges = unicodeData.values(lambda fs: _ParseCCC(fs[2]))
 
 		# parse the exclusion flags (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf#page=70)
 		exclusionFlag: int = 0x01 << 28
-		excludedRanges = derivedNorm.filter(1, lambda fs: exclusionFlag if fs[0] == 'Full_Composition_Exclusion' else None)
+		excludedRanges = derivedNorm.values(lambda fs: exclusionFlag if fs[0] == 'Full_Composition_Exclusion' else None)
 		excludedSet: set = set()
 		for r in excludedRanges:
 			for c in range(r.first, r.last + 1):
@@ -2212,10 +2344,10 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 
 		# fetch the decomposition mapping, but ignoring compatibility-mapping [length is guaranteed to be in 0..2] (https://www.unicode.org/reports/tr44/#Character_Decomposition_Mappings)
 		decompSizeShift: int = 8
-		decompRanges = unicodeData.filter(5, lambda fs: _ParseDecomposition(fs[4], decompSizeShift))
+		decompRanges = unicodeData.values(lambda fs: _ParseDecomposition(fs[4], decompSizeShift))
 
 		# apply all normalization-corrections where necessary
-		for r in normCorrections.filter(3, lambda fs: (int(fs[0], 16), int(fs[1], 16)), True):
+		for r in normCorrections.values(lambda fs: (int(fs[0], 16), int(fs[1], 16))):
 			for c in range(r.first, r.last + 1):
 				decompRanges = _ApplyCorrection(decompRanges, c, r.values)
 
@@ -2260,7 +2392,7 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.addConstInt(_type32, 'NormHSVCount', 21)
 		_gen.addConstInt(_type32, 'NormHSTCount', 28)
 		_gen.addConstInt(_type32, 'NormHSNCount', 588)
-		_gen.listFunction('GetNormalization', _type32, normRanges, True, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
+		_gen.listFunction('GetNormalization', _type32, normRanges, True, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/2)))
 
 
 
@@ -2288,6 +2420,7 @@ if doTests:
 	CreateSeparatorTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest'], 'Sentence')
 	CreateSeparatorTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest'], 'Line')
 	CreateNormalizationTestFile(testPath + 'test-normalization.h', systemConfig.mapping['NormalizationTest'])
+	CreateEmojiTestFile(testPath + 'test-emoji.h', systemConfig.mapping['emoji-test'])
 else:
 	print('Hint: use --tests to generate test-source-code')
 

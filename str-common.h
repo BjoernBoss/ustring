@@ -82,11 +82,15 @@ namespace str {
 		static_assert(detail::IsUtf32(U"\U00010000\U0000ff00"), "char32_t is expected to be utf-32 encoded");
 		static_assert(detail::WdIsUtf16 || detail::WdIsUtf32, "wchar_t is expected to be utf-16 or utf-32 encoded");
 
+		/* [expression is never evaluated and might have side effects] */
+#pragma warning(push)
+#pragma warning(disable : 6286)
 		static constexpr bool MBHoldsAscii = (detail::MBIsUtf8 || detail::HoldSameValues(
 			U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
 			U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
 			"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
 			" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177"));
+#pragma warning(pop)
 
 		/* check if the type is a character */
 		template <class Type> struct GetCharNative { using type = void; };

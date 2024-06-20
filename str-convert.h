@@ -2,6 +2,7 @@
 
 #include "str-common.h"
 #include "str-codepoint.h"
+#include "str-property.h"
 
 #include <string>
 #include <concepts>
