@@ -1,37 +1,19 @@
 #pragma once
 
-#include <string>
-#include <concepts>
-#include <limits>
-#include <cinttypes>
-#include <type_traits>
+#include "str-types.h"
+
 #include <stdexcept>
 #include <algorithm>
 #include <cwchar>
 
 namespace str {
-	/* codepoint to indicate invalid decoding (guaranteed to be larger than any valid unicode-codepoint) */
-	static constexpr char32_t Invalid = char32_t(-1);
-
 	namespace detail {
-		/* check if the type is a character */
-		template <class Type> struct TestChar { using type = void; };
-		template <> struct TestChar<char> { using type = char; };
-		template <> struct TestChar<wchar_t> { using type = wchar_t; };
-		template <> struct TestChar<char8_t> { using type = char8_t; };
-		template <> struct TestChar<char16_t> { using type = char16_t; };
-		template <> struct TestChar<char32_t> { using type = char32_t; };
-
 		/* optimal unsigned integer size-type to be able to hold the given capacity */
 		template <size_t Capacity> using SizeType8Or16 = std::conditional_t<Capacity <= std::numeric_limits<uint8_t>::max(), uint8_t, uint16_t>;
 		template <size_t Capacity> using SizeType32OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint16_t>::max(), detail::SizeType8Or16<Capacity>, uint32_t>;
 		template <size_t Capacity> using SizeType64OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint32_t>::max(), detail::SizeType32OrLess<Capacity>, uint64_t>;
 		template <size_t Capacity> using SizeType = std::conditional_t<Capacity <= std::numeric_limits<uint64_t>::max(), detail::SizeType64OrLess<Capacity>, size_t>;
 	}
-
-	/* is type a supported character (not convertible, but exact type!) */
-	template <class Type>
-	concept IsChar = !std::is_void_v<typename detail::TestChar<Type>::type>;
 
 	/* string-buffer overflow/underflow exception */
 	struct LocalException : public std::runtime_error {
@@ -54,8 +36,9 @@ namespace str {
 
 	public:
 		constexpr Local() = default;
-		constexpr Local(const std::basic_string_view<ChType>& s) {
-			fAppend(s.data(), s.size());
+		constexpr Local(const str::IsString<ChType> auto& s) {
+			std::basic_string_view<ChType> _view{ s };
+			fAppend(_view.data(), _view.size());
 		}
 		constexpr Local(const ChType* str, size_t sz) {
 			fAppend(str, sz);
@@ -91,17 +74,19 @@ namespace str {
 		}
 
 	public:
-		constexpr ThisType& operator+=(const std::basic_string_view<ChType>& s) {
-			fAppend(s.data(), s.size());
+		constexpr ThisType& operator+=(const str::IsString<ChType> auto& s) {
+			std::basic_string_view<ChType> _view{ s };
+			fAppend(_view.data(), _view.size());
 			return *this;
 		}
 		constexpr ThisType& operator+=(ChType c) {
 			fAppend(c, 1);
 			return *this;
 		}
-		constexpr ThisType& operator=(const std::basic_string_view<ChType>& s) {
+		constexpr ThisType& operator=(const str::IsString<ChType> auto& s) {
+			std::basic_string_view<ChType> _view{ s };
 			pSize = 0;
-			fAppend(s.data(), s.size());
+			fAppend(_view.data(), _view.size());
 			return *this;
 		}
 		constexpr ThisType& operator=(ChType c) {
@@ -123,9 +108,10 @@ namespace str {
 		constexpr std::basic_string<ChType> str() const {
 			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		constexpr ThisType& assign(const std::basic_string_view<ChType>& s) {
+		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
+			std::basic_string_view<ChType> _view{ s };
 			pSize = 0;
-			fAppend(s.data(), s.size());
+			fAppend(_view.data(), _view.size());
 			return *this;
 		}
 		constexpr ThisType& assign(const ChType* str, size_t sz) {
@@ -138,8 +124,9 @@ namespace str {
 			fAppend(c, count);
 			return *this;
 		}
-		constexpr ThisType& append(const std::basic_string_view<ChType>& s) {
-			fAppend(s.data(), s.size());
+		constexpr ThisType& append(const str::IsString<ChType> auto& s) {
+			std::basic_string_view<ChType> _view{ s };
+			fAppend(_view.data(), _view.size());
 			return *this;
 		}
 		constexpr ThisType& append(const ChType* str, size_t sz) {
@@ -233,4 +220,16 @@ namespace str {
 			uint32_t consumed = 0;
 		};
 	}
+
+	/* convenience for fast usage */
+	template <intptr_t Capacity>
+	using Chars = str::Local<char, Capacity>;
+	template <intptr_t Capacity>
+	using Wides = str::Local<wchar_t, Capacity>;
+	template <intptr_t Capacity>
+	using Utf8s = str::Local<char8_t, Capacity>;
+	template <intptr_t Capacity>
+	using Utf16s = str::Local<char16_t, Capacity>;
+	template <intptr_t Capacity>
+	using Utf32s = str::Local<char32_t, Capacity>;
 }

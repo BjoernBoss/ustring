@@ -27,7 +27,7 @@ namespace str {
 
 	/* wrapper to format into sink */
 	template <class ChType>
-	constexpr bool FormatSingle(str::IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
+	constexpr bool FormatSingle(str::_IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
 		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
 	}
 

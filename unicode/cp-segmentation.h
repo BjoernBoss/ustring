@@ -1935,11 +1935,11 @@ namespace cp {
 	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class GraphemeBreak {
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		using Type = detail::BreakSingle<SinkType, detail::GraphemeForward>;
 
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
@@ -1951,20 +1951,21 @@ namespace cp {
 	*	OutSink(cp::Range): range of a single grapheme-cluster (edge for first range, else optional) */
 	class GraphemeRanges {
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		using Type = detail::BreakRanges<SinkType, detail::GraphemeForward>;
 
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding grapheme breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	*	Iterator must already be initialized
 	*	Less efficient than cp::GraphemeBreak/cp::GraphemeRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	template <cp::IsCPIterator ItType>
+	template <str::IsIterator ItType>
 	class GraphemeIterator : public detail::BreakIterator<ItType, detail::GraphemeRandom> {
 	public:
 		constexpr GraphemeIterator(const ItType& it) : detail::BreakIterator<ItType, detail::GraphemeRandom>{ it, 0 } {}
@@ -1977,11 +1978,11 @@ namespace cp {
 	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class WordBreak {
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		using Type = detail::BreakSingle<SinkType, detail::WordForward>;
 
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
@@ -1993,20 +1994,21 @@ namespace cp {
 	*	OutSink(cp::Range): range of a single word (edge for first range, else optional) */
 	class WordRanges {
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		using Type = detail::BreakRanges<SinkType, detail::WordForward>;
 
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding word breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	*	Iterator must already be initialized
 	*	Less efficient than cp::WordBreak/cp::WordRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	template <cp::IsCPIterator ItType>
+	template <str::IsIterator ItType>
 	class WordIterator : public detail::BreakIterator<ItType, detail::WordRandom> {
 	public:
 		constexpr WordIterator(const ItType& it) : detail::BreakIterator<ItType, detail::WordRandom>{ it, 0 } {}
@@ -2019,11 +2021,11 @@ namespace cp {
 	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class SentenceBreak {
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		using Type = detail::BreakSingle<SinkType, detail::SentenceForward>;
 
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
@@ -2035,20 +2037,21 @@ namespace cp {
 	*	OutSink(cp::Range): range of a single sentence (edge for first range, else optional) */
 	class SentenceRanges {
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		using Type = detail::BreakRanges<SinkType, detail::SentenceForward>;
 
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding sentence breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	*	Iterator must already be initialized
 	*	Less efficient than cp::SentenceBreak/cp::SentenceRanges; Guaranteed by Unicode to not break grapheme-clusters
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
-	template <cp::IsCPIterator ItType>
+	template <str::IsIterator ItType>
 	class SentenceIterator : public detail::BreakIterator<ItType, detail::SentenceRandom> {
 	public:
 		constexpr SentenceIterator(const ItType& it) : detail::BreakIterator<ItType, detail::SentenceRandom>{ it, 0 } {}
@@ -2061,7 +2064,7 @@ namespace cp {
 	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
 	class LineBreak {
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		using Type = detail::BreakSingle<SinkType, detail::LineForward>;
 
 	private:
@@ -2072,7 +2075,7 @@ namespace cp {
 		constexpr LineBreak(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
 
 	public:
-		template <cp::IsSink<size_t, cp::BreakMode> SinkType>
+		template <str::IsSink<size_t, cp::BreakMode> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pEmergency, pGraphemes };
 		}
@@ -2084,7 +2087,7 @@ namespace cp {
 	*	OutSink(cp::Range): range of a single line and corresponding behavior before the range (edge for first range, else emergency/optional/mandatory, none if single step) */
 	class LineRanges {
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		using Type = detail::BreakRanges<SinkType, detail::LineForward>;
 
 	private:
@@ -2095,17 +2098,18 @@ namespace cp {
 		constexpr LineRanges(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
 
 	public:
-		template <cp::IsSink<cp::Range> SinkType>
+		template <str::IsSink<cp::Range> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pEmergency, pGraphemes };
 		}
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding line breaks between two codepoints, as well as query the corresponding codepoint-iterators
+	*	Iterator must already be initialized
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
 	*	Less efficient than cp::LineBreak/cp::LineRanges; Specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries and perform default line-breaking
 	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in all values) */
-	template <cp::IsCPIterator ItType>
+	template <str::IsIterator ItType>
 	class LineIterator : public detail::BreakIterator<ItType, detail::LineRandom> {
 	public:
 		constexpr LineIterator(const ItType& it, bool emergencyBreak = true, bool graphemeAware = true) : detail::BreakIterator<ItType, detail::LineRandom>{ it, { emergencyBreak, graphemeAware } } {}

@@ -289,14 +289,14 @@ namespace cp {
 	*	OutSink(char32_t): decomposed and normalized codepoint(s) */
 	class Decompose {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::DecompMapper<SinkType, false>;
 
 	public:
 		constexpr Decompose() {}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}
@@ -307,14 +307,14 @@ namespace cp {
 	*	OutSink(char32_t): composed and normalized codepoint(s) */
 	class Compose {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::CompMapper<SinkType>;
 
 	public:
 		constexpr Compose() {}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink) };
 		}

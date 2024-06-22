@@ -475,7 +475,7 @@ namespace cp {
 	*	OutSink(char32_t): upper-cased codepoint(s) */
 	class UpperCase {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::UpperMapper<SinkType>;
 
 	private:
@@ -487,7 +487,7 @@ namespace cp {
 		}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
@@ -498,7 +498,7 @@ namespace cp {
 	*	OutSink(char32_t): lower-cased codepoint(s) */
 	class LowerCase {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::LowerMapper<SinkType>;
 
 	private:
@@ -510,7 +510,7 @@ namespace cp {
 		}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
@@ -521,7 +521,7 @@ namespace cp {
 	*	OutSink(char32_t): title-cased codepoint(s) */
 	class TitleCase {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::TitleMapper<SinkType>;
 
 	private:
@@ -533,7 +533,7 @@ namespace cp {
 		}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}
@@ -544,7 +544,7 @@ namespace cp {
 	*	OutSink(char32_t): case-folded codepoint(s) */
 	class FoldCase {
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		using Type = detail::FoldingMapper<SinkType>;
 
 	private:
@@ -556,7 +556,7 @@ namespace cp {
 		}
 
 	public:
-		template <cp::IsSink<char32_t> SinkType>
+		template <str::IsSink<char32_t> SinkType>
 		constexpr Type<SinkType> operator()(SinkType&& sink) {
 			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
 		}

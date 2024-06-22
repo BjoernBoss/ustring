@@ -553,7 +553,7 @@ namespace str {
 			char8_t buffer[detail::MaxAsciiEscape] = { 0 };
 
 			/* write the characters to the buffer (cannot overflow the buffer as ascii maps one-to-one to utf8 and all this function is only called with valid codepoints) */
-			size_t size = str::EscapeAsciiInto(str::Chars(buffer), cp, false).size();
+			size_t size = str::EscapeAsciiInto(str::_Chars(buffer), cp, false).size();
 
 			/* write the ascii characters to the sink */
 			str::SinkBytes(sink, reinterpret_cast<const uint8_t*>(buffer), size);

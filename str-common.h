@@ -70,7 +70,7 @@ namespace str {
 	template <class Type, class ChType>
 	struct CharSink;
 	template <class Type, class ChType>
-	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
+	concept _IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
 		requires(Type & t, ChType chr, const ChType * str, size_t sz) {
 		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, chr, sz);
 		str::CharSink<std::remove_cvref_t<Type>, ChType>{}(t, str, sz);
@@ -78,11 +78,11 @@ namespace str {
 
 	namespace detail {
 		template <class Type> struct GetCharSink { using type = void; };
-		template <str::IsSink<char> Type> struct GetCharSink<Type> { using type = char; };
-		template <str::IsSink<wchar_t> Type> struct GetCharSink<Type> { using type = wchar_t; };
-		template <str::IsSink<char8_t> Type> struct GetCharSink<Type> { using type = char8_t; };
-		template <str::IsSink<char16_t> Type> struct GetCharSink<Type> { using type = char16_t; };
-		template <str::IsSink<char32_t> Type> struct GetCharSink<Type> { using type = char32_t; };
+		template <str::_IsSink<char> Type> struct GetCharSink<Type> { using type = char; };
+		template <str::_IsSink<wchar_t> Type> struct GetCharSink<Type> { using type = wchar_t; };
+		template <str::_IsSink<char8_t> Type> struct GetCharSink<Type> { using type = char8_t; };
+		template <str::_IsSink<char16_t> Type> struct GetCharSink<Type> { using type = char16_t; };
+		template <str::_IsSink<char32_t> Type> struct GetCharSink<Type> { using type = char32_t; };
 	}
 
 	/* check if type is any kind of sink and ability to extract the corresponding char-type */
@@ -93,21 +93,15 @@ namespace str {
 
 	/* wrapper to write to a sink */
 	template <class ChType>
-	constexpr auto& SinkChars(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
+	constexpr auto& SinkChars(str::_IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
 		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, chr, count);
 		return sink;
 	}
 	template <class ChType>
-	constexpr auto& SinkString(str::IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
+	constexpr auto& SinkString(str::_IsSink<ChType> auto&& sink, const ChType* str, size_t sz) {
 		str::CharSink<std::remove_cvref_t<decltype(sink)>, ChType>{}(sink, str, sz);
 		return sink;
 	}
-
-	/* string is anything convertible to a string-view */
-	template <class Type, class ChType>
-	concept IsString = requires(const Type & t) {
-		{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
-	};
 
 	namespace detail {
 		template <class Type> struct GetCharString { using type = void; };
@@ -320,7 +314,7 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
 	template <class ChType>
-	class Chars {
+	class _Chars {
 	private:
 		ChType* pPtr = 0;
 		size_t pSize = 0;
@@ -329,11 +323,11 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr Chars(ChType(&buf)[N]) {
+		constexpr _Chars(ChType(&buf)[N]) {
 			pPtr = buf;
 			pSize = N;
 		}
-		constexpr Chars(ChType* buf, size_t capacity) {
+		constexpr _Chars(ChType* buf, size_t capacity) {
 			pPtr = buf;
 			pSize = capacity;
 		}
@@ -405,12 +399,12 @@ namespace str {
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::Chars<ChType>, ChType> {
-		constexpr void operator()(str::Chars<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::_Chars<ChType>, ChType> {
+		constexpr void operator()(str::_Chars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::_Chars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};
