@@ -1,9 +1,9 @@
 #pragma once
 
-#include "str-common.h"
-#include "str-codepoint.h"
+#include "../str-common.h"
+#include "../str-codepoint.h"
 
-#include "generated/unicode-property.h"
+#include "../generated/unicode-property.h"
 
 namespace cp {
 	namespace detail {
@@ -197,7 +197,7 @@ namespace cp {
 		}
 
 		/* check if the codepoint is an ascii alpha/numerical character [a-zA-Z0-9] and return it as a radix from [0 - 35]
-		*	and returns 0xff (a value larger than any actual radix) on failure (i.e. to check if hexit: str::GetAsciiRadix < 16) */
+		*	and returns 0xff (a value larger than any actual radix) on failure (i.e. to check if hexit: ascii::GetRadix < 16) */
 		static constexpr size_t ErrRadix = 0xff;
 		inline constexpr size_t GetRadix(char32_t cp) {
 			size_t val = detail::gen::GetAsciiRadix(cp);

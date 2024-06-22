@@ -1,9 +1,9 @@
 #pragma once
 
-#include "str-common.h"
-#include "str-codepoint.h"
+#include "../str-common.h"
+#include "../str-codepoint.h"
 
-#include "generated/unicode-segmentation.h"
+#include "../generated/unicode-segmentation.h"
 
 #include <utility>
 #include <type_traits>

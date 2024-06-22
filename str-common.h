@@ -10,88 +10,16 @@
 #include <utility>
 #include <algorithm>
 
+#include "str-common-v2.h"
+#include "encode/str-multibyte.h"
+#include "encode/str-wide.h"
+
 /*
 *	char8_t/char16_t/char32_t must be their respective unicode-encodings
 *	char can be multi-byte using the current locale or any unicode-encoding
 */
 namespace str {
 	namespace detail {
-		/* check expected assumptions */
-		static_assert(sizeof(char32_t) == sizeof(uint32_t), "char32_t is expected to be 32bit");
-		static_assert(sizeof(char16_t) == sizeof(uint16_t), "char16_t is expected to be 16bit");
-		static_assert(sizeof(char8_t) == sizeof(uint8_t), "char8_t is expected to be 8bit");
-		static_assert(sizeof(wchar_t) == sizeof(uint16_t) || sizeof(wchar_t) == sizeof(uint32_t), "wchar_t is expected to be at least 16bit and at most 32bit");
-		static_assert(sizeof(char) == sizeof(uint8_t), "char is expected to be 8bit");
-
-		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
-		constexpr bool IsBufferSame(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (sizeof(ExpType) != sizeof(ActType) || ExpSize != ActSize)
-				return false;
-
-			size_t i = 0;
-			while (i < ExpSize && expected[i] == static_cast<ExpType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
-		}
-		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
-		constexpr bool HoldSameValues(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (ExpSize != ActSize)
-				return false;
-			using LargeType = std::conditional_t<sizeof(ExpType) >= sizeof(ActType), ExpType, ActType>;
-
-			size_t i = 0;
-			while (i < ExpSize && static_cast<LargeType>(expected[i]) == static_cast<LargeType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
-		}
-
-		/* utf8 test-string: \U0000007f\U0000ff00\U00010000 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf8(const Type(&test)[Size]) {
-			constexpr uint8_t expected[] = { 0x7f, 0xef, 0xbc, 0x80, 0xf0, 0x90, 0x80, 0x80, 0x00 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* utf16 test-string: \U00010000\U0000ff00 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf16(const Type(&test)[Size]) {
-			constexpr uint16_t expected[] = { 0xd800, 0xdc00, 0xff00, 0x0000 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* utf32 test-string: \U00010000\U0000ff00 */
-		template <class Type, size_t Size>
-		constexpr bool IsUtf32(const Type(&test)[Size]) {
-			constexpr uint32_t expected[] = { 0x10000, 0xff00, 0x0000 };
-			return detail::IsBufferSame(expected, test);
-		};
-
-		/* [character cannot be represented in current code page] */
-#pragma warning(push)
-#pragma warning(disable : 4566)
-		static constexpr bool MBIsUtf8 = detail::IsUtf8("\U0000007f\U0000ff00\U00010000");
-		static constexpr bool WdIsUtf16 = detail::IsUtf16(L"\U00010000\U0000ff00");
-		static constexpr bool WdIsUtf32 = detail::IsUtf32(L"\U00010000\U0000ff00");
-#pragma warning(pop)
-
-		/* check assumptions hold */
-		static_assert(detail::IsUtf8(u8"\U0000007f\U0000ff00\U00010000"), "char8_t is expected to be utf-8 encoded");
-		static_assert(detail::IsUtf16(u"\U00010000\U0000ff00"), "char16_t is expected to be utf-16 encoded");
-		static_assert(detail::IsUtf32(U"\U00010000\U0000ff00"), "char32_t is expected to be utf-32 encoded");
-		static_assert(detail::WdIsUtf16 || detail::WdIsUtf32, "wchar_t is expected to be utf-16 or utf-32 encoded");
-
-		/* [expression is never evaluated and might have side effects] */
-#pragma warning(push)
-#pragma warning(disable : 6286)
-		static constexpr bool MBHoldsAscii = (detail::MBIsUtf8 || detail::HoldSameValues(
-			U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
-			U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
-			"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
-			" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177"));
-#pragma warning(pop)
-
 		/* check if the type is a character */
 		template <class Type> struct GetCharNative { using type = void; };
 		template <> struct GetCharNative<char> { using type = char; };
@@ -100,12 +28,6 @@ namespace str {
 		template <> struct GetCharUnicode<char8_t> { using type = char8_t; };
 		template <> struct GetCharUnicode<char16_t> { using type = char16_t; };
 		template <> struct GetCharUnicode<char32_t> { using type = char32_t; };
-		template <class Type> struct GetCharAny { using type = void; };
-		template <> struct GetCharAny<char> { using type = char; };
-		template <> struct GetCharAny<wchar_t> { using type = wchar_t; };
-		template <> struct GetCharAny<char8_t> { using type = char8_t; };
-		template <> struct GetCharAny<char16_t> { using type = char16_t; };
-		template <> struct GetCharAny<char32_t> { using type = char32_t; };
 
 		/* optimal unsigned integer size-type to be able to hold the given capacity */
 		template <size_t Capacity> using SizeType8Or16 = std::conditional_t<Capacity <= std::numeric_limits<uint8_t>::max(), uint8_t, uint16_t>;
@@ -115,24 +37,22 @@ namespace str {
 	}
 
 	/* check if the multibyte character string uses a given utf-encoding/holds ascii */
-	static constexpr bool IsCharUtf8 = detail::MBIsUtf8;
-	static constexpr bool IsCharAscii = detail::MBHoldsAscii;
+	static constexpr bool IsCharUtf8 = str::CharIsUtf8;
+	static constexpr bool IsCharAscii = str::CharHoldsAscii;
 
 	/* check which utf-encoding the wide character string uses */
-	static constexpr bool IsWideUtf16 = detail::WdIsUtf16;
-	static constexpr bool IsWideUtf32 = detail::WdIsUtf32;
+	static constexpr bool IsWideUtf16 = str::WideIsUtf16;
+	static constexpr bool IsWideUtf32 = str::WideIsUtf32;
 
 	/* is type a supported character (not convertible, but exact type!) */
 	template <class Type>
 	concept IsUnicode = !std::is_void_v<typename detail::GetCharUnicode<Type>::type>;
 	template <class Type>
 	concept IsNative = !std::is_void_v<typename detail::GetCharNative<Type>::type>;
-	template <class Type>
-	concept IsChar = !std::is_void_v<typename detail::GetCharAny<Type>::type>;
-
+	
 	/* check if the given type directly encodes ascii */
 	template <class Type>
-	concept IsAscii = str::IsChar<Type> && (!std::is_same_v<Type, char> || detail::MBHoldsAscii);
+	concept IsAscii = str::IsChar<Type> && (!std::is_same_v<Type, char> || str::CharHoldsAscii);
 
 	/* return the effective character type equivalent to the encoding (i.e. if wchar_t uses
 	*	utf-16, will result in char16_t; will only result in char, char8_t, char16_t, char32_t) */

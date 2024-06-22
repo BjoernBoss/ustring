@@ -1,9 +1,9 @@
 #pragma once
 
-#include "str-common.h"
-#include "str-codepoint.h"
+#include "../str-common.h"
+#include "../str-codepoint.h"
 
-#include "generated/unicode-normalization.h"
+#include "../generated/unicode-normalization.h"
 
 #include <algorithm>
 #include <type_traits>

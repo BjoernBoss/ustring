@@ -1,10 +1,10 @@
 #pragma once
 
-#include "str-common.h"
-#include "str-codepoint.h"
-#include "str-segmentation.h"
+#include "../str-common.h"
+#include "../str-codepoint.h"
+#include "cp-segmentation.h"
 
-#include "generated/unicode-casing.h"
+#include "../generated/unicode-casing.h"
 
 #include <utility>
 

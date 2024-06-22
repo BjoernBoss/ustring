@@ -515,7 +515,7 @@ namespace str {
 		template <class WiType, bool LittleEndian>
 		static constexpr void fWriteDataCP(auto& sink, char32_t cp) {
 			/* encode the character (cannot fail as this function is only called with valid codepoints for unicode-types) */
-			str::CPSmall<WiType> small = str::Encode<WiType>(cp);
+			str::CPSmall<WiType> small = str::_Encode<WiType>(cp);
 
 			/* convert the encoded string to bytes */
 			uint8_t buffer[str::MaxEncBytes<WiType>] = { 0 };

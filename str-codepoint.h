@@ -15,16 +15,16 @@
 namespace cp {
 	/*
 	*	Success: returned for all non-codepoint returning but succeeding operations (implicitly also valid)
-	*	Empty: Source was empty and therefore nothing decoded
 	*	Invalid: Encoding error was detected in source or encoded codepoint is invalid or did not use the proper encoding-form
+	*	Empty: Source was empty and therefore nothing decoded
 	*	Incomplete: Codepoint seems to be encoded properly, but missing one or more characters for completion, no characters will be consumed
 	*		=> if source is completed, return value will never be incomplete and at least one character will be consumed
 	*	NotAscii: Read-ascii encountered a non-ascii character
 	*	WriteFailed: Transcoding a character decoded it successfully from the source but could not encode it to the destination
 	*/
 	static constexpr char32_t Success = char32_t(0);
-	static constexpr char32_t Empty = char32_t(-1);
-	static constexpr char32_t Invalid = char32_t(-2);
+	static constexpr char32_t Invalid = char32_t(-1);
+	static constexpr char32_t Empty = char32_t(-2);
 	static constexpr char32_t Incomplete = char32_t(-3);
 	static constexpr char32_t NotAscii = char32_t(-4);
 	static constexpr char32_t WriteFailed = char32_t(-5);

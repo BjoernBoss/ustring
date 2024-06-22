@@ -2,7 +2,7 @@
 
 #include "str-common.h"
 #include "str-codepoint.h"
-#include "str-property.h"
+#include "unicode/cp-property.h"
 
 #include <string>
 #include <concepts>
@@ -44,11 +44,6 @@ namespace str {
 			0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x1f, 0x1f, 0x0f, 0x0f, 0x07, 0x00
 		};
-
-		/* utf-16 surrogate-pair boundaries */
-		static constexpr uint16_t SurrogateFirst = 0xd800;
-		static constexpr uint16_t SurrogateUpper = 0xdc00;
-		static constexpr uint16_t SurrogateLast = 0xdfff;
 
 		inline constexpr str::CPOut ReadUtf8(const char8_t* begin, const char8_t* end) {
 			uint8_t c8 = static_cast<uint8_t>(*begin);
@@ -480,7 +475,7 @@ namespace str {
 	/* encodes a single codepoint into small string using str::EncodeInto and returns it
 	*	(return an empty string if the target charset cannot hold the codepoint) */
 	template <str::IsChar ChType>
-	constexpr str::CPSmall<ChType> Encode(char32_t cp) {
+	constexpr str::CPSmall<ChType> _Encode(char32_t cp) {
 		str::CPSmall<ChType> out{};
 		str::EncodeInto(out, cp);
 		return out;
