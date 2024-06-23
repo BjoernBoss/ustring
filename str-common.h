@@ -49,7 +49,7 @@ namespace str {
 	concept IsUnicode = !std::is_void_v<typename detail::GetCharUnicode<Type>::type>;
 	template <class Type>
 	concept IsNative = !std::is_void_v<typename detail::GetCharNative<Type>::type>;
-	
+
 	/* check if the given type directly encodes ascii */
 	template <class Type>
 	concept IsAscii = str::IsChar<Type> && (!std::is_same_v<Type, char> || str::CharHoldsAscii);

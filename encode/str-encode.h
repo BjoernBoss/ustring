@@ -60,7 +60,7 @@ namespace str {
 	/* [str::IsIterator] Initialized to str::Invalid; call prev()/next() to initialize the state
 	*	Will only produce valid unicode codepoints or str::Invalid
 	*	Define behavior on iterator on errors by either passing a codepoint or str::SkipInvalid/str::ThrowInvalid as the Error-Handling */
-	template <str::IsChar ChType, uint64_t ErrHandling = str::DefErrorChar>
+	template <str::IsChar ChType, uint64_t ItHandling = str::DefErrorChar>
 	struct Iterator {
 	private:
 		const ChType* pBegin = 0;
@@ -82,7 +82,7 @@ namespace str {
 				return false;
 
 			/* skip all codepoints until the first valid codepoint is encountered */
-			if constexpr (ErrHandling == str::SkipInvalid) {
+			if constexpr (ItHandling == str::SkipInvalid) {
 				const ChType* cur = pCurrent;
 				size_t acc = 0;
 				detail::Decoded out{};
@@ -105,9 +105,9 @@ namespace str {
 				/* decode the previous codepoint and check if it needs to be corrected */
 				pOut = detail::DecodePrev<ChType>(pBegin, pCurrent);
 				if (pOut.cp == str::Invalid) {
-					if constexpr (ErrHandling == str::ThrowInvalid)
+					if constexpr (ItHandling == str::ThrowInvalid)
 						throw str::EncodingException("Invalid codepoint encountered in str::Iterator");
-					pOut.cp = char32_t(ErrHandling);
+					pOut.cp = char32_t(ItHandling);
 				}
 			}
 			pCurrent -= pOut.consumed;
@@ -119,7 +119,7 @@ namespace str {
 				return false;
 
 			/* skip all codepoints until the first valid codepoint is encountered */
-			if constexpr (ErrHandling == str::SkipInvalid) {
+			if constexpr (ItHandling == str::SkipInvalid) {
 				detail::Decoded out;
 				while (true) {
 					out = detail::DecodeNext<ChType>(cur, pEnd);
@@ -138,9 +138,9 @@ namespace str {
 				pCurrent = cur;
 				pOut = detail::DecodeNext<ChType>(pCurrent, pEnd);
 				if (pOut.cp == str::Invalid) {
-					if constexpr (ErrHandling == str::ThrowInvalid)
+					if constexpr (ItHandling == str::ThrowInvalid)
 						throw str::EncodingException("Invalid codepoint encountered in str::Iterator");
-					pOut.cp = char32_t(ErrHandling);
+					pOut.cp = char32_t(ItHandling);
 				}
 			}
 			return true;
