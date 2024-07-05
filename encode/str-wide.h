@@ -21,23 +21,24 @@ namespace str {
 		static constexpr size_t WideLen = (str::WideIsUtf16 ? detail::Utf16Len : detail::Utf32Len);
 
 		/* expect: begin != end; consumed always greater than zero */
-		inline constexpr detail::Decoded NextWide(const wchar_t* cur, const wchar_t* end) {
+		template <bool AllowIncomplete>
+		inline constexpr str::Decoded NextWide(const wchar_t* cur, const wchar_t* end) {
 			if constexpr (str::WideIsUtf16)
-				return detail::NextUtf16(reinterpret_cast<const char16_t*>(cur), reinterpret_cast<const char16_t*>(end));
+				return detail::NextUtf16<AllowIncomplete>(reinterpret_cast<const char16_t*>(cur), reinterpret_cast<const char16_t*>(end));
 			else
 				return detail::NextUtf32(reinterpret_cast<const char32_t*>(cur), reinterpret_cast<const char32_t*>(end));
 		}
-		inline constexpr detail::Decoded PrevWide(const wchar_t* begin, const wchar_t* cur) {
+		inline constexpr str::Decoded PrevWide(const wchar_t* begin, const wchar_t* cur) {
 			if constexpr (str::WideIsUtf16)
 				return detail::PrevUtf16(reinterpret_cast<const char16_t*>(begin), reinterpret_cast<const char16_t*>(cur));
 			else
 				return detail::PrevUtf32(reinterpret_cast<const char32_t*>(begin), reinterpret_cast<const char32_t*>(cur));
 		}
-		inline constexpr str::Local<wchar_t, detail::WideLen> MakeWide(char32_t cp) {
+		inline constexpr bool MakeWide(auto&& sink, char32_t cp) {
 			if constexpr (str::WideIsUtf16)
-				return detail::MakeUtf16<wchar_t, detail::WideLen>(cp);
+				return detail::MakeUtf16<wchar_t>(sink, cp);
 			else
-				return detail::MakeUtf32<wchar_t, detail::WideLen>(cp);
+				return detail::MakeUtf32<wchar_t>(sink, cp);
 		}
 	}
 }

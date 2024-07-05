@@ -30,10 +30,11 @@ namespace str {
 		static constexpr size_t CharLen = detail::Utf8Len;
 
 		/* expect: begin != end; consumed always greater than zero */
-		inline constexpr detail::Decoded NextChar(const char* cur, const char* end) {
+		template <bool AllowIncomplete>
+		inline constexpr str::Decoded NextChar(const char* cur, const char* end) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
-				return detail::NextUtf8(reinterpret_cast<const char8_t*>(cur), reinterpret_cast<const char8_t*>(end));
+				return detail::NextUtf8<AllowIncomplete>(reinterpret_cast<const char8_t*>(cur), reinterpret_cast<const char8_t*>(end));
 			else {
 				/* fast-path for ascii-characters */
 				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)
@@ -48,10 +49,15 @@ namespace str {
 				*	always fit into single wide-char, and fail if the max encoding length promise would be broken => should not be possible) */
 				size_t res = std::mbrtowc(&wc, cur, size_t(end - cur), &state);
 
-				/* check if the character is considered incomplete or not a valid character and otherwise
+				/* check if the character is invalid or considered incomplete and otherwise
 				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
-				if (res == static_cast<size_t>(-2) || res == static_cast<size_t>(-1))
+				if (res == static_cast<size_t>(-1))
 					return { str::Invalid, 1 };
+				if (res == static_cast<size_t>(-2)) {
+					if constexpr (AllowIncomplete)
+						return { str::Invalid, 0 };
+					return { str::Invalid, 1 };
+				}
 				uint32_t len = (res == 0 ? 1 : uint32_t(res));
 
 				/* check if the char is longer than the internal max character-length, which should
@@ -67,7 +73,7 @@ namespace str {
 				return { cp, len };
 			}
 		}
-		inline constexpr detail::Decoded PrevChar(const char* begin, const char* cur) {
+		inline constexpr str::Decoded PrevChar(const char* begin, const char* cur) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
 				return detail::PrevUtf8(reinterpret_cast<const char8_t*>(begin), reinterpret_cast<const char8_t*>(cur));
@@ -106,26 +112,29 @@ namespace str {
 
 				/* convert the wide-character to the final codepoint (consumed can
 				*	be discarded as it will either be 1 or 0 and str::Invalid returned) */
-				char32_t cp = detail::NextWide(&wc, &wc + 1).cp;
+				char32_t cp = detail::NextWide<false>(&wc, &wc + 1).cp;
 				if (cp == str::Invalid)
 					return { str::Invalid, 1 };
 				return { cp, uint32_t(len) };
 			}
 		}
-		inline constexpr str::Local<char, detail::CharLen> MakeChar(char32_t cp) {
+		inline constexpr bool MakeChar(auto&& sink, char32_t cp) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
-				return detail::MakeUtf8<char, detail::CharLen>(cp);
+				return detail::MakeUtf8<char>(sink, cp);
 			else {
 				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint32_t(cp) <= detail::AsciiRange)
-					return { char(cp) };
+				if (str::CharHoldsAscii && uint32_t(cp) <= detail::AsciiRange) {
+					str::CallSink<char>(sink, char(cp), 1);
+					return true;
+				}
 
-				/* convert the codepoint first to wide-characters and check if it only resulted in one, as a single
-				*	multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
-				str::Local<wchar_t, detail::WideLen> wc = detail::MakeWide(cp);
+				/* convert the codepoint first to wide-characters and check if it only resulted in one (will also catch encoding-errors),
+				*	as a single multi-byte char must originate from exactly 1 wide char (also expected by read-multibyte) */
+				str::Local<wchar_t, detail::WideLen> wc;
+				detail::MakeWide(wc, cp);
 				if (wc.size() != 1)
-					return {};
+					return false;
 
 				/* [std::wcrtomb is unsafe, use std::wcrtomb_s instead] */
 #pragma warning(push)
@@ -140,13 +149,14 @@ namespace str {
 				/* check if the character could not be converted or if the converted character would break the promise of
 				*	the string-conversion max encoding length in which case the codepoint is not considered encodable */
 				if (res == static_cast<size_t>(-1) || res > detail::CharLen)
-					return {};
+					return false;
 
 				/* write the characters to the sink (res should never be zero) */
-				str::Local<char, detail::CharLen> out;
-				for (size_t i = 0; i < res; ++i)
-					out.push_back(buf[i]);
-				return out;
+				if (res == 1)
+					str::CallSink<char>(sink, char(buf[0]), 1);
+				else
+					str::CallSink<char>(sink, buf);
+				return true;
 			}
 		}
 	}

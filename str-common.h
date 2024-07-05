@@ -314,7 +314,7 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
 	template <class ChType>
-	class _Chars {
+	class Chars {
 	private:
 		ChType* pPtr = 0;
 		size_t pSize = 0;
@@ -323,11 +323,11 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr _Chars(ChType(&buf)[N]) {
+		constexpr Chars(ChType(&buf)[N]) {
 			pPtr = buf;
 			pSize = N;
 		}
-		constexpr _Chars(ChType* buf, size_t capacity) {
+		constexpr Chars(ChType* buf, size_t capacity) {
 			pPtr = buf;
 			pSize = capacity;
 		}
@@ -399,12 +399,12 @@ namespace str {
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::_Chars<ChType>, ChType> {
-		constexpr void operator()(str::_Chars<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::Chars<ChType>, ChType> {
+		constexpr void operator()(str::Chars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::_Chars<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};

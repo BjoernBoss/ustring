@@ -21,7 +21,8 @@ namespace str {
 		};
 
 		/* expect: begin != end; consumed always greater than zero */
-		inline constexpr detail::Decoded NextUtf8(const char8_t* cur, const char8_t* end) {
+		template <bool AllowIncomplete>
+		inline constexpr str::Decoded NextUtf8(const char8_t* cur, const char8_t* end) {
 			uint8_t c8 = static_cast<uint8_t>(*cur);
 
 			/* lookup the length of the character (with 0 invalid encoding) and extract the initial codepoint bits */
@@ -31,8 +32,11 @@ namespace str {
 			uint32_t cp = (c8 & detail::InitCharCodeBits[c8 >> 3]);
 
 			/* validate the buffer has capacity enough */
-			if (end - cur < len)
+			if (end - cur < len) {
+				if constexpr (AllowIncomplete)
+					return { str::Invalid, 0 };
 				return { str::Invalid, 1 };
+			}
 
 			/* validate the contiunation-bytes and construct the final codepoint */
 			for (uint32_t j = 1; j < len; ++j) {
@@ -47,7 +51,7 @@ namespace str {
 				return { str::Invalid, 1 };
 			return { char32_t(cp), len };
 		}
-		inline constexpr detail::Decoded PrevUtf8(const char8_t* begin, const char8_t* cur) {
+		inline constexpr str::Decoded PrevUtf8(const char8_t* begin, const char8_t* cur) {
 			uint32_t cp = 0, len = 1, shift = 0;
 
 			/* skip all continuation bytes and accumulate their codepoint-value */
@@ -79,38 +83,44 @@ namespace str {
 				return { str::Invalid, 1 };
 			return { char32_t(cp), len };
 		}
-		template <class ChType = char8_t, size_t Len = detail::Utf8Len>
-		inline constexpr str::Local<ChType, Len> MakeUtf8(char32_t cp) {
+		template <class ChType = char8_t>
+		inline constexpr bool MakeUtf8(auto&& sink, char32_t cp) {
 			/* check if its a single character, which can just be pushed */
-			if (cp <= 0x7f)
-				return { ChType(cp) };
+			if (cp <= 0x7f) {
+				str::CallSink<ChType>(sink, ChType(cp), 1);
+				return true;
+			}
 
 			/* determine the length of the character */
-			str::Local<ChType, Len> out;
+			ChType out[detail::Utf8Len] = { 0 };
 			uint32_t shift = 0;
 			if (cp <= 0x07ff) {
-				out.push_back(static_cast<ChType>(0xc0 | (cp >> 6)));
+				out[0] = static_cast<ChType>(0xc0 | (cp >> 6));
 				shift = 6;
 			}
 			else if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateLast)
-				return out;
+				return false;
 			else if (cp <= 0xffff) {
-				out.push_back(static_cast<ChType>(0xe0 | (cp >> 12)));
+				out[0] = static_cast<ChType>(0xe0 | (cp >> 12));
 				shift = 12;
 			}
 			else if (cp < detail::UnicodeRange) {
-				out.push_back(static_cast<ChType>(0xf0 | (cp >> 18)));
+				out[0] = static_cast<ChType>(0xf0 | (cp >> 18));
 				shift = 18;
 			}
 			else
-				return out;
+				return false;
 
 			/* produce the continuation bytes */
+			size_t len = 1;
 			while (shift > 0) {
 				shift -= 6;
-				out.push_back(static_cast<ChType>(0x80 | ((cp >> shift) & 0x3f)));
+				out[len++] = static_cast<ChType>(0x80 | ((cp >> shift) & 0x3f));
 			}
-			return out;
+
+			/* write the string to the sink */
+			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + len });
+			return true;
 		}
 	}
 }

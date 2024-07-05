@@ -67,7 +67,7 @@ namespace cp {
 			return detail::CaseLocale::none;
 		}
 
-		template <class SinkType, class SelfType>
+		template <class ColType, class SelfType>
 		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
@@ -86,8 +86,8 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<Cache, 2> pCached;
-			SinkType pSink;
+			str::detail::LocalBuffer<Cache, 2> pCached;
+			ColType pCollector;
 			struct {
 				const uint32_t* begin = 0;
 				const uint32_t* end = 0;
@@ -106,7 +106,7 @@ namespace cp {
 			detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 		public:
-			constexpr CaseMapper(SinkType&& sink, detail::CaseLocale locale) : pSink{ sink }, pLocale(locale) {}
+			constexpr CaseMapper(ColType&& collector, detail::CaseLocale locale) : pCollector{ collector }, pLocale(locale) {}
 
 		private:
 			constexpr Condition fAfterState(uint32_t val) const {
@@ -219,8 +219,8 @@ namespace cp {
 						cp = char32_t(uint32_t(cp) + value);
 				}
 
-				/* write the codepoint to the sink and update the before state */
-				pSink(cp);
+				/* write the codepoint to the collector and update the before state */
+				pCollector.next(cp);
 				fCompleteChar(data);
 			}
 			template <bool IsCleanup>
@@ -242,14 +242,14 @@ namespace cp {
 						while (pActive.begin != pActive.end) {
 							uint32_t value = (*pActive.begin & detail::gen::CaseValueMask);
 							if (*(pActive.begin++) & detail::gen::CaseIsNegative)
-								pSink(pActive.cp - value);
+								pCollector.next(pActive.cp - value);
 							else
-								pSink(pActive.cp + value);
+								pCollector.next(pActive.cp + value);
 						}
 						fCompleteChar(pActive.first);
 					}
 					else if ((pActive.begin += 2 + pActive.begin[1]) == pActive.end) {
-						pSink(pActive.cp);
+						pCollector.next(pActive.cp);
 						fCompleteChar(pActive.first);
 					}
 
@@ -303,14 +303,15 @@ namespace cp {
 				/* process the remaining queue and fail any incomplete conditions */
 				if (pActive.begin != pActive.end)
 					fProcessQueue<true>(Condition::failed);
+				pCollector.done();
 			}
 		};
 
-		template <class SinkType>
-		class UpperMapper final : public detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>> {
-			friend class detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
+		template <class ColType>
+		class UpperMapper final : public detail::CaseMapper<ColType, detail::UpperMapper<ColType>> {
+			friend class detail::CaseMapper<ColType, detail::UpperMapper<ColType>>;
 		private:
-			using Super = detail::CaseMapper<SinkType, detail::UpperMapper<SinkType>>;
+			using Super = detail::CaseMapper<ColType, detail::UpperMapper<ColType>>;
 
 		public:
 			using Super::Super;
@@ -322,11 +323,11 @@ namespace cp {
 			constexpr void fDone() {}
 		};
 
-		template <class SinkType>
-		class LowerMapper final : public detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>> {
-			friend class detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
+		template <class ColType>
+		class LowerMapper final : public detail::CaseMapper<ColType, detail::LowerMapper<ColType>> {
+			friend class detail::CaseMapper<ColType, detail::LowerMapper<ColType>>;
 		private:
-			using Super = detail::CaseMapper<SinkType, detail::LowerMapper<SinkType>>;
+			using Super = detail::CaseMapper<ColType, detail::LowerMapper<ColType>>;
 
 		public:
 			using Super::Super;
@@ -338,27 +339,27 @@ namespace cp {
 			constexpr void fDone() {}
 		};
 
-		template <class SinkType>
-		class TitleMapper final : private detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>> {
-			friend class detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+		template <class ColType>
+		class TitleMapper final : private detail::CaseMapper<ColType, detail::TitleMapper<ColType>> {
+			friend class detail::CaseMapper<ColType, detail::TitleMapper<ColType>>;
 		private:
-			using Super = detail::CaseMapper<SinkType, detail::TitleMapper<SinkType>>;
+			using Super = detail::CaseMapper<ColType, detail::TitleMapper<ColType>>;
 			struct Lambda {
-				detail::TitleMapper<SinkType>& self;
-				constexpr Lambda(detail::TitleMapper<SinkType>& s) : self{ s } {}
+				detail::TitleMapper<ColType>& self;
+				constexpr Lambda(detail::TitleMapper<ColType>& s) : self{ s } {}
 				constexpr void operator()(size_t, cp::BreakMode mode) {
 					self.fSeparate(mode != cp::BreakMode::none);
 				}
 			};
 
 		private:
-			detail::LocalBuffer<size_t, 2> pWords;
-			detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<size_t, 2> pWords;
+			str::detail::LocalBuffer<char32_t, 2> pChars;
 			cp::WordBreak::Type<Lambda> pSeparator;
 			bool pLower = false;
 
 		public:
-			constexpr TitleMapper(SinkType&& sink, detail::CaseLocale locale) : Super{ std::forward<SinkType>(sink), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
+			constexpr TitleMapper(ColType&& collector, detail::CaseLocale locale) : Super{ std::forward<ColType>(collector), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
 				pWords.push(1);
 			}
 
@@ -414,11 +415,11 @@ namespace cp {
 			}
 		};
 
-		template <class SinkType>
-		class FoldingMapper final : public detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>> {
-			friend class detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>>;
+		template <class ColType>
+		class FoldingMapper final : public detail::CaseMapper<ColType, detail::FoldingMapper<ColType>> {
+			friend class detail::CaseMapper<ColType, detail::FoldingMapper<ColType>>;
 		private:
-			using Super = detail::CaseMapper<SinkType, detail::FoldingMapper<SinkType>>;
+			using Super = detail::CaseMapper<ColType, detail::FoldingMapper<ColType>>;
 
 		public:
 			using Super::Super;
@@ -436,14 +437,15 @@ namespace cp {
 			struct Lambda {
 				detail::TestCasing<MapType>& self;
 				constexpr Lambda(detail::TestCasing<MapType>& s) : self{ s } {}
-				constexpr void operator()(char32_t cp) {
+				constexpr void next(char32_t cp) {
 					self.fNext(cp);
 				}
+				constexpr void done() {}
 			};
 
 		private:
 			MapType<Lambda> pMapper;
-			detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t, 2> pChars;
 			bool pMatches = true;
 
 		public:
@@ -470,13 +472,11 @@ namespace cp {
 		};
 	}
 
-	/* [cp::IsMapper] create a sink, which writes the upper-cased stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): upper-cased codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the upper-cased stream to the given collector */
 	class UpperCase {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::UpperMapper<SinkType>;
+		template <str::IsCollector ColType>
+		using Type = detail::UpperMapper<ColType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -487,19 +487,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
 		}
 	};
 
-	/* [cp::IsMapper] create a sink, which writes the lower-cased stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): lower-cased codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the lower-cased stream to the given collector */
 	class LowerCase {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::LowerMapper<SinkType>;
+		template <str::IsCollector ColType>
+		using Type = detail::LowerMapper<ColType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -510,19 +508,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
 		}
 	};
 
-	/* [cp::IsMapper] create a sink, which writes the title-cased stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): title-cased codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the title-cased stream to the given collector */
 	class TitleCase {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::TitleMapper<SinkType>;
+		template <str::IsCollector ColType>
+		using Type = detail::TitleMapper<ColType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -533,19 +529,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
 		}
 	};
 
-	/* [cp::IsMapper] create a sink, which writes the case-folded stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): case-folded codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the case-folded stream to the given collector */
 	class FoldCase {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::FoldingMapper<SinkType>;
+		template <str::IsCollector ColType>
+		using Type = detail::FoldingMapper<ColType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -556,31 +550,31 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pLocale };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
 		}
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
 	class TestUpperCase : public detail::TestCasing<detail::UpperMapper> {
 	public:
 		constexpr TestUpperCase(const char8_t* locale = 0) : detail::TestCasing<detail::UpperMapper>(locale) {}
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
 	class TestLowerCase : public detail::TestCasing<detail::LowerMapper> {
 	public:
 		constexpr TestLowerCase(const char8_t* locale = 0) : detail::TestCasing<detail::LowerMapper>(locale) {}
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
 	class TestTitleCase : public detail::TestCasing<detail::TitleMapper> {
 	public:
 		constexpr TestTitleCase(const char8_t* locale = 0) : detail::TestCasing<detail::TitleMapper>(locale) {}
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
 	class TestFoldCase : public detail::TestCasing<detail::FoldingMapper> {
 	public:
 		constexpr TestFoldCase(const char8_t* locale = 0) : detail::TestCasing<detail::FoldingMapper>(locale) {}

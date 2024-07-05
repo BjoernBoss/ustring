@@ -1,36 +1,20 @@
 #pragma once
 
-#include "str-common.h"
-#include "str-convert.h"
+#include "unicode/cp-property.h"
+#include "str-encode.h"
 #include "str-numbers.h"
-#include "str-wire.h"
+#include "str-escape.h"
 
-#include <string>
-#include <type_traits>
-#include <utility>
 #include <iostream>
 
+/*
+*	Coding-Rules:
+*	 - decoding using str::Ascii/str::ReadCodepoint<str::SkipInvalid> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
+*	 - decoding using str::ReadCodepoint<str::DefErrorChar> for characters/strings as arguments
+*	 - encoding using str::CodepointTo<str::DefErrorChar>/str::TranscodeTo<str::DefErrorChar> for all printable output
+*		(except when produced by other functions using other rules, such as str::Int/...)
+*/
 namespace str {
-	/* formattable interface which requires:
-	*	operator() to take a sink of any type, a value of the type, a utf32 string-view with formatting-string and a boolean return-value
-	*	if the format-string was valid (should leave the sink untouched if the format is invalid; empty format should be valid at all times) */
-	template <class Type>
-	struct Formatter;
-	template <class Type>
-	concept IsFormattable = requires(const Type & val, const std::u32string_view & fmt, str::ChSmall<1>&cs, str::WdSmall<1>&ws, str::U8Small<1>&u8s, str::U16Small<1>&u16s, str::U32Small<1>&u32s) {
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(cs, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(ws, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u8s, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u16s, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u32s, val, fmt) } -> std::same_as<bool>;
-	};
-
-	/* wrapper to format into sink */
-	template <class ChType>
-	constexpr bool FormatSingle(str::_IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
-		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
-	}
-
 	namespace detail {
 		template <class ChType>
 		constexpr int8_t FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt) {
@@ -42,12 +26,12 @@ namespace str {
 			if (index > 0)
 				return detail::FormatIndex<ChType, Args...>(sink, index - 1, fmt, args...);
 			else
-				return (str::FormatSingle<ChType>(sink, arg, fmt) ? 1 : 0);
+				return (str::CallFormat<ChType>(sink, arg, fmt) ? 1 : 0);
 		}
 
 		template <class ChType, class Arg, class... Args>
 		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
-			str::FormatSingle<ChType>(sink, arg, U"");
+			str::CallFormat<ChType>(sink, arg, U"");
 			if constexpr (sizeof...(args) > 0)
 				detail::Append<ChType, Args...>(sink, args...);
 		}
@@ -57,8 +41,10 @@ namespace str {
 			/* iterate until the entire format-string has been processed or until an argument has been encountered */
 			bool openStarted = false;
 			while (!fmt.empty()) {
-				/* decode the next character (handle invalid decodings as valid characters, just not written to the sink) */
-				auto [cp, len] = str::Decode(fmt, true);
+				/* decode the next character */
+				auto [cp, len] = str::ReadCodepoint<str::SkipInvalid>(fmt);
+				if (cp == str::Invalid)
+					return false;
 
 				/* check if an open-bracket has been encountered, which could either be part of an escape sequence or mark the start of an argument */
 				if (cp == U'{')
@@ -68,20 +54,16 @@ namespace str {
 				else if (openStarted)
 					return true;
 
-				/* check if the token should be committed to the sink (ignore any characters not being writable to the destination character-set) */
-				if (!openStarted && cp::Valid(cp)) {
-					if constexpr (str::EffSame<FmtType, SinkType>) {
-						if (len == 1)
-							str::SinkChars<SinkType>(sink, static_cast<SinkType>(fmt[0]));
-						else
-							str::SinkString<SinkType>(sink, reinterpret_cast<const SinkType*>(fmt.data()), len);
-					}
+				/* check if the token should be committed to the sink */
+				if (!openStarted) {
+					if constexpr (str::EffSame<FmtType, SinkType>)
+						str::CallSink(sink, std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(fmt.data()), len });
 					else
-						str::EncodeInto(sink, cp);
+						str::CodepointTo<str::DefErrorChar>(sink, cp, 1);
 				}
 				fmt = fmt.substr(len);
 			}
-			return false;
+			return true;
 		}
 
 		struct NestedIndex {
@@ -103,7 +85,7 @@ namespace str {
 
 			/* parse the optional separator and closing bracket */
 			for (size_t i = 0; i < 2; ++i) {
-				auto [cp, len] = str::ReadAscii(fmt);
+				auto [cp, len] = str::Ascii(fmt);
 				fmt = fmt.substr(len);
 				if (cp == U':' && i == 0)
 					continue;
@@ -121,9 +103,9 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	constexpr auto& FormatInto(str::AnySink auto&& sink, const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		using FmtType = str::StringCharType<decltype(fmt)>;
-		using SinkType = str::SinkCharType<decltype(sink)>;
+	constexpr auto& FormatTo(str::AnySink auto&& sink, const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		using FmtType = str::StrChar<decltype(fmt)>;
+		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgValid : uint8_t {
 			valid,
 			malformed,
@@ -134,63 +116,73 @@ namespace str {
 		/* buffer the format-string until the entire format has been consumed */
 		size_t argSequence = 0;
 		std::u32string argFormatBuffer;
-		std::basic_string_view<FmtType> view = str::StringView<FmtType>(fmt);
+		std::basic_string_view<FmtType> view{ fmt };
 
-		/* print all characters from the format string until the next argument starts */
-		while (detail::FormatPrintUntilArg<FmtType, SinkType>(sink, view)) {
-			argFormatBuffer.clear();
+		while (true) {
+			size_t argIndex = 0;
 
-			/* parse the argument-index (ignore range errors as they will just result in the largest possible value) */
-			auto [argIndex, consumed, result] = str::ParseNum<size_t>(view);
-			if (result == str::NumResult::valid || result == str::NumResult::range)
-				view = view.substr(consumed);
-			else
-				argIndex = argSequence++;
-
-			/* iterate over the remaining characters until the end of the argument has been reached */
-			bool hasSeparator = false;
+			/* print all characters from the format string until the next argument starts and check if an error occurred */
 			ArgValid fmtState = ArgValid::valid;
-			while (true) {
-				auto [cp, len] = str::Decode(view, true);
-				if (!cp::Valid(cp)) {
-					fmtState = ArgValid::malformed;
-					break;
+			if (!detail::FormatPrintUntilArg<FmtType, SinkType>(sink, view))
+				fmtState = ArgValid::malformed;
+			else if (view.empty())
+				break;
+			else {
+				argFormatBuffer.clear();
+
+				/* parse the argument-index (ignore range errors as they will just result in the largest possible value) */
+				auto [value, consumed, result] = str::ParseNum<size_t>(view);
+				if (result == str::NumResult::valid || result == str::NumResult::range) {
+					view = view.substr(consumed);
+					argIndex = value;
 				}
-				view = view.substr(len);
+				else
+					argIndex = argSequence++;
 
-				/* check if the end has been reached */
-				if (cp == U'}')
-					break;
-
-				/* check if the separator has been encountered */
-				else if (!hasSeparator) {
-					if (cp != U':') {
+				/* iterate over the remaining characters until the end of the argument has been reached */
+				bool hasSeparator = false;
+				while (true) {
+					auto [cp, len] = str::ReadCodepoint<str::SkipInvalid>(view);
+					if (cp == str::Invalid) {
 						fmtState = ArgValid::malformed;
 						break;
 					}
-					hasSeparator = true;
-				}
+					view = view.substr(len);
 
-				/* check if its any character which can just be written to the format-buffer */
-				else if (cp != U'{')
-					argFormatBuffer.push_back(cp);
-
-				/* expand the nested argument into the format-buffer */
-				else {
-					auto [nestIndex, nValid] = detail::FormatParseNestedIndex<FmtType>(argSequence, view);
-					if (!nValid) {
-						fmtState = ArgValid::malformed;
+					/* check if the end has been reached */
+					if (cp == U'}')
 						break;
+
+					/* check if the separator has been encountered */
+					else if (!hasSeparator) {
+						if (cp != U':') {
+							fmtState = ArgValid::malformed;
+							break;
+						}
+						hasSeparator = true;
 					}
 
-					/* check if the argument should be skipped as the current format-string already resulted in an issue */
-					if (fmtState != ArgValid::valid)
-						continue;
+					/* check if its any character which can just be written to the format-buffer */
+					else if (cp != U'{')
+						argFormatBuffer.push_back(cp);
 
-					/* try to write the index to the temporary argument buffer */
-					int8_t res = detail::FormatIndex<char32_t>(argFormatBuffer, nestIndex, U"", args...);
-					if (res != 1)
-						fmtState = (res < 0 ? ArgValid::index : ArgValid::format);
+					/* expand the nested argument into the format-buffer */
+					else {
+						auto [nestIndex, nValid] = detail::FormatParseNestedIndex<FmtType>(argSequence, view);
+						if (!nValid) {
+							fmtState = ArgValid::malformed;
+							break;
+						}
+
+						/* check if the argument should be skipped as the current format-string already resulted in an issue */
+						if (fmtState != ArgValid::valid)
+							continue;
+
+						/* try to write the index to the temporary argument buffer */
+						int8_t res = detail::FormatIndex<char32_t>(argFormatBuffer, nestIndex, U"", args...);
+						if (res != 1)
+							fmtState = (res < 0 ? ArgValid::index : ArgValid::format);
+					}
 				}
 			}
 
@@ -203,166 +195,76 @@ namespace str {
 
 			/* check if a format-string issue was encountered */
 			if (fmtState == ArgValid::index)
-				str::Append(sink, U"#index");
+				str::TranscodeTo<str::DefErrorChar>(sink, U"#index");
 			else if (fmtState == ArgValid::format)
-				str::Append(sink, U"#fmt");
+				str::TranscodeTo<str::DefErrorChar>(sink, U"#fmt");
 
 			/* check if the entire format-string was malformed, in which case further arguments will not be processed */
 			else if (fmtState == ArgValid::malformed) {
-				str::Append(sink, U"#malformed");
+				str::TranscodeTo<str::DefErrorChar>(sink, U"#malformed");
 				break;
 			}
 		}
 		return sink;
 	}
 
-	/* format the arguments to a string of the destination character-type (returning std::basic_string) */
-	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> FormatTo(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		std::basic_string<ChType> out{};
-		return str::FormatInto(out, fmt, args...);
-	}
-
-	/* format the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
-	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> FormatTo(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		str::Small<ChType, Capacity> out{};
-		return str::FormatInto(out, fmt, args...);
-	}
-
-	/* convenience for fast formatting to a std::basic_string */
-	constexpr std::string ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char>(fmt, args...);
-	}
-	constexpr std::wstring WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<wchar_t>(fmt, args...);
-	}
-	constexpr std::u8string U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char8_t>(fmt, args...);
-	}
-	constexpr std::u16string U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char16_t>(fmt, args...);
-	}
-	constexpr std::u32string U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char32_t>(fmt, args...);
-	}
-
-	/* convenience for fast formatting to a str::Small<Capacity> */
-	template <intptr_t Capacity>
-	constexpr str::ChSmall<Capacity> ChFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char, Capacity>(fmt, args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::WdSmall<Capacity> WdFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<wchar_t, Capacity>(fmt, args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U8Small<Capacity> U8Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char8_t, Capacity>(fmt, args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U16Small<Capacity> U16Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char16_t, Capacity>(fmt, args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U32Small<Capacity> U32Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		return str::FormatTo<char32_t, Capacity>(fmt, args...);
+	/* format the arguments to an object of the given sink-type using str::FormatTo and return it */
+	template <str::AnySink SinkType>
+	constexpr SinkType Format(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		SinkType sink{};
+		str::FormatTo(sink, fmt, args...);
+		return sink;
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
-	constexpr auto& BuildInto(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
-		using ChType = str::SinkCharType<decltype(sink)>;
+	constexpr auto& BuildTo(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
+		using ChType = str::SinkChar<decltype(sink)>;
 		if constexpr (sizeof...(args) > 0)
 			detail::Append<ChType>(sink, args...);
 		return sink;
 	}
 
-	/* build the arguments to a string of the destination character-type (returning std::basic_string) */
-	template <str::IsChar ChType>
-	constexpr std::basic_string<ChType> BuildTo(const str::IsFormattable auto&... args) {
-		std::basic_string<ChType> out{};
-		return str::BuildInto(out, args...);
-	}
-
-	/* build the arguments to a string of the destination character-type (returning str::Small<Capacity>) */
-	template <str::IsChar ChType, intptr_t Capacity>
-	constexpr str::Small<ChType, Capacity> BuildTo(const str::IsFormattable auto&... args) {
-		str::Small<ChType, Capacity> out{};
-		return str::BuildInto(out, args...);
-	}
-
-	/* convenience for fast building to a std::basic_string */
-	constexpr std::string ChBuild(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char>(args...);
-	}
-	constexpr std::wstring WdBuild(const str::IsFormattable auto&... args) {
-		return str::BuildTo<wchar_t>(args...);
-	}
-	constexpr std::u8string U8Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char8_t>(args...);
-	}
-	constexpr std::u16string U16Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char16_t>(args...);
-	}
-	constexpr std::u32string U32Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char32_t>(args...);
-	}
-
-	/* convenience for fast formatting to a str::Small<Capacity> */
-	template <intptr_t Capacity>
-	constexpr str::ChSmall<Capacity> ChBuild(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char, Capacity>(args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::WdSmall<Capacity> WdBuild(const str::IsFormattable auto&... args) {
-		return str::BuildTo<wchar_t, Capacity>(args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U8Small<Capacity> U8Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char8_t, Capacity>(args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U16Small<Capacity> U16Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char16_t, Capacity>(args...);
-	}
-	template <intptr_t Capacity>
-	constexpr str::U32Small<Capacity> U32Build(const str::IsFormattable auto&... args) {
-		return str::BuildTo<char32_t, Capacity>(args...);
+	/* build the arguments to an object of the given sink-type using str::BuildTo and return it */
+	template <str::AnySink SinkType>
+	constexpr SinkType Build(const str::IsFormattable auto&... args) {
+		SinkType sink{};
+		str::BuildTo(sink, args...);
+		return sink;
 	}
 
 	/* convenience for fast formatting to std::cout */
-	constexpr void Format(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatInto(std::cout, fmt, args...);
+	constexpr void Fmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatTo(std::cout, fmt, args...);
 	}
-	constexpr void FormatLn(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatInto(std::cout, fmt, args...);
+	constexpr void FmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatTo(std::cout, fmt, args...);
 		std::cout << '\n';
 	}
 
 	/* convenience for fast formatting to std::wcout */
-	constexpr void WFormat(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatInto(std::wcout, fmt, args...);
+	constexpr void WFmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatTo(std::wcout, fmt, args...);
 	}
-	constexpr void WFormatLn(const str::AnyString auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatInto(std::wcout, fmt, args...);
+	constexpr void WFmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+		str::FormatTo(std::wcout, fmt, args...);
 		std::wcout << L'\n';
 	}
 
 	/* convenience for fast building to std::cout */
 	constexpr void Out(const str::IsFormattable auto&... args) {
-		str::BuildInto(std::cout, args...);
+		str::BuildTo(std::cout, args...);
 	}
 	constexpr void OutLn(const str::IsFormattable auto&... args) {
-		str::BuildInto(std::cout, args...);
+		str::BuildTo(std::cout, args...);
 		std::cout << '\n';
 	}
 
 	/* convenience for fast building to std::wcout */
 	constexpr void WOut(const str::IsFormattable auto&... args) {
-		str::BuildInto(std::wcout, args...);
+		str::BuildTo(std::wcout, args...);
 	}
 	constexpr void WOutLn(const str::IsFormattable auto&... args) {
-		str::BuildInto(std::wcout, args...);
+		str::BuildTo(std::wcout, args...);
 		std::wcout << L'\n';
 	}
 
@@ -370,7 +272,6 @@ namespace str {
 	*	[char?[<^>]\??]: padding character and side
 	*		=> [char]: char to be used for padding (default: ' ')
 	*		=> [<^>]: alignment-side of content (default: trailing)
-	*		=> [?]: replace un-encodable characters with '?' (default: none)
 	*	[d+]: minimum-digits
 	*	[[,;]d+]: maximum-digits (if ';': add ellipsis if content has been shortened) */
 	namespace fmt {
@@ -409,7 +310,6 @@ namespace str {
 			size_t maximum = 0;
 			char32_t padChar = U' ';
 			fmt::Alignment align = fmt::Alignment::standard;
-			bool replaceError = false;
 			bool ellipsisClipping = false;
 		};
 		inline constexpr size_t ParsePaddingAlignment(const std::u32string_view& fmt, fmt::Padding& out) {
@@ -425,12 +325,6 @@ namespace str {
 				padModeChar = fmt[consumed++];
 			if (padModeChar != 0)
 				out.align = (padModeChar == U'>' ? fmt::Alignment::trailing : (padModeChar == U'^' ? fmt::Alignment::center : fmt::Alignment::trailing));
-
-			/* parse the error-char */
-			if (consumed < fmt.size() && fmt[consumed] == U'?') {
-				out.replaceError = true;
-				++consumed;
-			}
 			return consumed;
 		}
 		inline constexpr size_t ParsePaddingMinimum(const std::u32string_view& fmt, fmt::Padding& out) {
@@ -476,40 +370,38 @@ namespace str {
 
 		/* write the padded string out and apply the corresponding padding */
 		constexpr void WritePadded(str::AnySink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
-			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
-
 			/* check if the string is smaller than the minimum and add the padding */
 			if (str.size() < padding.minimum) {
 				size_t diff = (padding.minimum - str.size());
 
 				/* add the leading padding */
 				if (padding.align == fmt::Alignment::trailing || padding.align == fmt::Alignment::standard)
-					str::AppChars(sink, padding.padChar, diff, cpError);
+					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::AppChars(sink, padding.padChar, diff / 2, cpError);
+					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff / 2);
 
 				/* add the string itself */
-				str::Append(sink, str, cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, str);
 
 				/* add the trailing padding */
 				if (padding.align == fmt::Alignment::leading)
-					str::AppChars(sink, padding.padChar, diff, cpError);
+					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::AppChars(sink, padding.padChar, diff - (diff / 2), cpError);
+					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff - (diff / 2));
 				return;
 			}
 
 			/* check if the string needs to be clipped or can just be written out */
 			if (padding.maximum == 0 || str.size() <= padding.maximum)
-				str::Append(sink, str, cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, str);
 			else if (!padding.ellipsisClipping)
-				str::Append(sink, str.substr(0, padding.maximum), cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, str.substr(0, padding.maximum));
 			else if (padding.maximum > 3) {
-				str::Append(sink, str.substr(0, padding.maximum - 3), cpError);
-				str::Append(sink, U"...", cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, str.substr(0, padding.maximum - 3));
+				str::TranscodeTo<str::DefErrorChar>(sink, U"...");
 			}
 			else
-				str::Append(sink, std::u32string_view(U"...", padding.maximum), cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, std::u32string_view(U"...", padding.maximum));
 		}
 	}
 
@@ -592,14 +484,14 @@ namespace str {
 			if (val < 0) {
 				if constexpr (std::is_signed_v<Type>)
 					val = -val;
-				str::AppChars(sink, U'-');
+				str::CodepointTo<str::DefErrorChar>(sink, U'-');
 			}
 			else if (signChar != U'-' && signChar != 0)
-				str::AppChars(sink, signChar);
+				str::CodepointTo<str::DefErrorChar>(sink, signChar);
 
 			/* check if a prefix needs to be added */
 			if (prefix)
-				str::Append(sink, str::MakePrefix<char32_t>(radix, upperCase));
+				str::TranscodeTo<str::DefErrorChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
 		}
 
 		struct StrFormatting {
@@ -621,7 +513,6 @@ namespace str {
 		constexpr bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
 			/* parse the padding format */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
-			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
 
 			/* parse the count */
 			auto [count, _consumed] = fmt::ParseIndicatedNumber(rest, U'@', 1);
@@ -638,36 +529,33 @@ namespace str {
 
 			/* check if the character can just be added */
 			if (!escape && padding.minimum <= count && padding.maximum == 0) {
-				str::AppChars(sink, val, count, cpError);
+				str::CodepointTo<str::DefErrorChar>(sink, val, count);
 				return true;
 			}
 
 			/* decode the character to a codepoint */
-			auto [cp, _] = str::Decode(std::basic_string_view<Type>{ &val, 1 }, true);
-			if (!cp::Valid(cp)) {
-				if (!padding.replaceError)
-					return true;
-				cp = cp::DefErrorChar;
-			}
+			auto [cp, _] = str::ReadCodepoint<str::DefErrorChar>(std::basic_string_view<Type>{ &val, 1 });
+			if (cp == str::Invalid)
+				return true;
 
 			/* create the temporary buffer containing the single codepoint */
-			str::U32Small<10> buffer;
+			str::LocU32<str::MaxEscapeSize> buffer;
 			if (escape && (ascii || !cp::prop::IsPrint(cp)))
-				str::EscapeAsciiInto(buffer, cp, true);
+				str::EscapeTo(buffer, cp, true);
 			else
 				buffer.push_back(cp);
 
 			/* check if the codepoints themselves need to be written out */
 			if (padding.minimum <= buffer.size() * count && (padding.maximum == 0 || padding.maximum >= buffer.size() * count)) {
 				for (size_t i = 0; i < count; ++i)
-					str::Append(sink, buffer, cpError);
+					str::TranscodeTo<str::DefErrorChar>(sink, buffer);
 				return true;
 			}
 
 			/* create the temporary buffer and let the writer handle it */
 			std::u32string bufTotal;
 			for (size_t i = 0; i < count; ++i)
-				str::Append(bufTotal, buffer, cpError);
+				str::TranscodeTo<str::DefErrorChar>(bufTotal, buffer);
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
@@ -707,20 +595,20 @@ namespace str {
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
-				str::IntInto(sink, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::IntTo(sink, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::U32Small<4> prefix;
+				str::LocU32<4> prefix;
 				detail::NumPreambleInto<Type>(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::Append(sink, prefix);
+					str::TranscodeTo<str::DefErrorChar>(sink, prefix);
 				else {
-					str::Append(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeTo<str::DefErrorChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -728,27 +616,27 @@ namespace str {
 
 				/* write the integer to an intermediate buffer to estimate its size */
 				std::u32string buffer;
-				str::IntInto(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::Append(sink, buffer.substr(padding.maximum));
+					str::TranscodeTo<str::DefErrorChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
 				/* write the nulls to the sink */
 				if (prefix.size() + buffer.size() < padding.minimum)
-					str::AppChars(sink, U'0', padding.minimum - prefix.size() - buffer.size());
+					str::CodepointTo<str::DefErrorChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the integer itself to the sink */
-				str::Append(sink, buffer);
+				str::TranscodeTo<str::DefErrorChar>(sink, buffer);
 				return true;
 			}
 
 			/* write the number to an intermediate buffer */
 			std::u32string buffer;
 			detail::NumPreambleInto<Type>(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::IntInto(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -819,20 +707,20 @@ namespace str {
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
-				str::FloatInto(sink, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::FloatTo(sink, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::U32Small<4> prefix;
+				str::LocU32<4> prefix;
 				detail::NumPreambleInto(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::Append(sink, prefix);
+					str::TranscodeTo<str::DefErrorChar>(sink, prefix);
 				else {
-					str::Append(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeTo<str::DefErrorChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -840,27 +728,27 @@ namespace str {
 
 				/* write the float to an intermediate buffer to estimate its size */
 				std::u32string buffer;
-				str::FloatInto(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::FloatTo(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::Append(sink, buffer.substr(padding.maximum));
+					str::TranscodeTo<str::DefErrorChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
 				/* write the nulls to the sink */
 				if (prefix.size() + buffer.size() < padding.minimum)
-					str::AppChars(sink, U'0', padding.minimum - prefix.size() - buffer.size());
+					str::CodepointTo<str::DefErrorChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the float itself to the sink */
-				str::Append(sink, buffer);
+				str::TranscodeTo<str::DefErrorChar>(sink, buffer);
 				return true;
 			}
 
 			/* write the number to an intermediate buffer */
 			std::u32string buffer;
 			detail::NumPreambleInto(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::FloatInto(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			str::FloatTo(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -871,10 +759,9 @@ namespace str {
 	/*	Normal padding
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
-	template <str::AnyString Type> struct Formatter<Type> {
+	template <str::AnyStr Type> struct Formatter<Type> {
 		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
-			char32_t cpError = (padding.replaceError ? cp::DefErrorChar : 0);
 
 			/* parse the string-formatting */
 			auto [ascii, escape] = detail::ParseStrFormatting(rest);
@@ -887,34 +774,32 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (!escape && padding.minimum <= 1 && padding.maximum == 0) {
-				str::Append(sink, t, cpError);
+				str::TranscodeTo<str::DefErrorChar>(sink, t);
 				return true;
 			}
 
 			/* write the string to an intermediate buffer */
 			std::u32string buffer;
 			if (escape) {
-				using ChType = str::StringCharType<Type>;
-				std::basic_string_view<ChType> view = str::StringView<ChType>(t);
+				using ChType = str::StrChar<Type>;
+				std::basic_string_view<ChType> view{ t };
 
 				/* extract all separate characters */
 				while (!view.empty()) {
-					auto [cp, consumed] = str::Decode(view, true);
+					auto [cp, consumed] = str::ReadCodepoint<str::DefErrorChar>(view);
 					view = view.substr(consumed);
 
-					/* create the escape sequence or add the error-codepoint if the codepoint could not be decoded */
-					if (cp::Valid(cp)) {
-						if (ascii || !cp::prop::IsPrint(cp))
-							str::EscapeAsciiInto(buffer, cp, true);
-						else
-							buffer.push_back(cp);
-					}
-					else if (padding.replaceError)
-						buffer.push_back(cp::DefErrorChar);
+					/* create the escape sequence or write the character out as is */
+					if (cp == str::Invalid)
+						continue;
+					if (ascii || !cp::prop::IsPrint(cp))
+						str::EscapeTo(buffer, cp, true);
+					else
+						buffer.push_back(cp);
 				}
 			}
 			else
-				str::Append(buffer, t, cpError);
+				str::TranscodeTo<str::DefErrorChar>(buffer, t);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -940,10 +825,10 @@ namespace str {
 				return false;
 
 			/* construct the output-string */
-			str::U32Small<sizeof(void*) * 2> buffer;
+			str::LocU32<sizeof(void*) * 2> buffer;
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
-			str::IntInto(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);

@@ -204,17 +204,17 @@ namespace cp {
 			return (val == detail::gen::AsciiRadixNone ? ascii::ErrRadix : val);
 		}
 
-		/* map value [0-35] to [0-9a-z] or return cp::Invalid on bounds-issues */
+		/* map value [0-35] to [0-9a-z] or return str::Invalid on bounds-issues */
 		inline constexpr char32_t GetRadixLower(size_t val) {
 			if (val > 35)
-				return cp::Invalid;
+				return str::Invalid;
 			return U"0123456789abcdefghijklmnopqrstuvwxyz"[val];
 		}
 
-		/* map value [0-35] to [0-9A-Z] or return cp::Invalid on bounds-issues */
+		/* map value [0-35] to [0-9A-Z] or return str::Invalid on bounds-issues */
 		inline constexpr char32_t GetRadixUpper(size_t val) {
 			if (val > 35)
-				return cp::Invalid;
+				return str::Invalid;
 			return U"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[val];
 		}
 	}
@@ -486,9 +486,9 @@ namespace cp {
 		}
 	}
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints defines a valid emoji */
+	/* check if the entire stream of codepoints defines a valid emoji */
 	class TestEmoji : public detail::EmojiAnalysis {
 	public:
-		constexpr TestEmoji(bool emoji = true, bool text = false) : detail::EmojiAnalysis(emoji, text) {}
+		constexpr TestEmoji(bool emoji = true, bool text = false) : detail::EmojiAnalysis{ emoji, text } {}
 	};
 }

@@ -31,25 +31,25 @@ namespace cp {
 	};
 
 	namespace detail {
-		template <class SinkType, template <class, class> class BreakType>
+		template <class RecvType, template <class, class> class BreakType>
 		class BreakSingle {
 		private:
 			struct Lambda {
-				detail::BreakSingle<SinkType, BreakType>& self;
-				constexpr Lambda(detail::BreakSingle<SinkType, BreakType>& s) : self{ s } {}
+				detail::BreakSingle<RecvType, BreakType>& self;
+				constexpr Lambda(detail::BreakSingle<RecvType, BreakType>& s) : self{ s } {}
 				constexpr void operator()(size_t payload, cp::BreakMode mode) {
-					self.pSink(payload, mode);
+					self.pRecv(payload, mode);
 				}
 			};
 
 		private:
 			BreakType<Lambda, size_t> pBreaker;
-			SinkType pSink;
+			RecvType pRecv;
 			bool pInitialized = false;
 
 		public:
 			template <class... Args>
-			constexpr BreakSingle(SinkType&& sink, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pSink{ sink } {}
+			constexpr BreakSingle(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ recv } {}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
@@ -66,15 +66,15 @@ namespace cp {
 					pBreaker.done();
 			}
 		};
-		template <class SinkType, template <class, class> class BreakType>
+		template <class RecvType, template <class, class> class BreakType>
 		class BreakRanges {
 		private:
 			struct Lambda {
-				detail::BreakRanges<SinkType, BreakType>& self;
-				constexpr Lambda(detail::BreakRanges<SinkType, BreakType>& s) : self{ s } {}
+				detail::BreakRanges<RecvType, BreakType>& self;
+				constexpr Lambda(detail::BreakRanges<RecvType, BreakType>& s) : self{ s } {}
 				constexpr void operator()(size_t payload, cp::BreakMode mode) {
 					if (mode != cp::BreakMode::none) {
-						self.pSink(cp::Range(self.pStart, self.pLast, self.pMode));
+						self.pRecv(cp::Range(self.pStart, self.pLast, self.pMode));
 						self.pStart = payload;
 						self.pMode = mode;
 					}
@@ -84,7 +84,7 @@ namespace cp {
 
 		private:
 			BreakType<Lambda, size_t> pBreaker;
-			SinkType pSink;
+			RecvType pRecv;
 			size_t pStart = 0;
 			size_t pLast = 0;
 			bool pInitialized = false;
@@ -92,7 +92,7 @@ namespace cp {
 
 		public:
 			template <class... Args>
-			constexpr BreakRanges(SinkType&& sink, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pSink{ sink } {}
+			constexpr BreakRanges(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ recv } {}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
@@ -109,7 +109,7 @@ namespace cp {
 			constexpr void done() {
 				if (pInitialized) {
 					pBreaker.done();
-					pSink(cp::Range(pStart, pLast, pMode));
+					pRecv(cp::Range(pStart, pLast, pMode));
 				}
 			}
 		};
@@ -327,7 +327,7 @@ namespace cp {
 				return cp::BreakMode::none;
 			}
 		};
-		template <class SinkType, class PayloadType>
+		template <class RecvType, class PayloadType>
 		class GraphemeForward {
 			friend struct detail::GraphemeBreak;
 			using Host = detail::GraphemeBreak;
@@ -344,14 +344,14 @@ namespace cp {
 			};
 
 		private:
-			SinkType pSink;
+			RecvType pRecv;
 			GB9cState pGB9cState = GB9cState::none;
 			GB11State pGB11State = GB11State::none;
 			Host::Type pLast = Host::Type::other;
 			bool pRICountOdd = false;
 
 		public:
-			constexpr GraphemeForward(SinkType&& sink) : pSink{ sink } {}
+			constexpr GraphemeForward(RecvType&& recv) : pRecv{ recv } {}
 
 		private:
 			constexpr bool fGB9cHasConsonant() const {
@@ -412,9 +412,9 @@ namespace cp {
 				pRICountOdd = (left == Host::Type::regionalIndicator ? !pRICountOdd : false);
 				pLast = right;
 
-				/* check if the two values should be separated and write the result to the sink */
+				/* check if the two values should be separated and write the result to the receiver */
 				bool separate = (Host::Test(left, right, *this) == Host::Break::separate);
-				pSink(payload, separate ? cp::BreakMode::optional : cp::BreakMode::none);
+				pRecv(payload, separate ? cp::BreakMode::optional : cp::BreakMode::none);
 			}
 			constexpr void done() {}
 		};
@@ -663,7 +663,7 @@ namespace cp {
 				return cp::BreakMode::none;
 			}
 		};
-		template <class SinkType, class PayloadType>
+		template <class RecvType, class PayloadType>
 		class WordForward {
 			friend struct detail::WordBreak;
 			using Host = detail::WordBreak;
@@ -683,8 +683,8 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<PayloadType, 2> pCache;
-			SinkType pSink;
+			str::detail::LocalBuffer<PayloadType, 2> pCache;
+			RecvType pRecv;
 			PayloadType pUncertainPayload{};
 			Host::Type pLast = Host::Type::other;
 			Host::Type pLastActual = Host::Type::other;
@@ -692,7 +692,7 @@ namespace cp {
 			bool pRICountOdd = false;
 
 		public:
-			constexpr WordForward(SinkType&& sink) : pSink{ sink } {}
+			constexpr WordForward(RecvType&& recv) : pRecv{ recv } {}
 
 		private:
 			constexpr Host::Type fSkipWB4(Host::Type) const {
@@ -792,13 +792,13 @@ namespace cp {
 					pState = State::none;
 
 					/* flush the cached characters */
-					pSink(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
+					pRecv(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
 					while (pCache.size() > 0)
-						pSink(pCache.pop(), cp::BreakMode::none);
+						pRecv(pCache.pop(), cp::BreakMode::none);
 
 					/* check if the upcoming element can be consumed as well */
 					if (cont == Continue::combineIncludingRight) {
-						pSink(payload, cp::BreakMode::none);
+						pRecv(payload, cp::BreakMode::none);
 						fUpdateLeft(right);
 						return;
 					}
@@ -807,10 +807,10 @@ namespace cp {
 				/* check the current values and update the state */
 				switch (Host::Test(pLastActual, right, *this)) {
 				case Host::Break::combine:
-					pSink(payload, cp::BreakMode::none);
+					pRecv(payload, cp::BreakMode::none);
 					break;
 				case Host::Break::separate:
-					pSink(payload, cp::BreakMode::optional);
+					pRecv(payload, cp::BreakMode::optional);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -824,9 +824,9 @@ namespace cp {
 					return;
 
 				/* flush the cached characters */
-				pSink(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
+				pRecv(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
 				while (pCache.size() > 0)
-					pSink(pCache.pop(), cp::BreakMode::none);
+					pRecv(pCache.pop(), cp::BreakMode::none);
 			}
 		};
 
@@ -1013,7 +1013,7 @@ namespace cp {
 				return cp::BreakMode::none;
 			}
 		};
-		template <class SinkType, class PayloadType>
+		template <class RecvType, class PayloadType>
 		class SentenceForward {
 			friend struct detail::SentenceBreak;
 			using Host = detail::SentenceBreak;
@@ -1024,15 +1024,15 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<Cache, 2> pCache;
+			str::detail::LocalBuffer<Cache, 2> pCache;
 			PayloadType pUncertainPayload{};
-			SinkType pSink;
+			RecvType pRecv;
 			Host::Type pLast = Host::Type::other;
 			Host::Chain pChain = Host::Chain::none;
 			bool pUncertain = false;
 
 		public:
-			constexpr SentenceForward(SinkType&& sink) : pSink{ sink } {}
+			constexpr SentenceForward(RecvType&& recv) : pRecv{ recv } {}
 
 		private:
 			constexpr Host::Chain fGetChainState() const {
@@ -1095,7 +1095,7 @@ namespace cp {
 							return;
 						_break = Host::Break::separate;
 					}
-					pSink(pUncertainPayload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
+					pRecv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
 
 					/* process the next character */
 					if (pCache.size() == 0) {
@@ -1127,7 +1127,7 @@ namespace cp {
 				if (!pUncertain) {
 					Host::Break _break = Host::Test(pLast, right, *this);
 					if (_break != Host::Break::uncertain)
-						pSink(payload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
+						pRecv(payload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
 					else {
 						pUncertainPayload = payload;
 						pUncertain = true;
@@ -1591,7 +1591,7 @@ namespace cp {
 				return cp::BreakMode::optional;
 			}
 		};
-		template <class SinkType, class PayloadType>
+		template <class RecvType, class PayloadType>
 		class PrimitiveLineForward {
 			friend struct detail::LineBreak;
 			using Host = detail::LineBreak;
@@ -1616,8 +1616,8 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<Cache, 2> pCache;
-			SinkType pSink;
+			str::detail::LocalBuffer<Cache, 2> pCache;
+			RecvType pRecv;
 			PayloadType pUncertainPayload{};
 			Host::Type pLast = Host::Type::_last;
 			Host::Type pActual = Host::Type::_last;
@@ -1627,7 +1627,7 @@ namespace cp {
 			cp::BreakMode pCombineValue = cp::BreakMode::none;
 
 		public:
-			constexpr PrimitiveLineForward(SinkType&& sink, bool emergencyAware) : pSink{ sink } {
+			constexpr PrimitiveLineForward(RecvType&& recv, bool emergencyAware) : pRecv{ recv } {
 				if (emergencyAware)
 					pCombineValue = cp::BreakMode::emergency;
 			}
@@ -1755,10 +1755,10 @@ namespace cp {
 		private:
 			constexpr void fPopQueue(bool combine) {
 				/* post all cached characters */
-				pSink(pUncertainPayload, (combine ? pCombineValue : cp::BreakMode::optional));
+				pRecv(pUncertainPayload, (combine ? pCombineValue : cp::BreakMode::optional));
 				while (pCache.size() > 0) {
 					auto [payload, mode] = pCache.pop();
-					pSink(payload, mode);
+					pRecv(payload, mode);
 				}
 			}
 
@@ -1781,7 +1781,7 @@ namespace cp {
 				*	write it out directly, or cache it to be processed once the cache is popped */
 				if (withinGrapheme) {
 					if (pState == State::none)
-						pSink(payload, cp::BreakMode::none);
+						pRecv(payload, cp::BreakMode::none);
 					else
 						pCache.push({ payload, cp::BreakMode::none });
 					return;
@@ -1804,13 +1804,13 @@ namespace cp {
 				/* check the current values and update the state */
 				switch (Host::Test(pActual, right, *this)) {
 				case Host::Break::combine:
-					pSink(payload, pCombineValue);
+					pRecv(payload, pCombineValue);
 					break;
 				case Host::Break::optional:
-					pSink(payload, cp::BreakMode::optional);
+					pRecv(payload, cp::BreakMode::optional);
 					break;
 				case Host::Break::mandatory:
-					pSink(payload, cp::BreakMode::mandatory);
+					pRecv(payload, cp::BreakMode::mandatory);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -1877,7 +1877,7 @@ namespace cp {
 				return mode;
 			}
 		};
-		template <class SinkType, class PayloadType>
+		template <class RecvType, class PayloadType>
 		class LineForward {
 		private:
 			struct GrPayload {
@@ -1885,29 +1885,29 @@ namespace cp {
 				PayloadType payload{};
 			};
 			struct GrLambda {
-				LineForward<SinkType, PayloadType>& self;
-				constexpr GrLambda(LineForward<SinkType, PayloadType>& s) : self{ s } {}
+				LineForward<RecvType, PayloadType>& self;
+				constexpr GrLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
 				constexpr void operator()(const GrPayload& payload, cp::BreakMode mode) {
 					self.pLine.next(payload.raw, payload.payload, (mode == cp::BreakMode::none));
 				}
 			};
 			struct LnLambda {
-				LineForward<SinkType, PayloadType>& self;
-				constexpr LnLambda(LineForward<SinkType, PayloadType>& s) : self{ s } {}
+				LineForward<RecvType, PayloadType>& self;
+				constexpr LnLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
 				constexpr void operator()(const PayloadType& payload, cp::BreakMode mode) {
-					self.pSink(payload, mode);
+					self.pRecv(payload, mode);
 				}
 			};
 
 		private:
 			detail::GraphemeForward<GrLambda, GrPayload> pGrapheme;
 			detail::PrimitiveLineForward<LnLambda, PayloadType> pLine;
-			SinkType pSink;
+			RecvType pRecv;
 			bool pGraphemes = false;
 
 		public:
-			constexpr LineForward(SinkType&& sink, bool emergencyBreak, bool graphemeAware) : pGrapheme{ GrLambda{ *this } },
-				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pSink{ sink }, pGraphemes{ graphemeAware } {}
+			constexpr LineForward(RecvType&& recv, bool emergencyBreak, bool graphemeAware) : pGrapheme{ GrLambda{ *this } },
+				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ recv }, pGraphemes{ graphemeAware } {}
 
 		public:
 			constexpr void first(uint32_t raw) {
@@ -1929,35 +1929,35 @@ namespace cp {
 		};
 	}
 
-	/* create a sink, which receives the 'grapheme-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a receiver, which receives the 'grapheme-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
-	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output
+	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class GraphemeBreak {
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		using Type = detail::BreakSingle<SinkType, detail::GraphemeForward>;
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		using Type = detail::BreakSingle<RecvType, detail::GraphemeForward>;
 
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of grapheme-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	/* create a receiver, which splits the stream into ranges of grapheme-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	OutSink(cp::Range): range of a single grapheme-cluster (edge for first range, else optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
+	*	Out(cp::Range): range of a single grapheme-cluster (edge for first range, else optional) */
 	class GraphemeRanges {
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		using Type = detail::BreakRanges<SinkType, detail::GraphemeForward>;
+		template <str::IsReceiver<cp::Range> RecvType>
+		using Type = detail::BreakRanges<RecvType, detail::GraphemeForward>;
 
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<cp::Range> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -1972,35 +1972,35 @@ namespace cp {
 	};
 
 
-	/* create a sink, which receives the 'word-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a receiver, which receives the 'word-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
-	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output
+	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class WordBreak {
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		using Type = detail::BreakSingle<SinkType, detail::WordForward>;
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		using Type = detail::BreakSingle<RecvType, detail::WordForward>;
 
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of words and writes them to the sink (will be produced in-order; no output if string is empty)
+	/* create a receiver, which splits the stream into ranges of words and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	OutSink(cp::Range): range of a single word (edge for first range, else optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
+	*	Out(cp::Range): range of a single word (edge for first range, else optional) */
 	class WordRanges {
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		using Type = detail::BreakRanges<SinkType, detail::WordForward>;
+		template <str::IsReceiver<cp::Range> RecvType>
+		using Type = detail::BreakRanges<RecvType, detail::WordForward>;
 
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<cp::Range> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2015,35 +2015,35 @@ namespace cp {
 	};
 
 
-	/* create a sink, which receives the 'sentence-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a receiver, which receives the 'sentence-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
-	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output
+	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class SentenceBreak {
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		using Type = detail::BreakSingle<SinkType, detail::SentenceForward>;
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		using Type = detail::BreakSingle<RecvType, detail::SentenceForward>;
 
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of sentence-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	/* create a receiver, which splits the stream into ranges of sentence-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	OutSink(cp::Range): range of a single sentence (edge for first range, else optional) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
+	*	Out(cp::Range): range of a single sentence (edge for first range, else optional) */
 	class SentenceRanges {
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		using Type = detail::BreakRanges<SinkType, detail::SentenceForward>;
+		template <str::IsReceiver<cp::Range> RecvType>
+		using Type = detail::BreakRanges<RecvType, detail::SentenceForward>;
 
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsReceiver<cp::Range> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2058,14 +2058,14 @@ namespace cp {
 	};
 
 
-	/* create a sink, which receives the 'line-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a receiver, which receives the 'line-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output
-	*	OutSink(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output
+	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
 	class LineBreak {
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		using Type = detail::BreakSingle<SinkType, detail::LineForward>;
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		using Type = detail::BreakSingle<RecvType, detail::LineForward>;
 
 	private:
 		bool pEmergency = false;
@@ -2075,20 +2075,20 @@ namespace cp {
 		constexpr LineBreak(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
 
 	public:
-		template <str::IsSink<size_t, cp::BreakMode> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pEmergency, pGraphemes };
+		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 
-	/* create a sink, which splits the stream into ranges of line-clusters and writes them to the sink (will be produced in-order; no output if string is empty)
+	/* create a receiver, which splits the stream into ranges of line-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	InSink(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	OutSink(cp::Range): range of a single line and corresponding behavior before the range (edge for first range, else emergency/optional/mandatory, none if single step) */
+	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
+	*	Out(cp::Range): range of a single line and corresponding behavior before the range (edge for first range, else emergency/optional/mandatory, none if single step) */
 	class LineRanges {
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		using Type = detail::BreakRanges<SinkType, detail::LineForward>;
+		template <str::IsReceiver<cp::Range> RecvType>
+		using Type = detail::BreakRanges<RecvType, detail::LineForward>;
 
 	private:
 		bool pEmergency = false;
@@ -2098,9 +2098,9 @@ namespace cp {
 		constexpr LineRanges(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
 
 	public:
-		template <str::IsSink<cp::Range> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink), pEmergency, pGraphemes };
+		template <str::IsReceiver<cp::Range> RecvType>
+		constexpr Type<RecvType> operator()(RecvType&& recv) {
+			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 

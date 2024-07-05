@@ -10,7 +10,7 @@
 
 namespace cp {
 	namespace detail {
-		template <class SinkType, bool WithData>
+		template <class ColType, bool WithData>
 		class DecompMapper {
 		private:
 			struct CharData {
@@ -24,11 +24,11 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>, 2> pChars;
-			SinkType pSink;
+			str::detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>, 2> pChars;
+			ColType pCollector;
 
 		public:
-			constexpr DecompMapper(SinkType&& sink) : pSink{ sink } {}
+			constexpr DecompMapper(ColType&& collector) : pCollector{ collector } {}
 
 		private:
 			constexpr void fFlush() {
@@ -42,10 +42,10 @@ namespace cp {
 				while (pChars.size() > 0) {
 					if constexpr (WithData) {
 						auto [data, cp, _] = pChars.pop();
-						pSink(data, cp);
+						pCollector.next(data, cp);
 					}
 					else
-						pSink(pChars.pop().cp);
+						pCollector.next(pChars.pop().cp);
 				}
 			}
 			constexpr void fDecomposed(char32_t cp, const uint32_t* data) {
@@ -61,9 +61,9 @@ namespace cp {
 				else {
 					fFlush();
 					if constexpr (WithData)
-						pSink(data, cp);
+						pCollector.next(data, cp);
 					else
-						pSink(cp);
+						pCollector.next(cp);
 				}
 			}
 			constexpr void fNext(char32_t cp) {
@@ -97,18 +97,20 @@ namespace cp {
 			constexpr void done() {
 				/* flush any remaining cached characters */
 				fFlush();
+				pCollector.done();
 			}
 		};
 
-		template <class SinkType>
+		template <class ColType>
 		class CompMapper {
 		private:
 			struct Lambda {
-				detail::CompMapper<SinkType>& self;
-				constexpr Lambda(detail::CompMapper<SinkType>& s) : self{ s } {}
-				constexpr void operator()(const uint32_t* data, char32_t cp) {
+				detail::CompMapper<ColType>& self;
+				constexpr Lambda(detail::CompMapper<ColType>& s) : self{ s } {}
+				constexpr void next(const uint32_t* data, char32_t cp) {
 					self.fNext(data, cp);
 				}
+				constexpr void done() {}
 			};
 			enum class HSState : uint8_t {
 				none,
@@ -117,9 +119,9 @@ namespace cp {
 			};
 
 		private:
-			detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t, 2> pChars;
 			detail::DecompMapper<Lambda, true> pDecompose;
-			SinkType pSink;
+			ColType pCollector;
 			struct {
 				const uint32_t* data = 0;
 				size_t count = 0;
@@ -128,12 +130,12 @@ namespace cp {
 			HSState pHSState = HSState::none;
 
 		public:
-			constexpr CompMapper(SinkType&& sink) : pDecompose{ Lambda{ *this } }, pSink{ sink } {}
+			constexpr CompMapper(ColType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ collector } {}
 
 		private:
 			constexpr void fFlush() {
 				while (pChars.size() > 0)
-					pSink(pChars.pop());
+					pCollector.next(pChars.pop());
 			}
 			constexpr bool fCompleteHS(uint32_t tData, char32_t tCp) {
 				/* check if a valid hangul-syllable can be composed */
@@ -152,7 +154,7 @@ namespace cp {
 				uint32_t tIndex = (tType ? tCp - detail::gen::NormHSTBase : 0);
 
 				/* write the codepoint out and clear the cached characters and return whether or not the input-codepoint was consumed */
-				pSink(char32_t(detail::gen::NormHSSBase + lvIndex + tIndex));
+				pCollector.next(char32_t(detail::gen::NormHSSBase + lvIndex + tIndex));
 				pChars.clear();
 				pHSState = HSState::none;
 				return tType;
@@ -198,7 +200,7 @@ namespace cp {
 				bool hsStarter = (data[0] & detail::gen::NormIsHSTypeL);
 				if (ccc != 0 && (data[0] & detail::gen::NormIsExcluded) == 0 && !hsStarter) {
 					if (pStarter.count == 0)
-						pSink(cp);
+						pCollector.next(cp);
 					else {
 						pStarter.ccc = ccc;
 						pChars.push(cp);
@@ -225,7 +227,7 @@ namespace cp {
 				}
 				else {
 					pStarter = { 0, 0, 0 };
-					pSink(cp);
+					pCollector.next(cp);
 				}
 			}
 
@@ -238,11 +240,12 @@ namespace cp {
 
 				/* will automatically flush, if no hangul-syllable state exists */
 				fCompleteHS(0, 0);
+				pCollector.done();
 			}
 		};
 
-		template <class SinkType>
-		using NoDataDecompMapper = detail::DecompMapper<SinkType, false>;
+		template <class ColType>
+		using NoDataDecompMapper = detail::DecompMapper<ColType, false>;
 
 		template <template<class> class MapType>
 		class TestNormalization {
@@ -250,14 +253,15 @@ namespace cp {
 			struct Lambda {
 				detail::TestNormalization<MapType>& self;
 				constexpr Lambda(detail::TestNormalization<MapType>& s) : self{ s } {}
-				constexpr void operator()(char32_t cp) {
+				constexpr void next(char32_t cp) {
 					self.fNext(cp);
 				}
+				constexpr void done() {}
 			};
 
 		private:
 			MapType<Lambda> pMapper;
-			detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t, 2> pChars;
 			bool pMatches = true;
 
 		public:
@@ -284,49 +288,45 @@ namespace cp {
 		};
 	}
 
-	/* [cp::IsMapper] create a sink, which writes the decomposed-normalized (NFD) stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): decomposed and normalized codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the decomposed-normalized (NFD) stream to the given collector */
 	class Decompose {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::DecompMapper<SinkType, false>;
+		template <str::IsCollector ColType>
+		using Type = detail::DecompMapper<ColType, false>;
 
 	public:
 		constexpr Decompose() {}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector) };
 		}
 	};
 
-	/* [cp::IsMapper] create a sink, which writes the composed-normalized (NFC) stream to the given sink
-	*	InSink(char32_t): source codepoint
-	*	OutSink(char32_t): composed and normalized codepoint(s) */
+	/* [str::IsMapper] create a collector, which writes the composed-normalized (NFC) stream to the given collector */
 	class Compose {
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		using Type = detail::CompMapper<SinkType>;
+		template <str::IsCollector ColType>
+		using Type = detail::CompMapper<ColType>;
 
 	public:
 		constexpr Compose() {}
 
 	public:
-		template <str::IsSink<char32_t> SinkType>
-		constexpr Type<SinkType> operator()(SinkType&& sink) {
-			return Type<SinkType>{ std::forward<SinkType>(sink) };
+		template <str::IsCollector ColType>
+		constexpr Type<ColType> operator()(ColType&& collector) {
+			return Type<ColType>{ std::forward<ColType>(collector) };
 		}
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
 	class TestDecompose : public detail::TestNormalization<detail::NoDataDecompMapper> {
 	public:
 		constexpr TestDecompose() = default;
 	};
 
-	/* [cp::IsTester<bool>] check if the entire stream of codepoints is composed-normalized (NFC) (i.e. cp::Compose(...) would result in the same codepoints) */
+	/* check if the entire stream of codepoints is composed-normalized (NFC) (i.e. cp::Compose(...) would result in the same codepoints) */
 	class TestCompose : public detail::TestNormalization<detail::CompMapper> {
 	public:
 		constexpr TestCompose() = default;

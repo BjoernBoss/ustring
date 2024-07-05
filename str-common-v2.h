@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cwchar>
+#include <vector>
+#include <variant>
 
 namespace str {
 	namespace detail {
@@ -36,7 +38,7 @@ namespace str {
 
 	public:
 		constexpr Local() = default;
-		constexpr Local(const str::IsString<ChType> auto& s) {
+		constexpr Local(const str::IsStr<ChType> auto& s) {
 			std::basic_string_view<ChType> _view{ s };
 			fAppend(_view.data(), _view.size());
 		}
@@ -74,7 +76,7 @@ namespace str {
 		}
 
 	public:
-		constexpr ThisType& operator+=(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& operator+=(const str::IsStr<ChType> auto& s) {
 			std::basic_string_view<ChType> _view{ s };
 			fAppend(_view.data(), _view.size());
 			return *this;
@@ -83,7 +85,7 @@ namespace str {
 			fAppend(c, 1);
 			return *this;
 		}
-		constexpr ThisType& operator=(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& operator=(const str::IsStr<ChType> auto& s) {
 			std::basic_string_view<ChType> _view{ s };
 			pSize = 0;
 			fAppend(_view.data(), _view.size());
@@ -108,7 +110,7 @@ namespace str {
 		constexpr std::basic_string<ChType> str() const {
 			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& assign(const str::IsStr<ChType> auto& s) {
 			std::basic_string_view<ChType> _view{ s };
 			pSize = 0;
 			fAppend(_view.data(), _view.size());
@@ -124,7 +126,7 @@ namespace str {
 			fAppend(c, count);
 			return *this;
 		}
-		constexpr ThisType& append(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& append(const str::IsStr<ChType> auto& s) {
 			std::basic_string_view<ChType> _view{ s };
 			fAppend(_view.data(), _view.size());
 			return *this;
@@ -215,21 +217,95 @@ namespace str {
 		static constexpr uint32_t UnicodeRange = 0x110000;
 		static constexpr uint32_t AsciiRange = 0x80;
 
-		struct Decoded {
-			char32_t cp = str::Invalid;
-			uint32_t consumed = 0;
+		template <class Type, size_t Buffer>
+		class LocalBuffer {
+		private:
+			struct Static {
+				Type buffer[Buffer]{};
+			};
+			using Dynamic = std::vector<Type>;
+
+		private:
+			std::variant<Static, Dynamic> pBuffer;
+			Type* pBegin = 0;
+			Type* pEnd = 0;
+
+		public:
+			constexpr LocalBuffer() : pBuffer{ Static{} } {
+				pBegin = std::get<Static>(pBuffer).buffer;
+				pEnd = pBegin;
+			}
+
+		public:
+			constexpr void push(const Type& t) {
+				if (std::holds_alternative<Dynamic>(pBuffer)) {
+					Dynamic& d = std::get<Dynamic>(pBuffer);
+					if (size_t(pEnd - d.data()) >= d.size()) {
+						size_t bOff = pBegin - d.data(), eOff = pEnd - d.data();
+						d.resize(d.size() + Buffer);
+						pBegin = d.data() + bOff;
+						pEnd = d.data() + eOff;
+					}
+				}
+				else if (pEnd - std::get<Static>(pBuffer).buffer >= Buffer) {
+					Dynamic v{ pBegin, pEnd };
+					v.push_back(t);
+					pBuffer = std::move(v);
+					pBegin = std::get<Dynamic>(pBuffer).data();
+					pEnd = pBegin + std::get<Dynamic>(pBuffer).size();
+					return;
+				}
+				*pEnd = t;
+				++pEnd;
+			}
+			constexpr Type pop() {
+				Type val = *pBegin;
+				if (++pBegin == pEnd) {
+					if (std::holds_alternative<Static>(pBuffer))
+						pBegin = std::get<Static>(pBuffer).buffer;
+					else
+						pBegin = std::get<Dynamic>(pBuffer).data();
+					pEnd = pBegin;
+				}
+				return val;
+			}
+			constexpr void clear() {
+				if (std::holds_alternative<Static>(pBuffer))
+					pBegin = std::get<Static>(pBuffer).buffer;
+				else
+					pBegin = std::get<Dynamic>(pBuffer).data();
+				pEnd = pBegin;
+			}
+			constexpr size_t size() const {
+				return (pEnd - pBegin);
+			}
+			constexpr Type& get(size_t i) {
+				return pBegin[i];
+			}
+			constexpr Type& front() {
+				return pBegin[0];
+			}
+			constexpr Type& back() {
+				return pEnd[-1];
+			}
+			constexpr Type* begin() {
+				return pBegin;
+			}
+			constexpr Type* end() {
+				return pEnd;
+			}
 		};
 	}
 
 	/* convenience for fast usage */
 	template <intptr_t Capacity>
-	using Chars = str::Local<char, Capacity>;
+	using LocCh = str::Local<char, Capacity>;
 	template <intptr_t Capacity>
-	using Wides = str::Local<wchar_t, Capacity>;
+	using LocWd = str::Local<wchar_t, Capacity>;
 	template <intptr_t Capacity>
-	using Utf8s = str::Local<char8_t, Capacity>;
+	using LocU8 = str::Local<char8_t, Capacity>;
 	template <intptr_t Capacity>
-	using Utf16s = str::Local<char16_t, Capacity>;
+	using LocU16 = str::Local<char16_t, Capacity>;
 	template <intptr_t Capacity>
-	using Utf32s = str::Local<char32_t, Capacity>;
+	using LocU32 = str::Local<char32_t, Capacity>;
 }
