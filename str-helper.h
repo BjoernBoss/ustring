@@ -6,7 +6,7 @@
 #include <iostream>
 
 namespace str {
-	/* wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
+	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
 	template <class ChType>
 	class NullChars {
 	private:
@@ -53,7 +53,7 @@ namespace str {
 		}
 	};
 
-	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
+	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer and make the written size available */
 	template <class ChType>
 	class Chars {
 	private:
@@ -96,14 +96,83 @@ namespace str {
 		}
 	};
 
+	/* [str::IsWire] wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available */
+	class Bytes {
+	private:
+		uint8_t* pPtr = 0;
+		size_t pSize = 0;
+		size_t pOffset = 0;
+		bool pOverflow = false;
+
+	public:
+		template <size_t N>
+		constexpr Bytes(uint8_t(&buf)[N]) {
+			pPtr = buf;
+			pSize = N;
+		}
+		constexpr Bytes(uint8_t* buf, size_t capacity) {
+			pPtr = buf;
+			pSize = capacity;
+		}
+
+	public:
+		constexpr void write(const uint8_t* ptr, size_t sz) {
+			if (sz > pSize - pOffset) {
+				sz = pSize - pOffset;
+				pOverflow = true;
+			}
+			std::copy(ptr, ptr + sz, pPtr + pOffset);
+			pOffset += sz;
+		}
+		constexpr size_t size() const {
+			return pOffset;
+		}
+		constexpr bool overflow() const {
+			return pOverflow;
+		}
+	};
+
+	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink */
+	template <str::AnySink SinkType>
+	struct Collect {
+	private:
+		SinkType&& pSink;
+
+	public:
+		constexpr Collect(SinkType&& sink) : pSink{ sink } {}
+
+	public:
+		constexpr void next(char32_t cp) {
+			str::CodepointTo(pSink, cp, 1);
+		}
+		constexpr void done() {}
+	};
+	template <class SinkType>
+	Collect(SinkType&) -> Collect<SinkType&>;
+	template <class SinkType>
+	Collect(SinkType&&) -> Collect<SinkType>;
+
+	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object */
+	template <str::IsReceiver<char32_t> CallType>
+	struct ForEach {
+	private:
+		CallType pSink;
+
+	public:
+		constexpr ForEach(CallType&& sink) : pSink{ std::forward<CallType>(sink) } {}
+
+	public:
+		constexpr void next(char32_t cp) {
+			pSink(cp);
+		}
+		constexpr void done() {}
+	};
+
 	/* specializations for char-writers */
 	template <class ChType>
 	struct CharWriter<std::basic_string<ChType>, ChType> {
 		constexpr void operator()(std::basic_string<ChType>& sink, ChType chr, size_t count) const {
-			if (count == 1)
-				sink.push_back(chr);
-			else if (count > 0)
-				sink.append(count, chr);
+			sink.append(count, chr);
 		}
 		constexpr void operator()(std::basic_string<ChType>& sink, const ChType* str, size_t size) const {
 			sink.append(str, size);
@@ -112,8 +181,7 @@ namespace str {
 	template <class ChType, intptr_t Capacity>
 	struct CharWriter<str::Local<ChType, Capacity>, ChType> {
 		constexpr void operator()(str::Local<ChType, Capacity>& sink, ChType chr, size_t count) const {
-			for (size_t i = 0; i < count; ++i)
-				sink.push_back(chr);
+			sink.append(count, chr);
 		}
 		constexpr void operator()(str::Local<ChType, Capacity>& sink, const ChType* str, size_t size) const {
 			sink.append(str, size);
@@ -147,42 +215,6 @@ namespace str {
 		}
 		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
-		}
-	};
-
-	/* wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available */
-	class Bytes {
-	private:
-		uint8_t* pPtr = 0;
-		size_t pSize = 0;
-		size_t pOffset = 0;
-		bool pOverflow = false;
-
-	public:
-		template <size_t N>
-		constexpr Bytes(uint8_t(&buf)[N]) {
-			pPtr = buf;
-			pSize = N;
-		}
-		constexpr Bytes(uint8_t* buf, size_t capacity) {
-			pPtr = buf;
-			pSize = capacity;
-		}
-
-	public:
-		constexpr void write(const uint8_t* ptr, size_t sz) {
-			if (sz > pSize - pOffset) {
-				sz = pSize - pOffset;
-				pOverflow = true;
-			}
-			std::copy(ptr, ptr + sz, pPtr + pOffset);
-			pOffset += sz;
-		}
-		constexpr size_t size() const {
-			return pOffset;
-		}
-		constexpr bool overflow() const {
-			return pOverflow;
 		}
 	};
 

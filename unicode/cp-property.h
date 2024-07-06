@@ -36,11 +36,11 @@ namespace cp {
 		private:
 			Type pLast = Type::_last;
 			State pState = State::uninit;
-			bool pEmoji = false;
+			bool pGraphical = false;
 			bool pText = false;
 
 		public:
-			constexpr EmojiAnalysis(bool emoji, bool text) : pEmoji(emoji), pText(text) {}
+			constexpr EmojiAnalysis(bool graphical, bool text) : pGraphical(graphical), pText(text) {}
 
 		private:
 			constexpr State fUpdate(State state, Type type, bool isEmoji, bool isEmojiPres) {
@@ -156,15 +156,15 @@ namespace cp {
 				pState = fUpdate(pState, type, (prop & detail::gen::PropertyIsEmoji), (prop & detail::gen::PropertyIsPresentation));
 			}
 			constexpr bool done() const {
-				/* check if its a valid emoji-sequence */
-				if (pEmoji) {
+				/* check if its a valid graphical emoji-sequence */
+				if (pGraphical) {
 					if (pState == State::emojiPres || pState == State::imageEmojiUninit || pState == State::imageEmojiReinit)
 						return true;
 					if (pState == State::imageKeyCapSeq || pState == State::modSeq || pState == State::flagSeq || pState == State::tagSeq)
 						return true;
 				}
 
-				/* check if its a valid text-emoji-sequence */
+				/* check if its a valid textual emoji-sequence */
 				if (pText) {
 					if (pState == State::textKeyCapSeq || pState == State::textEmojiUninit || pState == State::textPres)
 						return true;
@@ -271,14 +271,14 @@ namespace cp {
 		}
 
 		/* check if the codepoint is printable [Unicode General_Category L*,M*,N*,P*,S* and either any Zs or only U' '] */
-		inline constexpr bool IsPrint(char32_t cp, bool reducedSpace = false) {
+		inline constexpr bool IsPrint(char32_t cp, bool anySpace = true) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::PrintableType val = static_cast<detail::gen::PrintableType>((prop >> detail::gen::PropertyPrintableOff) & detail::gen::PropertyPrintableMask);
 			if (val == detail::gen::PrintableType::none)
 				return false;
 			if (val == detail::gen::PrintableType::printable)
 				return true;
-			return (!reducedSpace || cp == U' ');
+			return (anySpace || cp == U' ');
 		}
 
 		/* check if the codepoint is graphical [Unicode General_Category L*,M*,N*,P*,S* without Zs] */
@@ -486,9 +486,9 @@ namespace cp {
 		}
 	}
 
-	/* check if the entire stream of codepoints defines a valid emoji */
+	/* [str::IsAnalysis] check if the entire stream of codepoints defines a valid emoji */
 	class TestEmoji : public detail::EmojiAnalysis {
 	public:
-		constexpr TestEmoji(bool emoji = true, bool text = false) : detail::EmojiAnalysis{ emoji, text } {}
+		constexpr TestEmoji(bool graphical = true, bool text = false) : detail::EmojiAnalysis{ graphical, text } {}
 	};
 }

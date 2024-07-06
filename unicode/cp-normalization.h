@@ -2,6 +2,7 @@
 
 #include "../str-common.h"
 #include "../str-codepoint.h"
+#include "cp-casing.h"
 
 #include "../generated/unicode-normalization.h"
 
@@ -10,7 +11,7 @@
 
 namespace cp {
 	namespace detail {
-		template <class ColType, bool WithData>
+		template <class CollType, bool WithData>
 		class DecompMapper {
 		private:
 			struct CharData {
@@ -25,10 +26,10 @@ namespace cp {
 
 		private:
 			str::detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>, 2> pChars;
-			ColType pCollector;
+			CollType pCollector;
 
 		public:
-			constexpr DecompMapper(ColType&& collector) : pCollector{ collector } {}
+			constexpr DecompMapper(CollType&& collector) : pCollector{ collector } {}
 
 		private:
 			constexpr void fFlush() {
@@ -101,12 +102,12 @@ namespace cp {
 			}
 		};
 
-		template <class ColType>
+		template <class CollType>
 		class CompMapper {
 		private:
 			struct Lambda {
-				detail::CompMapper<ColType>& self;
-				constexpr Lambda(detail::CompMapper<ColType>& s) : self{ s } {}
+				detail::CompMapper<CollType>& self;
+				constexpr Lambda(detail::CompMapper<CollType>& s) : self{ s } {}
 				constexpr void next(const uint32_t* data, char32_t cp) {
 					self.fNext(data, cp);
 				}
@@ -121,7 +122,7 @@ namespace cp {
 		private:
 			str::detail::LocalBuffer<char32_t, 2> pChars;
 			detail::DecompMapper<Lambda, true> pDecompose;
-			ColType pCollector;
+			CollType pCollector;
 			struct {
 				const uint32_t* data = 0;
 				size_t count = 0;
@@ -130,7 +131,7 @@ namespace cp {
 			HSState pHSState = HSState::none;
 
 		public:
-			constexpr CompMapper(ColType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ collector } {}
+			constexpr CompMapper(CollType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ collector } {}
 
 		private:
 			constexpr void fFlush() {
@@ -244,15 +245,45 @@ namespace cp {
 			}
 		};
 
-		template <class ColType>
-		using NoDataDecompMapper = detail::DecompMapper<ColType, false>;
+		template <class CollType>
+		class NormFoldMapper {
+		private:
+			struct Lambda {
+				detail::NormFoldMapper<CollType>& self;
+				constexpr Lambda(detail::NormFoldMapper<CollType>& s) : self{ s } {}
+				constexpr void next(char32_t cp) {
+					self.pDecompose.next(cp);
+				}
+				constexpr void done() {
+					self.pDecompose.done();
+				}
+			};
 
-		template <template<class> class MapType>
+		private:
+			cp::FoldCase::Type<Lambda> pCaseFold;
+			detail::DecompMapper<CollType, false> pDecompose;
+
+		public:
+			constexpr NormFoldMapper(CollType&& collector, const char8_t* locale) : pCaseFold{ cp::FoldCase{ locale }(Lambda{ *this }) }, pDecompose{ std::forward<CollType>(collector) } {}
+
+		public:
+			constexpr void next(char32_t cp) {
+				pCaseFold.next(cp);
+			}
+			constexpr void done() {
+				pCaseFold.done();
+			}
+		};
+
+		template <class CollType>
+		using NoDataDecompMapper = detail::DecompMapper<CollType, false>;
+
+		template <template<class> class MapType, class... Args>
 		class TestNormalization {
 		private:
 			struct Lambda {
-				detail::TestNormalization<MapType>& self;
-				constexpr Lambda(detail::TestNormalization<MapType>& s) : self{ s } {}
+				detail::TestNormalization<MapType, Args...>& self;
+				constexpr Lambda(detail::TestNormalization<MapType, Args...>& s) : self{ s } {}
 				constexpr void next(char32_t cp) {
 					self.fNext(cp);
 				}
@@ -265,7 +296,7 @@ namespace cp {
 			bool pMatches = true;
 
 		public:
-			constexpr TestNormalization() : pMapper{ Lambda{ *this } } {}
+			constexpr TestNormalization(Args... args) : pMapper{ Lambda{ *this }, args... } {}
 
 		private:
 			constexpr void fNext(char32_t cp) {
@@ -291,44 +322,69 @@ namespace cp {
 	/* [str::IsMapper] create a collector, which writes the decomposed-normalized (NFD) stream to the given collector */
 	class Decompose {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::DecompMapper<ColType, false>;
+		template <str::IsCollector CollType>
+		using Type = detail::DecompMapper<CollType, false>;
 
 	public:
 		constexpr Decompose() {}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector) };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector) };
 		}
 	};
 
 	/* [str::IsMapper] create a collector, which writes the composed-normalized (NFC) stream to the given collector */
 	class Compose {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::CompMapper<ColType>;
+		template <str::IsCollector CollType>
+		using Type = detail::CompMapper<CollType>;
 
 	public:
 		constexpr Compose() {}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector) };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector) };
 		}
 	};
 
-	/* check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
+	/* [str::IsMapper] create a collector, which writes the casefolded and decomposed-normalized (NFD) stream to the given collector */
+	class NormFold {
+	public:
+		template <str::IsCollector CollType>
+		using Type = detail::NormFoldMapper<CollType>;
+
+	private:
+		const char8_t* pLocale = 0;
+
+	public:
+		constexpr NormFold(const char8_t* locale = 0) : pLocale{ locale } {}
+
+	public:
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		}
+	};
+
+	/* [str::IsAnalysis] check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
 	class TestDecompose : public detail::TestNormalization<detail::NoDataDecompMapper> {
 	public:
 		constexpr TestDecompose() = default;
 	};
 
-	/* check if the entire stream of codepoints is composed-normalized (NFC) (i.e. cp::Compose(...) would result in the same codepoints) */
+	/* [str::IsAnalysis] check if the entire stream of codepoints is composed-normalized (NFC) (i.e. cp::Compose(...) would result in the same codepoints) */
 	class TestCompose : public detail::TestNormalization<detail::CompMapper> {
 	public:
 		constexpr TestCompose() = default;
+	};
+
+	/* [str::IsAnalysis] check if the entire stream of codepoints is casefolded and decomposed-normalized (NFD) (i.e. cp::NormFold(...) would result in the same codepoints) */
+	class TestNormFold : public detail::TestNormalization<detail::NormFoldMapper, const char8_t*> {
+	public:
+		constexpr TestNormFold(const char8_t* locale = 0) : detail::TestNormalization<detail::NormFoldMapper, const char8_t*>{ locale } {}
 	};
 }

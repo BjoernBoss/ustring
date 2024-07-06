@@ -142,6 +142,20 @@ namespace str {
 		{ t(c) } -> str::IsCollector;
 	};
 
+	/* valid analysis must receive zero or more valid codepoints via next() and a final call to done(),
+	*	which returns the result of the analysis (the object is considered burnt afterwards) */
+	template <class Type>
+	concept IsAnalysis = requires(Type t, char32_t c) {
+		{ t.next(c) } -> std::same_as<void>;
+		{ t.done() } -> std::same_as<bool>;
+	};
+
+	/* valid tests must return a boolean flag for every passed-in codepoint */
+	template <class Type>
+	concept IsTester = requires(Type t, char32_t c) {
+		{ t(c) } -> std::same_as<bool>;
+	};
+
 	/* wrappers to interact with character-sinks */
 	template <str::IsChar ChType>
 	constexpr void CallSink(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {

@@ -47,7 +47,7 @@ namespace str {
 
 	/* read a string from raw bytes and dynamically detect the encoding based on a BOM
 	*	or use the given encoding (will at all times consume all passed in bytes) */
-	template <char32_t CodeError = str::DefErrorChar>
+	template <char32_t CodeError = err::DefChar>
 	class FromWire {
 		static constexpr size_t TranscodeBufCapacity = std::max<size_t>(1024, detail::MaxCodingSize);
 	private:
@@ -253,7 +253,7 @@ namespace str {
 	};
 
 	/* write a string of any type to a byte-sink and encode it using the defined wire-encoding */
-	template <char32_t CodeError = str::DefErrorChar>
+	template <char32_t CodeError = err::DefChar>
 	class ToWire {
 	private:
 		str::WireCoding pCoding = str::WireCoding::utf8;

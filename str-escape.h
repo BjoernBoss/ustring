@@ -30,14 +30,14 @@ namespace str {
 			size_t hexits = 0;
 
 			/* check if a valid escape-sequence is being started (will also catch empty-strings) */
-			str::Decoded dec = str::Ascii(view);
+			str::Decoded dec = str::ReadAscii<err::Nothing>(view);
 			if (dec.cp == str::Invalid || dec.cp != U'\\')
 				return dec;
 
 			/* iterate until the next valid escape-sequence has been processed */
 			str::Decoded out = { 0, dec.consumed };
 			while (out.consumed < view.size()) {
-				dec = str::Ascii(view.substr(out.consumed));
+				dec = str::ReadAscii<err::Nothing>(view.substr(out.consumed));
 
 				/* check if a valid next character has been encountered */
 				if (dec.cp == str::Invalid)
@@ -224,7 +224,7 @@ namespace str {
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */
-	template <char32_t CodeError = str::DefErrorChar>
+	template <char32_t CodeError = err::DefChar>
 	constexpr auto& EscapeTo(str::AnySink auto&& sink, char32_t cp, bool compact, size_t count = 1) {
 		detail::EscapeTo<CodeError>(sink, cp, compact, count);
 		return sink;
@@ -232,16 +232,16 @@ namespace str {
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)}
 	*	and write it to an object of the given sink-type using str::EscapeTo (compact is designed for one-liner strings) */
-	template <str::AnySink SinkType, char32_t CodeError = str::DefErrorChar>
+	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
 	constexpr SinkType Escape(char32_t cp, bool compact, size_t count = 1) {
 		SinkType out{};
 		detail::EscapeTo<CodeError>(out, cp, compact, count);
 		return out;
 	}
 
-	/* parse the escape-sequence in the style as produced by str::EscapeTo (return null-consumed if the source is empty, otherwise at least
-	*	consume one character at all times and return cp::Invalid on invalid escape sequences and if CodeError is str::SkipInvalid) */
-	template <char32_t CodeError = str::DefErrorChar>
+	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid
+	*	if the source is empty, otherwise at least consume one character at all times) */
+	template <char32_t CodeError = err::DefChar>
 	constexpr str::Decoded ReadEscaped(const str::AnyStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
@@ -250,9 +250,9 @@ namespace str {
 		str::Decoded dec = detail::ParseEscaped<ChType, false>(view);
 
 		/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-		if constexpr (CodeError != str::SkipInvalid) {
+		if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
 			if (dec.cp == str::Invalid) {
-				if constexpr (CodeError == str::ThrowInvalid)
+				if constexpr (CodeError == err::Throw)
 					throw str::CodingException("Invalid codepoint encountered in str::ReadEscaped");
 				dec.cp = CodeError;
 			}
@@ -260,9 +260,9 @@ namespace str {
 		return dec;
 	}
 
-	/* parse the escape-sequence in the style as produced by str::EscapeTo (return null-consumed if the source is empty or the next codepoint is incomplete,
-	*	otherwise at least consume one character at all times and return cp::Invalid on invalid escape sequences and if CodeError is str::SkipInvalid) */
-	template <char32_t CodeError = str::DefErrorChar>
+	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid if the source
+	*	is empty or the next codepoint is incomplete, otherwise at least consume one character at all times) */
+	template <char32_t CodeError = err::DefChar>
 	constexpr str::Decoded PartialEscaped(const str::AnyStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
@@ -271,10 +271,10 @@ namespace str {
 		str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
 
 		/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-		if constexpr (CodeError != str::SkipInvalid) {
+		if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
 			if (dec.cp == str::Invalid && dec.consumed > 0) {
-				if constexpr (CodeError == str::ThrowInvalid)
-					throw str::CodingException("Invalid codepoint encountered in str::ReadEscaped");
+				if constexpr (CodeError == err::Throw)
+					throw str::CodingException("Invalid codepoint encountered in str::PartialEscaped");
 				dec.cp = CodeError;
 			}
 		}

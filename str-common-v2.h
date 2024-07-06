@@ -45,7 +45,7 @@ namespace str {
 		constexpr Local(const ChType* str, size_t sz) {
 			fAppend(str, sz);
 		}
-		constexpr Local(ChType c, size_t count = 1) {
+		constexpr Local(size_t count, ChType c) {
 			fAppend(c, count);
 		}
 
@@ -121,7 +121,7 @@ namespace str {
 			fAppend(str, sz);
 			return *this;
 		}
-		constexpr ThisType& assign(ChType c, size_t count) {
+		constexpr ThisType& assign(size_t count, ChType c) {
 			pSize = 0;
 			fAppend(c, count);
 			return *this;
@@ -135,7 +135,7 @@ namespace str {
 			fAppend(str, sz);
 			return *this;
 		}
-		constexpr ThisType& append(ChType c, size_t count) {
+		constexpr ThisType& append(size_t count, ChType c) {
 			fAppend(c, count);
 			return *this;
 		}

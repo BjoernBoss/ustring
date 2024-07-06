@@ -1940,8 +1940,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -1956,8 +1956,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -1983,8 +1983,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -1999,8 +1999,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2026,8 +2026,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2042,8 +2042,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv) };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2076,8 +2076,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 
@@ -2099,8 +2099,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<RecvType> operator()(RecvType&& recv) {
-			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
+			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 

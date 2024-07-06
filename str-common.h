@@ -28,12 +28,6 @@ namespace str {
 		template <> struct GetCharUnicode<char8_t> { using type = char8_t; };
 		template <> struct GetCharUnicode<char16_t> { using type = char16_t; };
 		template <> struct GetCharUnicode<char32_t> { using type = char32_t; };
-
-		/* optimal unsigned integer size-type to be able to hold the given capacity */
-		template <size_t Capacity> using SizeType8Or16 = std::conditional_t<Capacity <= std::numeric_limits<uint8_t>::max(), uint8_t, uint16_t>;
-		template <size_t Capacity> using SizeType32OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint16_t>::max(), detail::SizeType8Or16<Capacity>, uint32_t>;
-		template <size_t Capacity> using SizeType64OrLess = std::conditional_t<Capacity <= std::numeric_limits<uint32_t>::max(), detail::SizeType32OrLess<Capacity>, uint64_t>;
-		template <size_t Capacity> using SizeType = std::conditional_t<Capacity <= std::numeric_limits<uint64_t>::max(), detail::SizeType64OrLess<Capacity>, size_t>;
 	}
 
 	/* check if the multibyte character string uses a given utf-encoding/holds ascii */
@@ -62,7 +56,7 @@ namespace str {
 
 	/* check if the two character-types are effectively using the same encoding */
 	template <class ChTypeA, class ChTypeB>
-	concept EffSame = std::is_same_v<str::EffChar<ChTypeA>, str::EffChar<ChTypeB>>;
+	concept _EffSame = std::is_same_v<str::EffChar<ChTypeA>, str::EffChar<ChTypeB>>;
 
 	/* character sink interface which requires:
 	*	operator() to take the sink object and a character and a count (can be zero)
@@ -87,9 +81,9 @@ namespace str {
 
 	/* check if type is any kind of sink and ability to extract the corresponding char-type */
 	template <class Type>
-	concept AnySink = !std::is_void_v<typename detail::GetCharSink<Type>::type>;
+	concept _AnySink = !std::is_void_v<typename detail::GetCharSink<Type>::type>;
 	template <class Type>
-	using SinkCharType = typename detail::GetCharSink<Type>::type;
+	using _SinkCharType = typename detail::GetCharSink<Type>::type;
 
 	/* wrapper to write to a sink */
 	template <class ChType>
@@ -103,29 +97,35 @@ namespace str {
 		return sink;
 	}
 
+	/* string is anything convertible to a string-view */
+	template <class Type, class ChType>
+	concept _IsString = requires(const Type & t) {
+		{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
+	};
+
 	namespace detail {
 		template <class Type> struct GetCharString { using type = void; };
-		template <str::IsString<char> Type> struct GetCharString<Type> { using type = char; };
-		template <str::IsString<wchar_t> Type> struct GetCharString<Type> { using type = wchar_t; };
-		template <str::IsString<char8_t> Type> struct GetCharString<Type> { using type = char8_t; };
-		template <str::IsString<char16_t> Type> struct GetCharString<Type> { using type = char16_t; };
-		template <str::IsString<char32_t> Type> struct GetCharString<Type> { using type = char32_t; };
+		template <str::_IsString<char> Type> struct GetCharString<Type> { using type = char; };
+		template <str::_IsString<wchar_t> Type> struct GetCharString<Type> { using type = wchar_t; };
+		template <str::_IsString<char8_t> Type> struct GetCharString<Type> { using type = char8_t; };
+		template <str::_IsString<char16_t> Type> struct GetCharString<Type> { using type = char16_t; };
+		template <str::_IsString<char32_t> Type> struct GetCharString<Type> { using type = char32_t; };
 	}
 
 	/* check if type is any kind of string and ability to extract the corresponding char-type */
 	template <class Type>
-	concept AnyString = !std::is_void_v<typename detail::GetCharString<Type>::type>;
+	concept _AnyString = !std::is_void_v<typename detail::GetCharString<Type>::type>;
 	template <class Type>
-	using StringCharType = typename detail::GetCharString<Type>::type;
+	using _StringCharType = typename detail::GetCharString<Type>::type;
 
 	/* wrapper to get string iterators */
 	template <class ChType>
-	constexpr std::pair<const ChType*, const ChType*> StringIterators(const str::IsString<ChType> auto& string) {
+	constexpr std::pair<const ChType*, const ChType*> StringIterators(const str::_IsString<ChType> auto& string) {
 		std::basic_string_view<ChType> view{ string };
 		return { view.data(), view.data() + view.size() };
 	}
 	template <class ChType>
-	constexpr std::basic_string_view<ChType> StringView(const str::IsString<ChType> auto& string) {
+	constexpr std::basic_string_view<ChType> StringView(const str::_IsString<ChType> auto& string) {
 		return std::basic_string_view<ChType>{ string };
 	}
 
@@ -150,7 +150,7 @@ namespace str {
 
 	public:
 		constexpr Small() = default;
-		constexpr Small(const str::IsString<ChType> auto& s) {
+		constexpr Small(const str::_IsString<ChType> auto& s) {
 			fAppend(s);
 		}
 		constexpr Small(const ChType* str, size_t sz) {
@@ -177,7 +177,7 @@ namespace str {
 		}
 
 	public:
-		constexpr ThisType& operator+=(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& operator+=(const str::_IsString<ChType> auto& s) {
 			fAppend(s);
 			return *this;
 		}
@@ -185,7 +185,7 @@ namespace str {
 			fAppend(&c, &c + 1);
 			return *this;
 		}
-		constexpr ThisType& operator=(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& operator=(const str::_IsString<ChType> auto& s) {
 			pSize = 0;
 			fAppend(s);
 			return *this;
@@ -209,7 +209,7 @@ namespace str {
 		constexpr std::basic_string<ChType> str() const {
 			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		constexpr ThisType& assign(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& assign(const str::_IsString<ChType> auto& s) {
 			pSize = 0;
 			fAppend(s);
 			return *this;
@@ -219,7 +219,7 @@ namespace str {
 			fAppend(str, str + sz);
 			return *this;
 		}
-		constexpr ThisType& append(const str::IsString<ChType> auto& s) {
+		constexpr ThisType& append(const str::_IsString<ChType> auto& s) {
 			fAppend(s);
 			return *this;
 		}
@@ -267,7 +267,7 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
 	template <class ChType>
-	class NullChars {
+	class _NullChars {
 	private:
 		ChType* pBegin = 0;
 		ChType* pEnd = 0;
@@ -275,14 +275,14 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr NullChars(ChType(&buf)[N]) {
+		constexpr _NullChars(ChType(&buf)[N]) {
 			if constexpr (N == 0)
 				return;
 			buf[0] = 0;
 			pBegin = buf;
 			pEnd = buf + (N - 1);
 		}
-		constexpr NullChars(ChType* buf, size_t capacity) {
+		constexpr _NullChars(ChType* buf, size_t capacity) {
 			if (capacity == 0)
 				return;
 			buf[0] = 0;
@@ -314,7 +314,7 @@ namespace str {
 
 	/* wrapper to create a sink into a constant buffer or a pointer and make the written size available */
 	template <class ChType>
-	class Chars {
+	class _Chars {
 	private:
 		ChType* pPtr = 0;
 		size_t pSize = 0;
@@ -323,11 +323,11 @@ namespace str {
 
 	public:
 		template <size_t N>
-		constexpr Chars(ChType(&buf)[N]) {
+		constexpr _Chars(ChType(&buf)[N]) {
 			pPtr = buf;
 			pSize = N;
 		}
-		constexpr Chars(ChType* buf, size_t capacity) {
+		constexpr _Chars(ChType* buf, size_t capacity) {
 			pPtr = buf;
 			pSize = capacity;
 		}
@@ -389,22 +389,22 @@ namespace str {
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::NullChars<ChType>, ChType> {
-		constexpr void operator()(str::NullChars<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::_NullChars<ChType>, ChType> {
+		constexpr void operator()(str::_NullChars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::NullChars<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::_NullChars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};
 	template <class ChType>
-	struct CharSink<str::Chars<ChType>, ChType> {
-		constexpr void operator()(str::Chars<ChType>& sink, ChType chr, size_t count) const {
+	struct CharSink<str::_Chars<ChType>, ChType> {
+		constexpr void operator()(str::_Chars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::_Chars<ChType>& sink, const ChType* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};

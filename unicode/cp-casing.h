@@ -67,7 +67,7 @@ namespace cp {
 			return detail::CaseLocale::none;
 		}
 
-		template <class ColType, class SelfType>
+		template <class CollType, class SelfType>
 		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
@@ -87,7 +87,7 @@ namespace cp {
 
 		private:
 			str::detail::LocalBuffer<Cache, 2> pCached;
-			ColType pCollector;
+			CollType pCollector;
 			struct {
 				const uint32_t* begin = 0;
 				const uint32_t* end = 0;
@@ -106,7 +106,7 @@ namespace cp {
 			detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 		public:
-			constexpr CaseMapper(ColType&& collector, detail::CaseLocale locale) : pCollector{ collector }, pLocale(locale) {}
+			constexpr CaseMapper(CollType&& collector, detail::CaseLocale locale) : pCollector{ collector }, pLocale(locale) {}
 
 		private:
 			constexpr Condition fAfterState(uint32_t val) const {
@@ -307,11 +307,11 @@ namespace cp {
 			}
 		};
 
-		template <class ColType>
-		class UpperMapper final : public detail::CaseMapper<ColType, detail::UpperMapper<ColType>> {
-			friend class detail::CaseMapper<ColType, detail::UpperMapper<ColType>>;
+		template <class CollType>
+		class UpperMapper final : public detail::CaseMapper<CollType, detail::UpperMapper<CollType>> {
+			friend class detail::CaseMapper<CollType, detail::UpperMapper<CollType>>;
 		private:
-			using Super = detail::CaseMapper<ColType, detail::UpperMapper<ColType>>;
+			using Super = detail::CaseMapper<CollType, detail::UpperMapper<CollType>>;
 
 		public:
 			using Super::Super;
@@ -323,11 +323,11 @@ namespace cp {
 			constexpr void fDone() {}
 		};
 
-		template <class ColType>
-		class LowerMapper final : public detail::CaseMapper<ColType, detail::LowerMapper<ColType>> {
-			friend class detail::CaseMapper<ColType, detail::LowerMapper<ColType>>;
+		template <class CollType>
+		class LowerMapper final : public detail::CaseMapper<CollType, detail::LowerMapper<CollType>> {
+			friend class detail::CaseMapper<CollType, detail::LowerMapper<CollType>>;
 		private:
-			using Super = detail::CaseMapper<ColType, detail::LowerMapper<ColType>>;
+			using Super = detail::CaseMapper<CollType, detail::LowerMapper<CollType>>;
 
 		public:
 			using Super::Super;
@@ -339,14 +339,14 @@ namespace cp {
 			constexpr void fDone() {}
 		};
 
-		template <class ColType>
-		class TitleMapper final : private detail::CaseMapper<ColType, detail::TitleMapper<ColType>> {
-			friend class detail::CaseMapper<ColType, detail::TitleMapper<ColType>>;
+		template <class CollType>
+		class TitleMapper final : private detail::CaseMapper<CollType, detail::TitleMapper<CollType>> {
+			friend class detail::CaseMapper<CollType, detail::TitleMapper<CollType>>;
 		private:
-			using Super = detail::CaseMapper<ColType, detail::TitleMapper<ColType>>;
+			using Super = detail::CaseMapper<CollType, detail::TitleMapper<CollType>>;
 			struct Lambda {
-				detail::TitleMapper<ColType>& self;
-				constexpr Lambda(detail::TitleMapper<ColType>& s) : self{ s } {}
+				detail::TitleMapper<CollType>& self;
+				constexpr Lambda(detail::TitleMapper<CollType>& s) : self{ s } {}
 				constexpr void operator()(size_t, cp::BreakMode mode) {
 					self.fSeparate(mode != cp::BreakMode::none);
 				}
@@ -359,7 +359,7 @@ namespace cp {
 			bool pLower = false;
 
 		public:
-			constexpr TitleMapper(ColType&& collector, detail::CaseLocale locale) : Super{ std::forward<ColType>(collector), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
+			constexpr TitleMapper(CollType&& collector, detail::CaseLocale locale) : Super{ std::forward<CollType>(collector), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
 				pWords.push(1);
 			}
 
@@ -415,11 +415,11 @@ namespace cp {
 			}
 		};
 
-		template <class ColType>
-		class FoldingMapper final : public detail::CaseMapper<ColType, detail::FoldingMapper<ColType>> {
-			friend class detail::CaseMapper<ColType, detail::FoldingMapper<ColType>>;
+		template <class CollType>
+		class FoldingMapper final : public detail::CaseMapper<CollType, detail::FoldingMapper<CollType>> {
+			friend class detail::CaseMapper<CollType, detail::FoldingMapper<CollType>>;
 		private:
-			using Super = detail::CaseMapper<ColType, detail::FoldingMapper<ColType>>;
+			using Super = detail::CaseMapper<CollType, detail::FoldingMapper<CollType>>;
 
 		public:
 			using Super::Super;
@@ -475,8 +475,8 @@ namespace cp {
 	/* [str::IsMapper] create a collector, which writes the upper-cased stream to the given collector */
 	class UpperCase {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::UpperMapper<ColType>;
+		template <str::IsCollector CollType>
+		using Type = detail::UpperMapper<CollType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -487,17 +487,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
 	/* [str::IsMapper] create a collector, which writes the lower-cased stream to the given collector */
 	class LowerCase {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::LowerMapper<ColType>;
+		template <str::IsCollector CollType>
+		using Type = detail::LowerMapper<CollType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -508,17 +508,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
 	/* [str::IsMapper] create a collector, which writes the title-cased stream to the given collector */
 	class TitleCase {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::TitleMapper<ColType>;
+		template <str::IsCollector CollType>
+		using Type = detail::TitleMapper<CollType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -529,17 +529,17 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
 	/* [str::IsMapper] create a collector, which writes the case-folded stream to the given collector */
 	class FoldCase {
 	public:
-		template <str::IsCollector ColType>
-		using Type = detail::FoldingMapper<ColType>;
+		template <str::IsCollector CollType>
+		using Type = detail::FoldingMapper<CollType>;
 
 	private:
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
@@ -550,31 +550,31 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector ColType>
-		constexpr Type<ColType> operator()(ColType&& collector) {
-			return Type<ColType>{ std::forward<ColType>(collector), pLocale };
+		template <str::IsCollector CollType>
+		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
+			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
-	/* check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
+	/* [str::IsAnalysis] check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
 	class TestUpperCase : public detail::TestCasing<detail::UpperMapper> {
 	public:
 		constexpr TestUpperCase(const char8_t* locale = 0) : detail::TestCasing<detail::UpperMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
+	/* [str::IsAnalysis] check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
 	class TestLowerCase : public detail::TestCasing<detail::LowerMapper> {
 	public:
 		constexpr TestLowerCase(const char8_t* locale = 0) : detail::TestCasing<detail::LowerMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
+	/* [str::IsAnalysis] check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
 	class TestTitleCase : public detail::TestCasing<detail::TitleMapper> {
 	public:
 		constexpr TestTitleCase(const char8_t* locale = 0) : detail::TestCasing<detail::TitleMapper>(locale) {}
 	};
 
-	/* check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
+	/* [str::IsAnalysis] check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
 	class TestFoldCase : public detail::TestCasing<detail::FoldingMapper> {
 	public:
 		constexpr TestFoldCase(const char8_t* locale = 0) : detail::TestCasing<detail::FoldingMapper>(locale) {}

@@ -9,9 +9,9 @@
 
 /*
 *	Coding-Rules:
-*	 - decoding using str::Ascii/str::ReadCodepoint<str::SkipInvalid> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
-*	 - decoding using str::ReadCodepoint<str::DefErrorChar> for characters/strings as arguments
-*	 - encoding using str::CodepointTo<str::DefErrorChar>/str::TranscodeTo<str::DefErrorChar> for all printable output
+*	 - decoding using str::Ascii/str::ReadCodepoint<err::Nothing> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
+*	 - decoding using str::ReadCodepoint<err::DefChar> for character/string as formattable arguments
+*	 - encoding using str::CodepointTo<err::DefChar>/str::TranscodeTo<err::DefChar> for all printable output
 *		(except when produced by other functions using other rules, such as str::Int/...)
 */
 namespace str {
@@ -42,7 +42,7 @@ namespace str {
 			bool openStarted = false;
 			while (!fmt.empty()) {
 				/* decode the next character */
-				auto [cp, len] = str::ReadCodepoint<str::SkipInvalid>(fmt);
+				auto [cp, len] = str::ReadCodepoint<err::Nothing>(fmt);
 				if (cp == str::Invalid)
 					return false;
 
@@ -59,7 +59,7 @@ namespace str {
 					if constexpr (str::EffSame<FmtType, SinkType>)
 						str::CallSink(sink, std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(fmt.data()), len });
 					else
-						str::CodepointTo<str::DefErrorChar>(sink, cp, 1);
+						str::CodepointTo<err::DefChar>(sink, cp, 1);
 				}
 				fmt = fmt.substr(len);
 			}
@@ -85,7 +85,7 @@ namespace str {
 
 			/* parse the optional separator and closing bracket */
 			for (size_t i = 0; i < 2; ++i) {
-				auto [cp, len] = str::Ascii(fmt);
+				auto [cp, len] = str::ReadAscii<err::Nothing>(fmt);
 				fmt = fmt.substr(len);
 				if (cp == U':' && i == 0)
 					continue;
@@ -142,7 +142,7 @@ namespace str {
 				/* iterate over the remaining characters until the end of the argument has been reached */
 				bool hasSeparator = false;
 				while (true) {
-					auto [cp, len] = str::ReadCodepoint<str::SkipInvalid>(view);
+					auto [cp, len] = str::ReadCodepoint<err::Nothing>(view);
 					if (cp == str::Invalid) {
 						fmtState = ArgValid::malformed;
 						break;
@@ -195,13 +195,13 @@ namespace str {
 
 			/* check if a format-string issue was encountered */
 			if (fmtState == ArgValid::index)
-				str::TranscodeTo<str::DefErrorChar>(sink, U"#index");
+				str::TranscodeTo<err::DefChar>(sink, U"#index");
 			else if (fmtState == ArgValid::format)
-				str::TranscodeTo<str::DefErrorChar>(sink, U"#fmt");
+				str::TranscodeTo<err::DefChar>(sink, U"#fmt");
 
 			/* check if the entire format-string was malformed, in which case further arguments will not be processed */
 			else if (fmtState == ArgValid::malformed) {
-				str::TranscodeTo<str::DefErrorChar>(sink, U"#malformed");
+				str::TranscodeTo<err::DefChar>(sink, U"#malformed");
 				break;
 			}
 		}
@@ -376,32 +376,32 @@ namespace str {
 
 				/* add the leading padding */
 				if (padding.align == fmt::Alignment::trailing || padding.align == fmt::Alignment::standard)
-					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff);
+					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff / 2);
+					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff / 2);
 
 				/* add the string itself */
-				str::TranscodeTo<str::DefErrorChar>(sink, str);
+				str::TranscodeTo<err::DefChar>(sink, str);
 
 				/* add the trailing padding */
 				if (padding.align == fmt::Alignment::leading)
-					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff);
+					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::CodepointTo<str::DefErrorChar>(sink, padding.padChar, diff - (diff / 2));
+					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff - (diff / 2));
 				return;
 			}
 
 			/* check if the string needs to be clipped or can just be written out */
 			if (padding.maximum == 0 || str.size() <= padding.maximum)
-				str::TranscodeTo<str::DefErrorChar>(sink, str);
+				str::TranscodeTo<err::DefChar>(sink, str);
 			else if (!padding.ellipsisClipping)
-				str::TranscodeTo<str::DefErrorChar>(sink, str.substr(0, padding.maximum));
+				str::TranscodeTo<err::DefChar>(sink, str.substr(0, padding.maximum));
 			else if (padding.maximum > 3) {
-				str::TranscodeTo<str::DefErrorChar>(sink, str.substr(0, padding.maximum - 3));
-				str::TranscodeTo<str::DefErrorChar>(sink, U"...");
+				str::TranscodeTo<err::DefChar>(sink, str.substr(0, padding.maximum - 3));
+				str::TranscodeTo<err::DefChar>(sink, U"...");
 			}
 			else
-				str::TranscodeTo<str::DefErrorChar>(sink, std::u32string_view(U"...", padding.maximum));
+				str::TranscodeTo<err::DefChar>(sink, std::u32string_view(U"...", padding.maximum));
 		}
 	}
 
@@ -484,14 +484,14 @@ namespace str {
 			if (val < 0) {
 				if constexpr (std::is_signed_v<Type>)
 					val = -val;
-				str::CodepointTo<str::DefErrorChar>(sink, U'-');
+				str::CodepointTo<err::DefChar>(sink, U'-');
 			}
 			else if (signChar != U'-' && signChar != 0)
-				str::CodepointTo<str::DefErrorChar>(sink, signChar);
+				str::CodepointTo<err::DefChar>(sink, signChar);
 
 			/* check if a prefix needs to be added */
 			if (prefix)
-				str::TranscodeTo<str::DefErrorChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
+				str::TranscodeTo<err::DefChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
 		}
 
 		struct StrFormatting {
@@ -529,12 +529,12 @@ namespace str {
 
 			/* check if the character can just be added */
 			if (!escape && padding.minimum <= count && padding.maximum == 0) {
-				str::CodepointTo<str::DefErrorChar>(sink, val, count);
+				str::CodepointTo<err::DefChar>(sink, val, count);
 				return true;
 			}
 
 			/* decode the character to a codepoint */
-			auto [cp, _] = str::ReadCodepoint<str::DefErrorChar>(std::basic_string_view<Type>{ &val, 1 });
+			auto [cp, _] = str::ReadCodepoint<err::DefChar>(std::basic_string_view<Type>{ &val, 1 });
 			if (cp == str::Invalid)
 				return true;
 
@@ -548,14 +548,14 @@ namespace str {
 			/* check if the codepoints themselves need to be written out */
 			if (padding.minimum <= buffer.size() * count && (padding.maximum == 0 || padding.maximum >= buffer.size() * count)) {
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeTo<str::DefErrorChar>(sink, buffer);
+					str::TranscodeTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
 			/* create the temporary buffer and let the writer handle it */
 			std::u32string bufTotal;
 			for (size_t i = 0; i < count; ++i)
-				str::TranscodeTo<str::DefErrorChar>(bufTotal, buffer);
+				str::TranscodeTo<err::DefChar>(bufTotal, buffer);
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
@@ -606,9 +606,9 @@ namespace str {
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::TranscodeTo<str::DefErrorChar>(sink, prefix);
+					str::TranscodeTo<err::DefChar>(sink, prefix);
 				else {
-					str::TranscodeTo<str::DefErrorChar>(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -620,16 +620,16 @@ namespace str {
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::TranscodeTo<str::DefErrorChar>(sink, buffer.substr(padding.maximum));
+					str::TranscodeTo<err::DefChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
 				/* write the nulls to the sink */
 				if (prefix.size() + buffer.size() < padding.minimum)
-					str::CodepointTo<str::DefErrorChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
+					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the integer itself to the sink */
-				str::TranscodeTo<str::DefErrorChar>(sink, buffer);
+				str::TranscodeTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
@@ -718,9 +718,9 @@ namespace str {
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::TranscodeTo<str::DefErrorChar>(sink, prefix);
+					str::TranscodeTo<err::DefChar>(sink, prefix);
 				else {
-					str::TranscodeTo<str::DefErrorChar>(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -732,16 +732,16 @@ namespace str {
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::TranscodeTo<str::DefErrorChar>(sink, buffer.substr(padding.maximum));
+					str::TranscodeTo<err::DefChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
 				/* write the nulls to the sink */
 				if (prefix.size() + buffer.size() < padding.minimum)
-					str::CodepointTo<str::DefErrorChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
+					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the float itself to the sink */
-				str::TranscodeTo<str::DefErrorChar>(sink, buffer);
+				str::TranscodeTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
@@ -774,7 +774,7 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (!escape && padding.minimum <= 1 && padding.maximum == 0) {
-				str::TranscodeTo<str::DefErrorChar>(sink, t);
+				str::TranscodeTo<err::DefChar>(sink, t);
 				return true;
 			}
 
@@ -786,7 +786,7 @@ namespace str {
 
 				/* extract all separate characters */
 				while (!view.empty()) {
-					auto [cp, consumed] = str::ReadCodepoint<str::DefErrorChar>(view);
+					auto [cp, consumed] = str::ReadCodepoint<err::DefChar>(view);
 					view = view.substr(consumed);
 
 					/* create the escape sequence or write the character out as is */
@@ -799,7 +799,7 @@ namespace str {
 				}
 			}
 			else
-				str::TranscodeTo<str::DefErrorChar>(buffer, t);
+				str::TranscodeTo<err::DefChar>(buffer, t);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
