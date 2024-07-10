@@ -25,7 +25,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>, 2> pChars;
+			str::detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>> pChars;
 			CollType pCollector;
 
 		public:
@@ -120,7 +120,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t> pChars;
 			detail::DecompMapper<Lambda, true> pDecompose;
 			CollType pCollector;
 			struct {
@@ -292,7 +292,7 @@ namespace cp {
 
 		private:
 			MapType<Lambda> pMapper;
-			str::detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t> pChars;
 			bool pMatches = true;
 
 		public:

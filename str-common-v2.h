@@ -217,11 +217,14 @@ namespace str {
 		static constexpr uint32_t UnicodeRange = 0x110000;
 		static constexpr uint32_t AsciiRange = 0x80;
 
-		template <class Type, size_t Buffer>
+		template <class Type>
 		class LocalBuffer {
 		private:
+			static constexpr size_t BufferSize = 4;
+
+		private:
 			struct Static {
-				Type buffer[Buffer]{};
+				Type buffer[BufferSize]{};
 			};
 			using Dynamic = std::vector<Type>;
 
@@ -242,12 +245,12 @@ namespace str {
 					Dynamic& d = std::get<Dynamic>(pBuffer);
 					if (size_t(pEnd - d.data()) >= d.size()) {
 						size_t bOff = pBegin - d.data(), eOff = pEnd - d.data();
-						d.resize(d.size() + Buffer);
+						d.resize(d.size() + BufferSize);
 						pBegin = d.data() + bOff;
 						pEnd = d.data() + eOff;
 					}
 				}
-				else if (pEnd - std::get<Static>(pBuffer).buffer >= Buffer) {
+				else if (pEnd - std::get<Static>(pBuffer).buffer >= BufferSize) {
 					Dynamic v{ pBegin, pEnd };
 					v.push_back(t);
 					pBuffer = std::move(v);

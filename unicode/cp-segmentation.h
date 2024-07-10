@@ -683,7 +683,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<PayloadType, 2> pCache;
+			str::detail::LocalBuffer<PayloadType> pCache;
 			RecvType pRecv;
 			PayloadType pUncertainPayload{};
 			Host::Type pLast = Host::Type::other;
@@ -1024,7 +1024,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache, 2> pCache;
+			str::detail::LocalBuffer<Cache> pCache;
 			PayloadType pUncertainPayload{};
 			RecvType pRecv;
 			Host::Type pLast = Host::Type::other;
@@ -1616,7 +1616,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache, 2> pCache;
+			str::detail::LocalBuffer<Cache> pCache;
 			RecvType pRecv;
 			PayloadType pUncertainPayload{};
 			Host::Type pLast = Host::Type::_last;

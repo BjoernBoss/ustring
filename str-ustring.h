@@ -162,6 +162,62 @@ namespace str {
 				return true;
 			}
 
+			template <class AChType, class BChType, class... Transforms>
+			static constexpr bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, Transforms&&... transforms) {
+				bool valid = true;
+				detail::LocalBuffer<char32_t> buffer;
+				int8_t state = 0;
+
+				/* construct the two iterators to iterate across the two strings */
+				str::Iterator<AChType, CodeError> aIt{ a };
+				str::Iterator<BChType, CodeError> bIt{ b };
+
+				/* instantiate the two transformations, which compare their produced codepoints to the cached last codepoints */
+				auto aTrans = fTransform(str::ForEach([&](char32_t cp) {
+					if (state >= 0) {
+						buffer.push(cp);
+						state = 1;
+					}
+					else if (buffer.front() != cp)
+						valid = false;
+					else {
+						buffer.pop();
+						if (buffer.size() == 0)
+							state = 0;
+					}
+					}), std::forward<Transforms>(transforms)...);
+				auto bTrans = fTransform(str::ForEach([&](char32_t cp) {
+					if (state <= 0) {
+						buffer.push(cp);
+						state = -1;
+					}
+					else if (buffer.front() != cp)
+						valid = false;
+					else {
+						buffer.pop();
+						if (buffer.size() == 0)
+							state = 0;
+					}
+					}), std::forward<Transforms>(transforms)...);
+
+				/* iterate over the codepoints and feed them to the transformation and compare the outputs */
+				while (aIt.next()) {
+					if (!bIt.next())
+						return false;
+					aTrans.next(aIt.get());
+					bTrans.next(bIt.get());
+					if (!valid)
+						return false;
+				}
+
+				/* ensure that the other iterator has also reached its end and flush the transformations */
+				if (bIt.next())
+					return false;
+				aTrans.done();
+				bTrans.done();
+				return valid;
+			}
+
 		public:
 			/* fetch the underlying string-object */
 			constexpr BaseType& base() {
@@ -349,6 +405,43 @@ namespace str {
 			}
 
 		public:
+			/* perform a normalized comparison of this string and the other string */
+			constexpr bool ucompare(const str::AnyStr auto& str) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::Decompose{});
+			}
+
+			/* perform a normalized comparison of this string and the other string */
+			constexpr bool ucompare(size_t pos1, size_t count1, const str::AnyStr auto& str) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::Decompose{});
+			}
+
+			/* perform a normalized comparison of this string and the other string */
+			constexpr bool ucompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::Decompose{});
+			}
+
+			/* perform a case-insensitive normalized comparison of this string and the other string */
+			constexpr bool icompare(const str::AnyStr auto& str, const char8_t* locale = 0) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
+			}
+
+			/* perform a case-insensitive normalized comparison of this string and the other string */
+			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, const char8_t* locale = 0) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
+			}
+
+			/* perform a case-insensitive normalized comparison of this string and the other string */
+			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2, const char8_t* locale = 0) const {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::NormFold{ locale });
+			}
+
+		public:
 			/* apply all of the transformations in nested order and write the result to the collector */
 			constexpr void transformTo(str::IsCollector auto&& collector, const str::IsMapper auto&... mapper) {
 				fApply(collector, mapper...);
@@ -379,16 +472,39 @@ namespace str {
 				return valid;
 			}
 
+			/* apply all of the transformations in nested order to this string and the other string and compare the two transformed outputs */
+			constexpr bool transformEqual(const str::AnyStr auto& str, const str::IsMapper auto&... mapper) {
+				using OChType = str::StrChar<decltype(str)>;
+				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, mapper...);
+			}
+
 		public:
-			/* incomplete... */
-			constexpr bool ucompare(const str::AnyStr auto& str) const {
-				return false;
-			}
-			constexpr bool icompare(const str::AnyStr auto& str) const {
-				return false;
-			}
+			/* setup a grapheme-iterator on the codepoint beneath the index */
 			constexpr cp::GraphemeIterator<ItType> graphemes(size_t index = 0) const {
-				return cp::GraphemeIterator<ItType>{ ItType{ fBase(), index } };
+				ItType it{ fBase(), index };
+				it.next();
+				return cp::GraphemeIterator<ItType>{ it };
+			}
+
+			/* setup a word-iterator on the codepoint beneath the index */
+			constexpr cp::WordIterator<ItType> words(size_t index = 0) const {
+				ItType it{ fBase(), index };
+				it.next();
+				return cp::WordIterator<ItType>{ it };
+			}
+
+			/* setup a sentence-iterator on the codepoint beneath the index */
+			constexpr cp::SentenceIterator<ItType> sentences(size_t index = 0) const {
+				ItType it{ fBase(), index };
+				it.next();
+				return cp::SentenceIterator<ItType>{ it };
+			}
+
+			/* setup a line-iterator on the codepoint beneath the index */
+			constexpr cp::LineIterator<ItType> lines(bool emergencyBreak = true, bool graphemeAware = true, size_t index = 0) const {
+				ItType it{ fBase(), index };
+				it.next();
+				return cp::LineIterator<ItType>{ it, emergencyBreak, graphemeAware };
 			}
 		};
 	}

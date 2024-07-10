@@ -86,7 +86,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache, 2> pCached;
+			str::detail::LocalBuffer<Cache> pCached;
 			CollType pCollector;
 			struct {
 				const uint32_t* begin = 0;
@@ -353,8 +353,8 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<size_t, 2> pWords;
-			str::detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<size_t> pWords;
+			str::detail::LocalBuffer<char32_t> pChars;
 			cp::WordBreak::Type<Lambda> pSeparator;
 			bool pLower = false;
 
@@ -445,7 +445,7 @@ namespace cp {
 
 		private:
 			MapType<Lambda> pMapper;
-			str::detail::LocalBuffer<char32_t, 2> pChars;
+			str::detail::LocalBuffer<char32_t> pChars;
 			bool pMatches = true;
 
 		public:
