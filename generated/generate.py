@@ -1705,15 +1705,16 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		propertyDefValue = (False << propertyOffset) | propertyDefValue
 
 		# write the digit-getter to the file (https://www.unicode.org/reports/tr44/#Numeric_Value)
-		decimalRanges = unicodeData.values(lambda fs: int(fs[5]) if fs[5] != '' and fs[5] in '0123456789' else None)
-		decimalDefNone = 10
+		decimalDefNone, decimalValSub = 0, 1
+		decimalRanges = unicodeData.values(lambda fs: int(fs[5]) + decimalValSub if fs[5] != '' and fs[5] in '0123456789' else None)
 		_gen: CodeGen = file.next('Decimal', 'Automatically generated from: Unicode Numeric_Type=Decimal: [0-9]')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 4
-		if decimalDefNone >= 2**propertyBits:
+		if 9 + decimalValSub >= 2**propertyBits:
 			raise RuntimeError('Too few bits to encode all values')
 		_gen.addConstInt(_type, 'PropertyDecimalOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyDecimalMask', (0x01 << propertyBits) - 1)
 		_gen.addConstInt(_type, 'PropertyDecimalNone', decimalDefNone)
+		_gen.addConstInt(_type, 'PropertyDecimalSub', decimalValSub)
 		propertyRanges = Ranges.merge(Ranges.translate(decimalRanges, lambda _, v: (v[0] << propertyOffset)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (decimalDefNone << propertyOffset) | propertyDefValue
 
@@ -1752,12 +1753,12 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 
 		# write the category-enum to the file (default value of UnicodeData is Cn) (https://www.unicode.org/reports/tr44/#GC_Values_Table)
 		categoryEnumMap = {
-			'Lu': 0, 'Ll': 1, 'Lt': 2, 'Lm': 3, 'Lo': 4, 'Mn': 5, 'Mc': 6, 'Me': 7, 'Nd': 8, 'Nl': 9, 'No': 10,
-			'Pc': 11, 'Pd': 12, 'Ps': 13, 'Pe': 14, 'Pi': 15, 'Pf': 16, 'Po': 17, 'Sm': 18, 'Sc': 19, 'Sk': 20, 'So': 21,
-			'Zs': 22, 'Zl': 23, 'Zp': 24, 'Cc': 25, 'Cf': 26, 'Cs': 27, 'Co': 28, 'Cn': 29
+			'Cn': 0, 'Lu': 1, 'Ll': 2, 'Lt': 3, 'Lm': 4, 'Lo': 5, 'Mn': 6, 'Mc': 7, 'Me': 8, 'Nd': 9, 'Nl': 10, 'No': 11,
+			'Pc': 12, 'Pd': 13, 'Ps': 14, 'Pe': 15, 'Pi': 16, 'Pf': 17, 'Po': 18, 'Sm': 19, 'Sc': 20, 'Sk': 21, 'So': 22,
+			'Zs': 23, 'Zl': 24, 'Zp': 25, 'Cc': 26, 'Cf': 27, 'Cs': 28, 'Co': 29
 		}
 		categoryRanges = unicodeData.values(lambda fs: categoryEnumMap[fs[1]] if fs[1] in categoryEnumMap else None)
-		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co', 'cn'])
+		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['cn', 'lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co'])
 		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
 		if len(_enum.enumValues()) > 2**propertyBits:
@@ -1836,6 +1837,8 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
 		# add the final property-lookup function for all large-lookup values (requires less memory than separate lookups)
+		if propertyDefValue != 0:
+			raise RuntimeError('Default property value should be null or ensured to be initialized properly for all other ranges merged into it (might otherwise be null-initialized)')
 		_gen: CodeGen = file.next('Property', 'Lookup properties (BidiClass, Emoji, Category, Case, Printable, Decimal, Numeric, Alphabetic, Assigned)')
 		_gen.intFunction('GetProperty', LookupType.intType(propertyDefValue, _type.typeName()), propertyRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
@@ -2393,7 +2396,6 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 		_gen.addConstInt(_type32, 'NormHSTCount', 28)
 		_gen.addConstInt(_type32, 'NormHSNCount', 588)
 		_gen.listFunction('GetNormalization', _type32, normRanges, True, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse(1/2)))
-
 
 
 # setup the current path

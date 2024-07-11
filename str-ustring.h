@@ -302,6 +302,22 @@ namespace str {
 				return out;
 			}
 
+			/* convert the decimal digits into the string from any format to ascii 0-9 and leave the remaining characters unchanged */
+			constexpr UStrType asciiDecimals() const {
+				UStrType out;
+				ItType it{ fBase() };
+
+				/* iterate over the codepoints and either transform all decimal digits or simply forward the codepoints */
+				while (it.next()) {
+					size_t digit = cp::prop::GetDecimal(it.get());
+					if (digit == cp::prop::ErrDecimal)
+						str::CodepointTo<CodeError>(out, it.get());
+					else
+						str::CodepointTo<CodeError>(out, cp::ascii::GetRadixLower(digit));
+				}
+				return out;
+			}
+
 		public:
 			/* test if the string is non-empty and upper-case using cp::TestUpperCase */
 			constexpr bool isUpper(const char8_t* locale = 0) const {

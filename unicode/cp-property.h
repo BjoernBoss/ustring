@@ -266,8 +266,8 @@ namespace cp {
 		static constexpr size_t ErrDecimal = 0xff;
 		inline constexpr size_t GetDecimal(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
-			size_t val = ((prop >> detail::gen::PropertyDecimalOff) & detail::gen::PropertyDecimalOff);
-			return (val == detail::gen::PropertyDecimalNone ? prop::ErrDecimal : val);
+			size_t val = ((prop >> detail::gen::PropertyDecimalOff) & detail::gen::PropertyDecimalMask);
+			return (val == detail::gen::PropertyDecimalNone ? prop::ErrDecimal : val - detail::gen::PropertyDecimalSub);
 		}
 
 		/* check if the codepoint is printable [Unicode General_Category L*,M*,N*,P*,S* and either any Zs or only U' '] */
