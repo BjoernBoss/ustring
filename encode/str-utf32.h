@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../str-common-v2.h"
+#include "../str-common.h"
 
 namespace str {
 	/* check expected assumptions */
@@ -31,6 +31,9 @@ namespace str {
 				return false;
 			str::CallSink<ChType>(sink, ChType(cp), 1);
 			return true;
+		}
+		inline constexpr uint32_t EstimateUtf32(const char32_t* cur, const char32_t* end) {
+			return 1;
 		}
 	}
 }

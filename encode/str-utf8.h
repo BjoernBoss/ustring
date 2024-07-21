@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../str-common-v2.h"
+#include "../str-common.h"
 
 namespace str {
 	/* check expected assumptions */
@@ -121,6 +121,9 @@ namespace str {
 			/* write the string to the sink */
 			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + len });
 			return true;
+		}
+		inline constexpr uint32_t EstimateUtf8(const char8_t* cur, const char8_t* end) {
+			return uint32_t(detail::InitCharLength[*cur >> 3]);
 		}
 	}
 }

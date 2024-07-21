@@ -30,14 +30,14 @@ namespace str {
 			size_t hexits = 0;
 
 			/* check if a valid escape-sequence is being started (will also catch empty-strings) */
-			str::Decoded dec = str::ReadAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<err::Nothing>(view);
 			if (dec.cp == str::Invalid || dec.cp != U'\\')
 				return dec;
 
 			/* iterate until the next valid escape-sequence has been processed */
 			str::Decoded out = { 0, dec.consumed };
 			while (out.consumed < view.size()) {
-				dec = str::ReadAscii<err::Nothing>(view.substr(out.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed));
 
 				/* check if a valid next character has been encountered */
 				if (dec.cp == str::Invalid)
@@ -149,7 +149,7 @@ namespace str {
 		}
 
 		template <char32_t CodeError>
-		constexpr void EscapeTo(auto&& sink, char32_t cp, bool compact, size_t count) {
+		constexpr inline void EscapeTo(auto&& sink, char32_t cp, bool compact, size_t count) {
 			const char32_t* escaped = 0;
 
 			/* check if the character is an escape sequence */
@@ -173,7 +173,7 @@ namespace str {
 				if (escaped[1] == U'\0')
 					str::CodepointTo<CodeError>(sink, escaped[0], count);
 				else for (size_t i = 0; i < count; ++i)
-					str::TranscodeTo<CodeError>(sink, escaped);
+					str::TranscodeAllTo<CodeError>(sink, escaped);
 			}
 
 			/* check if the character can be added as-is */
@@ -184,7 +184,7 @@ namespace str {
 			else if (cp <= 0xff) {
 				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(cp >> 4), cp::ascii::GetRadixLower(cp & 0x0f) };
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeTo<CodeError>(sink, std::u32string_view{ buf, 4 });
+					str::TranscodeAllTo<CodeError>(sink, std::u32string_view{ buf, 4 });
 			}
 
 			/* add the codepoint as the unicode-codepoint (must be greater than 0xff, hence non-zero) */
@@ -202,7 +202,7 @@ namespace str {
 				buf[len++] = U'}';
 
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeTo<CodeError>(sink, std::u32string_view{ buf, len });
+					str::TranscodeAllTo<CodeError>(sink, std::u32string_view{ buf, len });
 			}
 		}
 
@@ -225,7 +225,7 @@ namespace str {
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr auto& EscapeTo(str::AnySink auto&& sink, char32_t cp, bool compact, size_t count = 1) {
+	constexpr auto& EscapeTo(str::AnySink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
 		detail::EscapeTo<CodeError>(sink, cp, compact, count);
 		return sink;
 	}
@@ -233,7 +233,7 @@ namespace str {
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)}
 	*	and write it to an object of the given sink-type using str::EscapeTo (compact is designed for one-liner strings) */
 	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
-	constexpr SinkType Escape(char32_t cp, bool compact, size_t count = 1) {
+	constexpr SinkType Escape(char32_t cp, bool compact = false, size_t count = 1) {
 		SinkType out{};
 		detail::EscapeTo<CodeError>(out, cp, compact, count);
 		return out;
@@ -242,7 +242,7 @@ namespace str {
 	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid
 	*	if the source is empty, otherwise at least consume one character at all times) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr str::Decoded ReadEscaped(const str::AnyStr auto& source) {
+	constexpr str::Decoded GetEscaped(const str::AnyStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
@@ -253,7 +253,7 @@ namespace str {
 		if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
 			if (dec.cp == str::Invalid) {
 				if constexpr (CodeError == err::Throw)
-					throw str::CodingException("Invalid codepoint encountered in str::ReadEscaped");
+					throw str::CodingException("Invalid codepoint encountered in str::GetEscaped");
 				dec.cp = CodeError;
 			}
 		}
@@ -279,5 +279,54 @@ namespace str {
 			}
 		}
 		return dec;
+	}
+
+	/* escape the entire source-string to the sink and return it */
+	template <char32_t CodeError = err::DefChar>
+	constexpr auto& EscapeAllTo(str::AnySink auto&& sink, const str::AnyStr auto& source, bool compact = false) {
+		using ChType = str::StrChar<decltype(source)>;
+		std::basic_string_view<ChType> view{ source };
+
+		/* iterate over the codepoints and escape them all to the sink */
+		str::Iterator<ChType, CodeError> it{ view };
+		while (it.next())
+			str::EscapeTo<CodeError>(sink, it.get(), compact, 1);
+		return sink;
+	}
+
+	/* escape the entire source-string to an object of the given sink-type using str::EscapeAllTo and return it */
+	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
+	constexpr SinkType EscapeAll(const str::AnyStr auto& source, bool compact = false) {
+		SinkType out{};
+		str::EscapeAllTo<CodeError>(out, source, compact);
+		return out;
+	}
+
+	/* read the entire source-string as an escaped string and write it to the sink and return it */
+	template <char32_t CodeError = err::DefChar>
+	constexpr auto& AllEscapedTo(str::AnySink auto&& sink, const str::AnyStr auto& source) {
+		using ChType = str::StrChar<decltype(source)>;
+		std::basic_string_view<ChType> view{ source };
+
+		while (!view.empty()) {
+			/* read the next codepoint (Invalid implies it is to be ignored) */
+			auto [cp, len] = str::GetEscaped<CodeError>(view);
+			view = view.substr(len);
+			if (cp == str::Invalid)
+				continue;
+
+			/* write the codepoint back to the sink */
+			str::CodepointTo<CodeError>(sink, cp, 1);
+		}
+		return sink;
+	}
+
+	/* read the entire source-string as an escaped string and write it to an
+	*	object of the given sink-type using str::AllEscapedTo and return it */
+	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
+	constexpr SinkType AllEscaped(const str::AnyStr auto& source) {
+		SinkType out{};
+		str::AllEscapedTo<CodeError>(out, source);
+		return out;
 	}
 }

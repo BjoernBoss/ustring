@@ -5,7 +5,7 @@
 #include "encode/str-utf32.h"
 #include "encode/str-wide.h"
 #include "encode/str-multibyte.h"
-#include "str-common-v2.h"
+#include "str-common.h"
 
 /*
 *	All codepoints are represented as char32_t
@@ -48,6 +48,13 @@ namespace str {
 	/* local-string to hold the single encoded codepoint for the corresponding type */
 	template <str::IsChar ChType>
 	using Encoded = str::Local<ChType, detail::EncSize<ChType>::value>;
+
+	/* local-string and number of consumed characters to transcode the single codepoint to the corresponding type */
+	template <str::IsChar ChType>
+	struct Transcoded {
+		str::Encoded<ChType> cp;
+		uint32_t consumed = 0;
+	};
 
 	/* return the effective character type equivalent to the encoding (i.e. if wchar_t uses
 	*	utf-16, will result in char16_t; will only result in char, char8_t, char16_t, char32_t) */
@@ -134,9 +141,22 @@ namespace str {
 			else
 				return detail::MakeChar(sink, cp);
 		}
+		template <class ChType>
+		inline constexpr uint32_t EstimateLength(const ChType* cur, const ChType* end) {
+			if constexpr (std::is_same_v<ChType, char8_t>)
+				return detail::EstimateUtf8(cur, end);
+			else if constexpr (std::is_same_v<ChType, char16_t>)
+				return detail::EstimateUtf16(cur, end);
+			else if constexpr (std::is_same_v<ChType, char32_t>)
+				return detail::EstimateUtf32(cur, end);
+			else if constexpr (std::is_same_v<ChType, wchar_t>)
+				return detail::EstimateWide(cur, end);
+			else
+				return detail::EstimateChar(cur, end);
+		}
 
 		template <class ChType, char32_t CodeError>
-		constexpr bool EncodeToSingle(auto&& sink, char32_t cp) {
+		constexpr inline bool EncodeToSingle(auto&& sink, char32_t cp) {
 			if (detail::EncodeCodepoint<ChType>(sink, cp))
 				return true;
 
@@ -150,7 +170,7 @@ namespace str {
 			return true;
 		}
 		template <char32_t CodeError>
-		constexpr void EncodeTo(auto&& sink, char32_t cp, size_t count) {
+		constexpr inline void EncodeTo(auto&& sink, char32_t cp, size_t count) {
 			using ChType = str::SinkChar<decltype(sink)>;
 
 			/* check if the codepoint can directly be written to the sink */
@@ -276,7 +296,7 @@ namespace str {
 	/* decode single next codepoint from corresponding type, if its an ascii character, and return str::Invalid if the source is empty,
 	*	otherwise at least consume one character at all times and return str::Invalid on decoding-errors or if the codepoint is not ascii */
 	template <char32_t CodeError = err::DefChar>
-	constexpr str::Decoded ReadAscii(const str::AnyStr auto& source) {
+	constexpr str::Decoded GetAscii(const str::AnyStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
@@ -304,9 +324,9 @@ namespace str {
 		if constexpr (CodeError == err::Nothing || CodeError == err::Skip)
 			return { str::Invalid, len };
 		if constexpr (CodeError == err::Throw)
-			throw str::CodingException("Invalid codepoint encountered in str::ReadAscii");
+			throw str::CodingException("Invalid codepoint encountered in str::GetAscii");
 		if constexpr (CodeError >= detail::AsciiRange)
-			throw str::CodingException("Alternative coding-error codepoint is not a valid ascii character in str::ReadAscii");
+			throw str::CodingException("Alternative coding-error codepoint is not a valid ascii character in str::GetAscii");
 		return { CodeError, len };
 	}
 
@@ -328,7 +348,7 @@ namespace str {
 	/* decode a single codepoint from the source and apply the CodeError handling if necssary (return
 	*	str::Invalid if the source is empty and otherwise at least consume one character at all times) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr str::Decoded ReadCodepoint(const str::AnyStr auto& source) {
+	constexpr str::Decoded GetCodepoint(const str::AnyStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
@@ -339,7 +359,7 @@ namespace str {
 		if constexpr (CodeError != err::Nothing && CodeError != err::Skip) {
 			if (dec.cp == str::Invalid) {
 				if constexpr (CodeError == err::Throw)
-					throw str::CodingException("Invalid codepoint encountered in str::ReadCodepoint");
+					throw str::CodingException("Invalid codepoint encountered in str::GetCodepoint");
 				dec.cp = CodeError;
 			}
 		}
@@ -367,40 +387,94 @@ namespace str {
 		return dec;
 	}
 
-	/* transcode the source-string as efficient as possible to the sink and return it (does
+	/* transcode the next codepoint as efficient as possible and return it (does not guarantee valid encoding, if both source and
+	*	destination are of the same type, returns either empty consumed or empty string depending if error on decoding or encoding) */
+	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
+	constexpr str::Transcoded<ChType> Transcode(const str::AnyStr auto& source) {
+		using SChType = str::StrChar<decltype(source)>;
+		std::basic_string_view<SChType> view{ source };
+		str::Transcoded<ChType> out{};
+
+		/* check if the length can just be copied */
+		if constexpr (str::EffSame<SChType, ChType>) {
+			if (view.empty())
+				return out;
+			uint32_t len = detail::EstimateLength<SChType>(view.data(), view.data() + view.size());
+			if (len == 0)
+				len = 1;
+			if (len <= view.size()) {
+				out.cp.append(reinterpret_cast<const ChType*>(view.data()), len);
+				out.consumed = len;
+			}
+			return out;
+		}
+
+		/* decode the next codepoint as efficient as possible */
+		char32_t cp = 0;
+		if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
+			if (view.empty())
+				return out;
+			out.consumed = 1;
+			cp = char32_t(view[0]);
+		}
+		else {
+			auto [_cp, len] = str::GetCodepoint<CodeError>(view);
+			out.consumed = len;
+			if (_cp == str::Invalid)
+				return out;
+			cp = _cp;
+		}
+
+		/* encode the codepoint as efficient as possible */
+		if constexpr (std::is_same_v<str::EffChar<ChType>, char32_t>)
+			out.cp.push_back(cp);
+		else
+			str::CodepointTo<CodeError>(out.cp, cp, 1);
+		return out;
+	}
+
+	/* transcode the entire source-string as efficient as possible to the sink and return it (does
 	*	not guarantee valid encoding, if both source and destination are of the same type) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr auto& TranscodeTo(str::AnySink auto&& sink, const str::AnyStr auto& source) {
+	constexpr auto& TranscodeAllTo(str::AnySink auto&& sink, const str::AnyStr auto& source) {
 		using SChType = str::StrChar<decltype(source)>;
 		using DChType = str::SinkChar<decltype(sink)>;
 		std::basic_string_view<SChType> view{ source };
 
 		/* check if the string can just be appended */
 		if constexpr (str::EffSame<SChType, DChType>) {
-			str::CallSink(sink, std::basic_string_view<DChType>{ reinterpret_cast<const DChType*>(view.data()), view.size() });
+			str::CallSink<DChType>(sink, std::basic_string_view<DChType>{ reinterpret_cast<const DChType*>(view.data()), view.size() });
 			return sink;
 		}
 
 		/* check if the source does not need to be decoded */
 		if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
 			for (auto c : view)
-				detail::EncodeTo<CodeError>(sink, char32_t(c), 1);
+				str::CodepointTo<CodeError>(sink, char32_t(c), 1);
+			return sink;
+		}
+
+		/* check if the destination does not need to be encoded */
+		if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
+			str::Iterator<SChType, CodeError> it{ view };
+			while (it.next())
+				str::CallSink<DChType>(sink, DChType(it.get()), 1);
 			return sink;
 		}
 
 		/* iterate over the source-codepoints and transcode them */
 		str::Iterator<SChType, CodeError> it{ view };
 		while (it.next())
-			detail::EncodeTo<CodeError>(sink, it.get(), 1);
+			str::CodepointTo<CodeError>(sink, it.get(), 1);
 		return sink;
 	}
 
-	/* transcode the source-string as efficient as possible to an object of the given sink-type using str::TranscodeTo
+	/* transcode the entire source-string as efficient as possible to an object of the given sink-type using str::TranscodeAllTo
 	*	and return it (does not guarantee valid encoding, if both source and destination are of the same type) */
 	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
-	constexpr SinkType Transcode(const str::AnyStr auto& source) {
+	constexpr SinkType TranscodeAll(const str::AnyStr auto& source) {
 		SinkType out{};
-		str::TranscodeTo<CodeError>(out, source);
+		str::TranscodeAllTo<CodeError>(out, source);
 		return out;
 	}
 }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../str-common.h"
-#include "../str-codepoint.h"
 
 #include "../generated/unicode-property.h"
 

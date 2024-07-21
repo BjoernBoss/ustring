@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../str-common-v2.h"
+#include "../str-common.h"
 
 #include "str-utf8.h"
 #include "str-wide.h"
@@ -61,7 +61,7 @@ namespace str {
 				uint32_t len = (res == 0 ? 1 : uint32_t(res));
 
 				/* check if the char is longer than the internal max character-length, which should
-				*	really not happen in any encoding and would break the promise of str::Small */
+				*	really not happen in any encoding and would break the promise of str::Encoded */
 				if (len > detail::CharLen)
 					return { str::Invalid, 1 };
 
@@ -157,6 +157,33 @@ namespace str {
 				else
 					str::CallSink<char>(sink, buf);
 				return true;
+			}
+		}
+		inline constexpr uint32_t EstimateChar(const char* cur, const char* end) {
+			/* utf-8 path */
+			if constexpr (str::CharIsUtf8)
+				return detail::EstimateUtf8(reinterpret_cast<const char8_t*>(cur), reinterpret_cast<const char8_t*>(end));
+			else {
+				/* fast-path for ascii-characters */
+				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)
+					return 1;
+
+				/* read the next character and check if the character is incomplete (documentation suggests that a decoded codepoint should
+				*	always fit into single wide-char, and fail if the max encoding length promise would be broken => should not be possible) */
+				std::mbstate_t state{ 0 };
+				size_t res = std::mbrtowc(0, cur, size_t(end - cur), &state);
+
+				/* check if the character is invalid or considered incomplete and otherwise
+				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
+				if (res == static_cast<size_t>(-1) || res == static_cast<size_t>(-2))
+					return 0;
+				uint32_t len = (res == 0 ? 1 : uint32_t(res));
+
+				/* check if the char is longer than the internal max character-length, which should
+				*	really not happen in any encoding and would break the promise of str::Encoded */
+				if (len > detail::CharLen)
+					return 0;
+				return len;
 			}
 		}
 	}

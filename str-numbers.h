@@ -1,6 +1,6 @@
 #pragma once
 
-#include "str-common-v2.h"
+#include "str-common.h"
 #include "str-encode.h"
 
 #include <cmath>
@@ -9,8 +9,8 @@
 
 /*
 *	Coding-Rules:
-*	 - decoding using str::ReadAscii<err::Nothing>, any invalid decodings will simply abort the parsing up to that point
-*	 - encoding using str::CodepointTo<err::Nothing>/str::TranscodeTo<err::Nothing>
+*	 - decoding using str::GetAscii<err::Nothing>, any invalid decodings will simply abort the parsing up to that point
+*	 - encoding using str::CodepointTo<err::Nothing>/str::TranscodeAllTo<err::Nothing>
 *		(character set is so small and essential that every codepage should support it)
 */
 namespace str {
@@ -626,7 +626,7 @@ namespace str {
 			size_t prefixConsumed = 0;
 			while (true) {
 				/* decode the next character */
-				auto [cp, consumed] = str::ReadAscii<err::Nothing>(view.substr(out.signConsumed + prefixConsumed));
+				auto [cp, consumed] = str::GetAscii<err::Nothing>(view.substr(out.signConsumed + prefixConsumed));
 				if (cp == str::Invalid)
 					return out;
 
@@ -700,7 +700,7 @@ namespace str {
 
 				/* mark the characters as consumed and decode the next character */
 				totalConsumed += dec.consumed;
-				dec = str::ReadAscii<err::Nothing>(view.substr(totalConsumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(totalConsumed));
 			}
 
 			/* apply the sign and return the value */
@@ -713,7 +713,7 @@ namespace str {
 		template <class Type, class ChType>
 		constexpr str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
-			str::Decoded dec = str::ReadAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<err::Nothing>(view);
 			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<Type, ChType>(view, radix, dec, negative);
 
 			/* check if an overflow occurred and setup the overflow value */
@@ -799,7 +799,7 @@ namespace str {
 			if (radix > detail::MaxRadixBeforeSpecialChar) {
 				if (dec.cp != U'#')
 					return detail::SpecialOut{};
-				dec = str::ReadAscii<err::Nothing>(view.substr(consumed += dec.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(consumed += dec.consumed));
 			}
 
 			/* check if it could be a nan or inf */
@@ -812,7 +812,7 @@ namespace str {
 			/* fetch and validate the remaining characters */
 			const char32_t* mask = U"nfanNFAN";
 			for (size_t i = 0; i < 2; ++i) {
-				dec = str::ReadAscii<err::Nothing>(view.substr(consumed += dec.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(consumed += dec.consumed));
 				if (dec.cp != mask[i + (nan ? 2 : 0)] && dec.cp != mask[i + (nan ? 2 : 0) + 4])
 					return detail::SpecialOut{};
 			}
@@ -891,7 +891,7 @@ namespace str {
 				}
 
 				/* decode the next character */
-				dec = str::ReadAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
 			}
 			return out;
 		}
@@ -910,7 +910,7 @@ namespace str {
 			bool expNegative = false;
 			if (dec.cp == U'+' || dec.cp == U'-') {
 				expNegative = (dec.cp == U'-');
-				dec = str::ReadAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
 			}
 
 			/* parse the exponent and check if an invalid exponent has been encountered */
@@ -1020,7 +1020,7 @@ namespace str {
 			size_t totalConsumed = 0;
 
 			/* check if the value is an inf/nan number (ignore any errors as the characters can otherwise just be parsed as normal numbers) */
-			str::Decoded dec = str::ReadAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<err::Nothing>(view);
 			detail::SpecialOut special = detail::ParseFloatSpecial<ChType>(view, radix, dec);
 			if (special.consumed > 0) {
 				Type value = (special.nan ? (Limits::has_quiet_NaN ? Limits::quiet_NaN() : Limits::signaling_NaN()) : Limits::infinity());
@@ -1036,7 +1036,7 @@ namespace str {
 			/* check if an exponent has been detected and parse it */
 			detail::ExponentOut exponent;
 			if (hexFloat ? (dec.cp == U'p' || dec.cp == U'P') : (dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
-				dec = str::ReadAscii<err::Nothing>(view.substr(totalConsumed += dec.consumed));
+				dec = str::GetAscii<err::Nothing>(view.substr(totalConsumed += dec.consumed));
 
 				/* parse the exponent and check if an error occurred */
 				exponent = detail::ParseFloatExponent<ChType>(view.substr(totalConsumed), (hexFloat ? 10 : radix), dec);
@@ -1379,9 +1379,9 @@ namespace str {
 				if (radix > detail::MaxRadixBeforeSpecialChar)
 					str::CodepointTo<err::Nothing>(sink, U'#', 1);
 				if (std::isinf(num))
-					str::TranscodeTo<err::Nothing>(sink, upperCase ? U"INF" : U"inf");
+					str::TranscodeAllTo<err::Nothing>(sink, upperCase ? U"INF" : U"inf");
 				else
-					str::TranscodeTo<err::Nothing>(sink, upperCase ? U"NAN" : U"nan");
+					str::TranscodeAllTo<err::Nothing>(sink, upperCase ? U"NAN" : U"nan");
 				return;
 			}
 

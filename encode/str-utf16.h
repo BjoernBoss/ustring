@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../str-common-v2.h"
+#include "../str-common.h"
 
 namespace str {
 	/* check expected assumptions */
@@ -73,6 +73,15 @@ namespace str {
 			out[1] = static_cast<ChType>(detail::SurrogateUpper + (cp & 0x03ff));
 			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + 2 });
 			return true;
+		}
+		inline constexpr uint32_t EstimateUtf16(const char16_t* cur, const char16_t* end) {
+			if (*cur < detail::SurrogateFirst)
+				return 1;
+			if (*cur < detail::SurrogateUpper)
+				return 2;
+			if (*cur <= detail::SurrogateLast)
+				return 0;
+			return 1;
 		}
 	}
 }

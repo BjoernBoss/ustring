@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../str-common.h"
-#include "../str-codepoint.h"
 #include "cp-casing.h"
 
 #include "../generated/unicode-normalization.h"

@@ -180,6 +180,7 @@ namespace str {
 		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
 	}
 
+	/* single decoded codepoint and the number of characters consumed for it */
 	struct Decoded {
 		char32_t cp = str::Invalid;
 		uint32_t consumed = 0;

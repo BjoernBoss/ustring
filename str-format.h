@@ -9,9 +9,9 @@
 
 /*
 *	Coding-Rules:
-*	 - decoding using str::Ascii/str::ReadCodepoint<err::Nothing> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
-*	 - decoding using str::ReadCodepoint<err::DefChar> for character/string as formattable arguments
-*	 - encoding using str::CodepointTo<err::DefChar>/str::TranscodeTo<err::DefChar> for all printable output
+*	 - decoding using str::Ascii/str::GetCodepoint<err::Nothing> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
+*	 - decoding using str::GetCodepoint<err::DefChar> for character/string as formattable arguments
+*	 - encoding using str::CodepointTo<err::DefChar>/str::TranscodeAllTo<err::DefChar> for all printable output
 *		(except when produced by other functions using other rules, such as str::Int/...)
 */
 namespace str {
@@ -42,7 +42,7 @@ namespace str {
 			bool openStarted = false;
 			while (!fmt.empty()) {
 				/* decode the next character */
-				auto [cp, len] = str::ReadCodepoint<err::Nothing>(fmt);
+				auto [cp, len] = str::GetCodepoint<err::Nothing>(fmt);
 				if (cp == str::Invalid)
 					return false;
 
@@ -85,7 +85,7 @@ namespace str {
 
 			/* parse the optional separator and closing bracket */
 			for (size_t i = 0; i < 2; ++i) {
-				auto [cp, len] = str::ReadAscii<err::Nothing>(fmt);
+				auto [cp, len] = str::GetAscii<err::Nothing>(fmt);
 				fmt = fmt.substr(len);
 				if (cp == U':' && i == 0)
 					continue;
@@ -142,7 +142,7 @@ namespace str {
 				/* iterate over the remaining characters until the end of the argument has been reached */
 				bool hasSeparator = false;
 				while (true) {
-					auto [cp, len] = str::ReadCodepoint<err::Nothing>(view);
+					auto [cp, len] = str::GetCodepoint<err::Nothing>(view);
 					if (cp == str::Invalid) {
 						fmtState = ArgValid::malformed;
 						break;
@@ -195,13 +195,13 @@ namespace str {
 
 			/* check if a format-string issue was encountered */
 			if (fmtState == ArgValid::index)
-				str::TranscodeTo<err::DefChar>(sink, U"#index");
+				str::TranscodeAllTo<err::DefChar>(sink, U"#index");
 			else if (fmtState == ArgValid::format)
-				str::TranscodeTo<err::DefChar>(sink, U"#fmt");
+				str::TranscodeAllTo<err::DefChar>(sink, U"#fmt");
 
 			/* check if the entire format-string was malformed, in which case further arguments will not be processed */
 			else if (fmtState == ArgValid::malformed) {
-				str::TranscodeTo<err::DefChar>(sink, U"#malformed");
+				str::TranscodeAllTo<err::DefChar>(sink, U"#malformed");
 				break;
 			}
 		}
@@ -230,42 +230,6 @@ namespace str {
 		SinkType sink{};
 		str::BuildTo(sink, args...);
 		return sink;
-	}
-
-	/* convenience for fast formatting to std::cout */
-	constexpr void Fmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatTo(std::cout, fmt, args...);
-	}
-	constexpr void FmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatTo(std::cout, fmt, args...);
-		std::cout << '\n';
-	}
-
-	/* convenience for fast formatting to std::wcout */
-	constexpr void WFmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatTo(std::wcout, fmt, args...);
-	}
-	constexpr void WFmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
-		str::FormatTo(std::wcout, fmt, args...);
-		std::wcout << L'\n';
-	}
-
-	/* convenience for fast building to std::cout */
-	constexpr void Out(const str::IsFormattable auto&... args) {
-		str::BuildTo(std::cout, args...);
-	}
-	constexpr void OutLn(const str::IsFormattable auto&... args) {
-		str::BuildTo(std::cout, args...);
-		std::cout << '\n';
-	}
-
-	/* convenience for fast building to std::wcout */
-	constexpr void WOut(const str::IsFormattable auto&... args) {
-		str::BuildTo(std::wcout, args...);
-	}
-	constexpr void WOutLn(const str::IsFormattable auto&... args) {
-		str::BuildTo(std::wcout, args...);
-		std::wcout << L'\n';
 	}
 
 	/*	Normal padding: in Order; all optional
@@ -381,7 +345,7 @@ namespace str {
 					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff / 2);
 
 				/* add the string itself */
-				str::TranscodeTo<err::DefChar>(sink, str);
+				str::TranscodeAllTo<err::DefChar>(sink, str);
 
 				/* add the trailing padding */
 				if (padding.align == fmt::Alignment::leading)
@@ -393,15 +357,15 @@ namespace str {
 
 			/* check if the string needs to be clipped or can just be written out */
 			if (padding.maximum == 0 || str.size() <= padding.maximum)
-				str::TranscodeTo<err::DefChar>(sink, str);
+				str::TranscodeAllTo<err::DefChar>(sink, str);
 			else if (!padding.ellipsisClipping)
-				str::TranscodeTo<err::DefChar>(sink, str.substr(0, padding.maximum));
+				str::TranscodeAllTo<err::DefChar>(sink, str.substr(0, padding.maximum));
 			else if (padding.maximum > 3) {
-				str::TranscodeTo<err::DefChar>(sink, str.substr(0, padding.maximum - 3));
-				str::TranscodeTo<err::DefChar>(sink, U"...");
+				str::TranscodeAllTo<err::DefChar>(sink, str.substr(0, padding.maximum - 3));
+				str::TranscodeAllTo<err::DefChar>(sink, U"...");
 			}
 			else
-				str::TranscodeTo<err::DefChar>(sink, std::u32string_view(U"...", padding.maximum));
+				str::TranscodeAllTo<err::DefChar>(sink, std::u32string_view(U"...", padding.maximum));
 		}
 	}
 
@@ -491,7 +455,7 @@ namespace str {
 
 			/* check if a prefix needs to be added */
 			if (prefix)
-				str::TranscodeTo<err::DefChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
+				str::TranscodeAllTo<err::DefChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
 		}
 
 		struct StrFormatting {
@@ -534,7 +498,7 @@ namespace str {
 			}
 
 			/* decode the character to a codepoint */
-			auto [cp, _] = str::ReadCodepoint<err::DefChar>(std::basic_string_view<Type>{ &val, 1 });
+			auto [cp, _] = str::GetCodepoint<err::DefChar>(std::basic_string_view<Type>{ &val, 1 });
 			if (cp == str::Invalid)
 				return true;
 
@@ -548,14 +512,14 @@ namespace str {
 			/* check if the codepoints themselves need to be written out */
 			if (padding.minimum <= buffer.size() * count && (padding.maximum == 0 || padding.maximum >= buffer.size() * count)) {
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeTo<err::DefChar>(sink, buffer);
+					str::TranscodeAllTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
 			/* create the temporary buffer and let the writer handle it */
 			std::u32string bufTotal;
 			for (size_t i = 0; i < count; ++i)
-				str::TranscodeTo<err::DefChar>(bufTotal, buffer);
+				str::TranscodeAllTo<err::DefChar>(bufTotal, buffer);
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
@@ -606,9 +570,9 @@ namespace str {
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::TranscodeTo<err::DefChar>(sink, prefix);
+					str::TranscodeAllTo<err::DefChar>(sink, prefix);
 				else {
-					str::TranscodeTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeAllTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -620,7 +584,7 @@ namespace str {
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::TranscodeTo<err::DefChar>(sink, buffer.substr(padding.maximum));
+					str::TranscodeAllTo<err::DefChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
@@ -629,7 +593,7 @@ namespace str {
 					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the integer itself to the sink */
-				str::TranscodeTo<err::DefChar>(sink, buffer);
+				str::TranscodeAllTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
@@ -718,9 +682,9 @@ namespace str {
 
 				/* write the preamble to the sink */
 				if (padding.maximum == 0)
-					str::TranscodeTo<err::DefChar>(sink, prefix);
+					str::TranscodeAllTo<err::DefChar>(sink, prefix);
 				else {
-					str::TranscodeTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
+					str::TranscodeAllTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
 					if (padding.maximum >= prefix.size())
 						return true;
 					padding.maximum -= prefix.size();
@@ -732,7 +696,7 @@ namespace str {
 
 				/* check if the buffer must be clipped */
 				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::TranscodeTo<err::DefChar>(sink, buffer.substr(padding.maximum));
+					str::TranscodeAllTo<err::DefChar>(sink, buffer.substr(padding.maximum));
 					return true;
 				}
 
@@ -741,7 +705,7 @@ namespace str {
 					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
 
 				/* write the float itself to the sink */
-				str::TranscodeTo<err::DefChar>(sink, buffer);
+				str::TranscodeAllTo<err::DefChar>(sink, buffer);
 				return true;
 			}
 
@@ -774,7 +738,7 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (!escape && padding.minimum <= 1 && padding.maximum == 0) {
-				str::TranscodeTo<err::DefChar>(sink, t);
+				str::TranscodeAllTo<err::DefChar>(sink, t);
 				return true;
 			}
 
@@ -786,7 +750,7 @@ namespace str {
 
 				/* extract all separate characters */
 				while (!view.empty()) {
-					auto [cp, consumed] = str::ReadCodepoint<err::DefChar>(view);
+					auto [cp, consumed] = str::GetCodepoint<err::DefChar>(view);
 					view = view.substr(consumed);
 
 					/* create the escape sequence or write the character out as is */
@@ -799,7 +763,7 @@ namespace str {
 				}
 			}
 			else
-				str::TranscodeTo<err::DefChar>(buffer, t);
+				str::TranscodeAllTo<err::DefChar>(buffer, t);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);

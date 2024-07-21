@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../str-common-v2.h"
+#include "../str-common.h"
 
 #include "str-utf16.h"
 #include "str-utf32.h"
@@ -39,6 +39,12 @@ namespace str {
 				return detail::MakeUtf16<wchar_t>(sink, cp);
 			else
 				return detail::MakeUtf32<wchar_t>(sink, cp);
+		}
+		inline constexpr uint32_t EstimateWide(const wchar_t* cur, const wchar_t* end) {
+			if constexpr (str::WideIsUtf16)
+				return detail::EstimateUtf16(reinterpret_cast<const char16_t*>(cur), reinterpret_cast<const char16_t*>(end));
+			else
+				return detail::EstimateUtf32(reinterpret_cast<const char32_t*>(cur), reinterpret_cast<const char32_t*>(end));
 		}
 	}
 }

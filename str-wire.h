@@ -312,7 +312,7 @@ namespace str {
 
 			/* decode all characters and write them out */
 			while (!view.empty()) {
-				auto [cp, len] = str::ReadCodepoint<CodeError>(view);
+				auto [cp, len] = str::GetCodepoint<CodeError>(view);
 				view = view.substr(len);
 
 				/* write the codepoint out (only if its valid) */

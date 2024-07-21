@@ -65,9 +65,6 @@ namespace str {
 	template <str::IsStr<char32_t> Type>
 	UStr(Type) -> UStr<char32_t, err::DefChar>;
 
-	/* default string-type to be used [utf-16] */
-	using UString = str::UStr<char16_t, err::DefChar>;
-
 	namespace detail {
 		template <class ChType, class BaseType, char32_t CodeError, class SelfType>
 		struct UWrapper : public BaseType {
@@ -237,7 +234,7 @@ namespace str {
 			/* convert the string to the corrsponding string-type */
 			template <str::AnySink SinkType>
 			constexpr SinkType to() const {
-				return str::Transcode<SinkType>(fBase());
+				return str::TranscodeAll<SinkType>(fBase());
 			}
 
 			/* overwrite sub-string of base-type */
