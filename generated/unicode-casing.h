@@ -1,5 +1,3 @@
-/* SPDX-License-Identifier: BSD-3-Clause */
-/* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
 #include <cinttypes>
@@ -10,7 +8,7 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source URL: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2024-05-30 13:54
+*	Generated on: 2024-07-22 21:41
 *	Generated from version: 15.1.0
 */
 namespace cp::detail::gen {

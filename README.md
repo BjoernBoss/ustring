@@ -6,6 +6,8 @@ Header only library written in `C++20` to add support for various unicode operat
 
 It includes functions to perform various unicode testing, segmentation, transformations, and analysis functions. Further, it adds the ability to parse and print numbers from any string type, format strings to any string type, serialize and deserialize string types to bytes, escape strings, and convert string types to each other as correctly as possible.
 
+The library consideres any object to be convertible to a `string_view` of any type as a valid string.
+
 ## Using the library
 This library is a header only library. Simply clone the repository, and include `<str-tools/str.h>`
 
@@ -29,32 +31,152 @@ In case of `char` using utf-8 encoding, the decoding/encoding will be performed 
 
 Disclaimer: while this should work in theory, at least in `Visual Studio 2019` using the `execution-charset: IBM01149` still resulted in `a` being mapped to `0x61`, although it should have been mapped to `0x81`, which in turn resulted in the compile time ascii-detection to fail.
 
-## Functionalities
-The functionality is split up into two namespaces: `str` for all string-related operations, and `cp` for all unicode related operations. All codepoints are represented using `char32_t` as type.
+## Concepts and Interfaces
+The library defines a set of concepts, which it frequently uses.
+
+ - `str::IsChar` Check if the type is a supported character (`char`, `wchar_t`, ...)
+ - `str::IsStr<T>` Check if the type can be converted to a `basic_string_view<T>`
+ - `str::IsSink<T>` Check if the type specialized the str::CharWriter interface (used by all writing functions)
+ - `str::IsWire` Check if the type specialized the str::ByteWriter interface (used for `str::ToWire`)
+ - `str::IsFormattable` Check if the type specialized the str::Formatter interface
+ - `str::AnyStr` Check if the type can be converted to a `basic_string_view` of any character-type (use `str::StrChar` to get the corresponding character-type)
+ - `str::AnySink` Check if the type specialized the str::CharWriter of any character-type (use `str::SinkChar` to get the corresponding character-type)
+ - `str::IsIterator` Check if the type is a codepoint iterator
+ - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
+ - `str::IsCollector` Check if the type has a `next(char32_t)` and `done()` method to act as recipient for transformed codepoints
+ - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector` when receiving a `str::IsCollector` to write its output to
+ - `str::IsAnalysis` Check if the type performs a boolean analysis on a stream of codepoints
+ - `str::IsTester` Check if the type performs a boolean analysis on a single codepoint 
+
+## Standard Functionality
+The standard string functionality lies in the namespace `str` for all string-related operations.
 
 To allow local strings from being used, `str::Local<class CharType, ssize_t Capacity>` is provided, which allows to create a string on the stack of the given character type and the given capacity.
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
-The primary functionality is combined into the `str::UStr` or `str::UView` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. As an example:
+### str::UStr, str::UView, str::UString
+The primary functionality is combined into the `str::UStr` or `str::UView` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. As an example:
 
+```C++
     std::u16string s = str::UView{ L"abc-def" }.norm().to<std::u16string>();
+    bool t = str::UView{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
+```
 
 For convenience, `str::UString` is defined as `str::UStr<char16_t>`.
 
-Examples for interacting with numbers:
+### str::Float, str::Int, str::ParseNum
+The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::UView::asciiDecimals` function. Examples for interacting with numbers:
 
+```C++
     std::wstring s = str::Float<std::wstring>(50.0f, str::FloatStyle::general);
-    float f = str::ParseNum<float>(u8"-1523.23e+5");
+    float f = str::ParseNum<float>(u8"-1523.23e+5").value;
+```
 
+### str::Format, str::Build, str::Fmt, str::Out
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
-    std::u16string s = str::Format<std::u16string>(u8"Test: {:^#10x}\n", 65536);
+```C++
+    std::u16string s = str::Format<std::u16string>(u8"Test: {:.^#10x}\n", 65536);
     std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
+```
 
 For convenience, `str::Fmt`, `str::FmtLn`, `str::Out`, `str::OutLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::WFmt`, ...
 
+### str::ToWire, str::FromWire
+To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
 
+```C++
+    /* reading from a byte-source */
+    uint8_t someBuffer[512] = /* ... */;
+    auto x = str::FromWire{ str::WireCoding::utf8, str::BOMMode::detectAll };
+    x.read<std::string>(someBuffer, 512);
+
+    /* writing to a byte-source */
+    std::ofstream someFile = /* ... */;
+    auto y = str::ToWire{ str::WireCoding::utf16, true };
+    y.write(someFile, u8"Some-String");
+    y.write(someFile, U" some other string");
+```
+
+### str::Iterator
+The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::UView::it` or `str::UStr::it`. Example of using the iterators:
+
+```C++
+    auto it = str::UView{ u"abc-def" }.it();
+    while (it.next())
+        foo(it.get());
+```
+
+## Coding Error Handling
+Any encoding or decoding errors will be handled according to the `CodeError` template parameter. Most corresponding functions in the `str` namespace will have the `CodeError` parameter, which is defaulted to `str::err::DefChar`. The following values are defined:
+
+    str::err::Throw     Throw an error if an encoding or decoding error is encountered
+    str::err::Nothing   Return str::Invalid as codepoint if an error is encountered
+    str::err::Skip      Skip any invalid codepoints and ignore them
+    %any%               Replace any invalid codepoints with the current value
+                            => This also includes str::err::DefChar, which defaults to '?'
+
+## Unicode Functionality
+The unicode related operations lie in the namespace `cp`. All codepoints are represented using `char32_t` as type.
+
+### cp::prop, cp::ascii
+The `cp::prop` and `cp::ascii` namespaces contain various test functions to query properties per single codepoint. Most functions are directly integrated into `str::UView` or `str::UStr`. The `IsUpper` or `IsLower` functions should not be used to determine if the string is uppercased or lowercased, as they only perform checks based on the unicode properties, without respecting any surrouunding context. Examples of using the properties:
+
+```C++
+    cp::prop::GCType gc = cp::prop::GetCategory(U'a');
+    bool s = cp::prop::IsAssigned(U'\U0010ff00');
+    bool t = cp::ascii::GetRadix(U'9');
+```
+
+### cp::UpperCase, cp::LowerCase, cp::TitleCase, cp::FoldCase
+The objects for transforming the casing of the string all adhere to the `str::IsMapper` concept. They take an optional locale as constructor argument, and can then be used to instantiate a mapper object into any sink. For each of the transformations, a corresponding tester exists, such as `cp::TestUpperCase`, which checks if the given string would not be modified by the corresponding mapper anymore. All of these functions are directly introduced to `str::UView` and `str::UStr`. Example usage:
+
+```C++
+    /* mapping a string to uppercase */
+    auto it0 = str::UView{ u"abc-def" }.it();
+    auto it1 = it0;
+    std::string out;
+    auto map = cp::UpperCase{ u8"en_us" }(str::Collect(out));
+    while (it0.next())
+        map.next(it0.get());
+    map.done();
+
+    /* mapping a string to lowercase */
+    auto tester = cp::TestUpperCase{ 0 };
+    while (it1.next())
+        tester.next(it1.get());
+    bool t = tester.done();
+```
+
+Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collectors to feed the output of the mappers either directly to a sink-object or to a lambda function.
+
+### cp::Decompose, cp::Compose, cp::NormFold
+Similar to the casing functionalities, the transformations to convert a stream of codepoints to the normalized composed `NFC` or decomposed versions `NFD` exist, as well as to convert the stream to a case-folded and decomposed stream.
+
+### Graphemes, Words, Sentences, Lines
+For each of the kinds of separations, there exist three implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeIterator`. 
+
+The Break object allows to instantiate an iterator, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
+
+```C++
+    std::u32string str = U"abc def";
+    std::vector<cp::Range> ranges;
+
+    auto words = cp::WordRanges{}([&](const cp::Range& r) { ranges.push_back(r); });
+    for (size_t i = 0; i < str.size(); ++i)
+        words.next(str[i], i);
+    words.done();
+```
+
+The Iterator object will allow to perform arbitrary iteration starting at any point and return the crossed break-type on every step, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. For convenience, the `str::UView` and `str::UStr` expose functions to directly produce the iterator objects. Example usage:
+
+```C++
+    auto it = str::UView{ "abc def" }.it(4);
+
+    auto words = cp::WordIterator{ it };
+    cp::BreakMode brk = words.prev();
+```
 
 ## Unicode Data and Properties
 The properties per codepoint are fetched from the `Unicode Character Base`. All required files will be downloaded to `generated/ucd` or `generated/tests`. To fetch the latest release, run:
