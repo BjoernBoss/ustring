@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+/* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
 #include "unicode/cp-property.h"
@@ -233,7 +235,7 @@ namespace str {
 	}
 
 	/*	Normal padding: in Order; all optional
-	*	[char?[<^>]\??]: padding character and side
+	*	[char?[<^>]]: padding character and side
 	*		=> [char]: char to be used for padding (default: ' ')
 	*		=> [<^>]: alignment-side of content (default: trailing)
 	*	[d+]: minimum-digits
