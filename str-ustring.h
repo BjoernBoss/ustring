@@ -4,7 +4,8 @@
 #include "unicode/cp-normalization.h"
 #include "unicode/cp-property.h"
 #include "unicode/cp-segmentation.h"
-#include "str-encode.h"
+#include "str-coding.h"
+#include "str-escape.h"
 #include "str-helper.h"
 
 namespace str {
@@ -234,7 +235,13 @@ namespace str {
 			/* convert the string to the corrsponding string-type */
 			template <str::AnySink SinkType>
 			constexpr SinkType to() const {
-				return str::TranscodeAll<SinkType>(fBase());
+				return str::TranscodeAll<SinkType, CodeError>(fBase());
+			}
+
+			/* convert the string to the corresponding string-type but as an escaped string */
+			template <str::AnySink SinkType>
+			constexpr SinkType escape(bool compact = false) const {
+				return str::EscapeAll<SinkType, CodeError>(fBase(), compact);
 			}
 
 			/* overwrite sub-string of base-type */

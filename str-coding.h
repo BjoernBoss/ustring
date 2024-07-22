@@ -1,10 +1,10 @@
 #pragma once
 
-#include "encode/str-utf8.h"
-#include "encode/str-utf16.h"
-#include "encode/str-utf32.h"
-#include "encode/str-wide.h"
-#include "encode/str-multibyte.h"
+#include "coding/str-utf8.h"
+#include "coding/str-utf16.h"
+#include "coding/str-utf32.h"
+#include "coding/str-wide.h"
+#include "coding/str-multibyte.h"
 #include "str-common.h"
 
 /*
@@ -105,11 +105,11 @@ namespace str {
 		template <class ChType, bool AllowIncomplete>
 		inline constexpr str::Decoded DecodeNext(const ChType* cur, const ChType* end) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
-				return detail::NextUtf8<AllowIncomplete>(cur, end);
+				return detail::NextUtf8<char8_t, AllowIncomplete>(cur, end);
 			else if constexpr (std::is_same_v<ChType, char16_t>)
-				return detail::NextUtf16<AllowIncomplete>(cur, end);
+				return detail::NextUtf16<char16_t, AllowIncomplete>(cur, end);
 			else if constexpr (std::is_same_v<ChType, char32_t>)
-				return detail::NextUtf32(cur, end);
+				return detail::NextUtf32<char32_t>(cur, end);
 			else if constexpr (std::is_same_v<ChType, wchar_t>)
 				return detail::NextWide<AllowIncomplete>(cur, end);
 			else
@@ -118,11 +118,11 @@ namespace str {
 		template <class ChType>
 		inline constexpr str::Decoded DecodePrev(const ChType* begin, const ChType* cur) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
-				return detail::PrevUtf8(begin, cur);
+				return detail::PrevUtf8<char8_t>(begin, cur);
 			else if constexpr (std::is_same_v<ChType, char16_t>)
-				return detail::PrevUtf16(begin, cur);
+				return detail::PrevUtf16<char16_t>(begin, cur);
 			else if constexpr (std::is_same_v<ChType, char32_t>)
-				return detail::PrevUtf32(begin, cur);
+				return detail::PrevUtf32<char32_t>(begin, cur);
 			else if constexpr (std::is_same_v<ChType, wchar_t>)
 				return detail::PrevWide(begin, cur);
 			else
@@ -131,11 +131,11 @@ namespace str {
 		template <class ChType>
 		inline constexpr bool EncodeCodepoint(auto&& sink, char32_t cp) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
-				return detail::MakeUtf8(sink, cp);
+				return detail::MakeUtf8<char8_t>(sink, cp);
 			else if constexpr (std::is_same_v<ChType, char16_t>)
-				return detail::MakeUtf16(sink, cp);
+				return detail::MakeUtf16<char16_t>(sink, cp);
 			else if constexpr (std::is_same_v<ChType, char32_t>)
-				return detail::MakeUtf32(sink, cp);
+				return detail::MakeUtf32<char32_t>(sink, cp);
 			else if constexpr (std::is_same_v<ChType, wchar_t>)
 				return detail::MakeWide(sink, cp);
 			else
@@ -144,11 +144,11 @@ namespace str {
 		template <class ChType>
 		inline constexpr uint32_t EstimateLength(const ChType* cur, const ChType* end) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
-				return detail::EstimateUtf8(cur, end);
+				return detail::EstimateUtf8<char8_t>(cur, end);
 			else if constexpr (std::is_same_v<ChType, char16_t>)
-				return detail::EstimateUtf16(cur, end);
+				return detail::EstimateUtf16<char16_t>(cur, end);
 			else if constexpr (std::is_same_v<ChType, char32_t>)
-				return detail::EstimateUtf32(cur, end);
+				return detail::EstimateUtf32<char32_t>(cur, end);
 			else if constexpr (std::is_same_v<ChType, wchar_t>)
 				return detail::EstimateWide(cur, end);
 			else

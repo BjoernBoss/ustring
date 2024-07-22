@@ -1,11 +1,12 @@
 #pragma once
 
 #include "str-common.h"
-#include "str-encode.h"
+#include "str-coding.h"
 
 #include <cmath>
 #include <utility>
 #include <tuple>
+#include <cstring>
 
 /*
 *	Coding-Rules:

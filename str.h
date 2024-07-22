@@ -1,7 +1,7 @@
 #pragma once
 
-#include "str-numbers.h"
-#include "str-encode.h"
+#include "str-number.h"
+#include "str-coding.h"
 #include "str-ustring.h"
 #include "str-format.h"
 #include "str-helper.h"

@@ -21,8 +21,8 @@ namespace str {
 		};
 
 		/* expect: begin != end; consumed always greater than zero */
-		template <bool AllowIncomplete>
-		inline constexpr str::Decoded NextUtf8(const char8_t* cur, const char8_t* end) {
+		template <class ChType, bool AllowIncomplete>
+		inline constexpr str::Decoded NextUtf8(const ChType* cur, const ChType* end) {
 			uint8_t c8 = static_cast<uint8_t>(*cur);
 
 			/* lookup the length of the character (with 0 invalid encoding) and extract the initial codepoint bits */
@@ -51,11 +51,12 @@ namespace str {
 				return { str::Invalid, 1 };
 			return { char32_t(cp), len };
 		}
-		inline constexpr str::Decoded PrevUtf8(const char8_t* begin, const char8_t* cur) {
+		template <class ChType>
+		inline constexpr str::Decoded PrevUtf8(const ChType* begin, const ChType* cur) {
 			uint32_t cp = 0, len = 1, shift = 0;
 
 			/* skip all continuation bytes and accumulate their codepoint-value */
-			const char8_t* c = 0;
+			const ChType* c = 0;
 			uint8_t c8 = 0;
 			while (true) {
 				c = cur - int32_t(len);
@@ -83,7 +84,7 @@ namespace str {
 				return { str::Invalid, 1 };
 			return { char32_t(cp), len };
 		}
-		template <class ChType = char8_t>
+		template <class ChType>
 		inline constexpr bool MakeUtf8(auto&& sink, char32_t cp) {
 			/* check if its a single character, which can just be pushed */
 			if (cp <= 0x7f) {
@@ -122,7 +123,8 @@ namespace str {
 			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + len });
 			return true;
 		}
-		inline constexpr uint32_t EstimateUtf8(const char8_t* cur, const char8_t* end) {
+		template <class ChType>
+		inline constexpr uint32_t EstimateUtf8(const ChType* cur, const ChType* end) {
 			return uint32_t(detail::InitCharLength[*cur >> 3]);
 		}
 	}

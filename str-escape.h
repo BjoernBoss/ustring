@@ -1,15 +1,15 @@
 #pragma once
 
 #include "unicode/cp-property.h"
-#include "str-encode.h"
+#include "str-coding.h"
 
 /*
 *	Decoding-issues will consume as many characters as are considered invalid
 *
 *	Escape sequences:
 *		Common patterns (such as \0, \n)
-*		\xhh
-*		\u{hhhh}
+*		\xhh (hh describing a hex-number from 00-ff interpreted as unicode-codepoint)
+*		\u{hhhh} (hhhh describing a hex-number from 0-10ffff interpreted as unicode-codepoint without leading nulls)
 *
 *	Escape sequences will be encoded out as single codepoints, not as one whole unit
 */

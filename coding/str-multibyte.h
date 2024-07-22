@@ -34,7 +34,7 @@ namespace str {
 		inline constexpr str::Decoded NextChar(const char* cur, const char* end) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
-				return detail::NextUtf8<AllowIncomplete>(reinterpret_cast<const char8_t*>(cur), reinterpret_cast<const char8_t*>(end));
+				return detail::NextUtf8<char, AllowIncomplete>(cur, end);
 			else {
 				/* fast-path for ascii-characters */
 				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)
@@ -67,7 +67,7 @@ namespace str {
 
 				/* convert the wide-character to the final codepoint (consumed can
 				*	be discarded as it will either be 1 or 0 and str::Invalid returned) */
-				char32_t cp = detail::NextWide(&wc, &wc + 1).cp;
+				char32_t cp = detail::NextWide<false>(&wc, &wc + 1).cp;
 				if (cp == str::Invalid)
 					return { str::Invalid, 1 };
 				return { cp, len };
@@ -76,7 +76,7 @@ namespace str {
 		inline constexpr str::Decoded PrevChar(const char* begin, const char* cur) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
-				return detail::PrevUtf8(reinterpret_cast<const char8_t*>(begin), reinterpret_cast<const char8_t*>(cur));
+				return detail::PrevUtf8<char>(begin, cur);
 			else {
 				/* fast-path for ascii-characters */
 				if (str::CharHoldsAscii && uint32_t(cur[-1]) <= detail::AsciiRange)
@@ -162,7 +162,7 @@ namespace str {
 		inline constexpr uint32_t EstimateChar(const char* cur, const char* end) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
-				return detail::EstimateUtf8(reinterpret_cast<const char8_t*>(cur), reinterpret_cast<const char8_t*>(end));
+				return detail::EstimateUtf8<char>(cur, end);
 			else {
 				/* fast-path for ascii-characters */
 				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "str-encode.h"
+#include "str-coding.h"
 #include "str-escape.h"
 
 namespace str {

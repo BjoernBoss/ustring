@@ -11,19 +11,21 @@ namespace str {
 		static constexpr size_t Utf32Len = 1;
 
 		/* expect: begin != end; consumed always greater than zero */
-		inline constexpr str::Decoded NextUtf32(const char32_t* cur, const char32_t* end) {
+		template <class ChType>
+		inline constexpr str::Decoded NextUtf32(const ChType* cur, const ChType* end) {
 			uint32_t val = static_cast<uint32_t>(cur[0]);
 			if ((val >= detail::SurrogateFirst && val <= detail::SurrogateLast) || val >= detail::UnicodeRange)
 				return { str::Invalid, 1 };
 			return { char32_t(val), 1 };
 		}
-		inline constexpr str::Decoded PrevUtf32(const char32_t* begin, const char32_t* cur) {
+		template <class ChType>
+		inline constexpr str::Decoded PrevUtf32(const ChType* begin, const ChType* cur) {
 			uint32_t val = static_cast<uint32_t>(cur[-1]);
 			if ((val >= detail::SurrogateFirst && val <= detail::SurrogateLast) || val >= detail::UnicodeRange)
 				return { str::Invalid, 1 };
 			return { char32_t(val), 1 };
 		}
-		template <class ChType = char32_t>
+		template <class ChType>
 		constexpr bool MakeUtf32(auto&& sink, char32_t cp) {
 			if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
 				return false;
@@ -32,7 +34,8 @@ namespace str {
 			str::CallSink<ChType>(sink, ChType(cp), 1);
 			return true;
 		}
-		inline constexpr uint32_t EstimateUtf32(const char32_t* cur, const char32_t* end) {
+		template <class ChType>
+		inline constexpr uint32_t EstimateUtf32(const ChType* cur, const ChType* end) {
 			return 1;
 		}
 	}

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "unicode/cp-property.h"
-#include "str-encode.h"
-#include "str-numbers.h"
+#include "str-coding.h"
+#include "str-number.h"
 #include "str-escape.h"
 
 #include <iostream>

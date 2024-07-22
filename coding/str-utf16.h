@@ -11,8 +11,8 @@ namespace str {
 		static constexpr size_t Utf16Len = 2;
 
 		/* expect: begin != end; consumed always greater than zero */
-		template <bool AllowIncomplete>
-		inline constexpr str::Decoded NextUtf16(const char16_t* cur, const char16_t* end) {
+		template <class ChType, bool AllowIncomplete>
+		inline constexpr str::Decoded NextUtf16(const ChType* cur, const ChType* end) {
 			uint32_t first = static_cast<uint16_t>(*cur);
 
 			/* check if its a valid single-token codepoint (valid at all times) */
@@ -36,7 +36,8 @@ namespace str {
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
 			return { char32_t(0x10000 + ((first & 0x03ff) << 10) | (second & 0x03ff)), 2 };
 		}
-		inline constexpr str::Decoded PrevUtf16(const char16_t* begin, const char16_t* cur) {
+		template <class ChType>
+		inline constexpr str::Decoded PrevUtf16(const ChType* begin, const ChType* cur) {
 			/* check if its a single codepoint */
 			uint32_t second = static_cast<uint16_t>(cur[-1]);
 			if (second < detail::SurrogateFirst || second > detail::SurrogateLast)
@@ -54,7 +55,7 @@ namespace str {
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
 			return { char32_t(0x10000 + ((first & 0x03ff) << 10) | (second & 0x03ff)), 2 };
 		}
-		template <class ChType = char16_t>
+		template <class ChType>
 		inline constexpr bool MakeUtf16(auto&& sink, char32_t cp) {
 			/* check if its a single utf16-token */
 			if (cp < 0x10000) {
@@ -74,7 +75,8 @@ namespace str {
 			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + 2 });
 			return true;
 		}
-		inline constexpr uint32_t EstimateUtf16(const char16_t* cur, const char16_t* end) {
+		template <class ChType>
+		inline constexpr uint32_t EstimateUtf16(const ChType* cur, const ChType* end) {
 			if (*cur < detail::SurrogateFirst)
 				return 1;
 			if (*cur < detail::SurrogateUpper)

@@ -289,10 +289,10 @@ namespace cp {
 
 		/* analyze the casing of the codepoint [Unicode property Lowercase,Uppercase or General_Category Lt] */
 		enum class CaseType : uint8_t {
-			none = detail::gen::CaseType::none,
-			lowerCase = detail::gen::CaseType::lowerCase,
-			upperCase = detail::gen::CaseType::upperCase,
-			titleCase = detail::gen::CaseType::titleCase
+			none = uint8_t(detail::gen::CaseType::none),
+			lowerCase = uint8_t(detail::gen::CaseType::lowerCase),
+			upperCase = uint8_t(detail::gen::CaseType::upperCase),
+			titleCase = uint8_t(detail::gen::CaseType::titleCase)
 		};
 		inline constexpr prop::CaseType GetCase(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
@@ -330,36 +330,36 @@ namespace cp {
 
 		/* analyze the general category of the codepoint [Unicode General_Category] */
 		enum class GCType : uint8_t {
-			uppercaseLetter = detail::gen::CategoryType::lu,
-			lowercaseLetter = detail::gen::CategoryType::ll,
-			titlecaseLetter = detail::gen::CategoryType::lt,
-			modifierLetter = detail::gen::CategoryType::lm,
-			otherLetter = detail::gen::CategoryType::lo,
-			nonspacingMark = detail::gen::CategoryType::mn,
-			spacingMark = detail::gen::CategoryType::mc,
-			encloingMark = detail::gen::CategoryType::me,
-			decimalNumber = detail::gen::CategoryType::nd,
-			letterNumber = detail::gen::CategoryType::nl,
-			otherNumber = detail::gen::CategoryType::no,
-			connectorPunctuation = detail::gen::CategoryType::pc,
-			dashPunctuation = detail::gen::CategoryType::pd,
-			openPunctuation = detail::gen::CategoryType::ps,
-			closePunctuation = detail::gen::CategoryType::pe,
-			initialPunctuation = detail::gen::CategoryType::pi,
-			finalPunctuation = detail::gen::CategoryType::pf,
-			otherPunctuation = detail::gen::CategoryType::po,
-			mathSymbol = detail::gen::CategoryType::sm,
-			currencySymbol = detail::gen::CategoryType::sc,
-			modifierSymbol = detail::gen::CategoryType::sk,
-			otherSymbol = detail::gen::CategoryType::so,
-			spaceSeparator = detail::gen::CategoryType::zs,
-			lineSeparator = detail::gen::CategoryType::zl,
-			paragraphSeparator = detail::gen::CategoryType::zp,
-			control = detail::gen::CategoryType::cc,
-			format = detail::gen::CategoryType::cf,
-			surrogate = detail::gen::CategoryType::cs,
-			privateUse = detail::gen::CategoryType::co,
-			unassigned = detail::gen::CategoryType::cn,
+			uppercaseLetter = uint8_t(detail::gen::CategoryType::lu),
+			lowercaseLetter = uint8_t(detail::gen::CategoryType::ll),
+			titlecaseLetter = uint8_t(detail::gen::CategoryType::lt),
+			modifierLetter = uint8_t(detail::gen::CategoryType::lm),
+			otherLetter = uint8_t(detail::gen::CategoryType::lo),
+			nonspacingMark = uint8_t(detail::gen::CategoryType::mn),
+			spacingMark = uint8_t(detail::gen::CategoryType::mc),
+			encloingMark = uint8_t(detail::gen::CategoryType::me),
+			decimalNumber = uint8_t(detail::gen::CategoryType::nd),
+			letterNumber = uint8_t(detail::gen::CategoryType::nl),
+			otherNumber = uint8_t(detail::gen::CategoryType::no),
+			connectorPunctuation = uint8_t(detail::gen::CategoryType::pc),
+			dashPunctuation = uint8_t(detail::gen::CategoryType::pd),
+			openPunctuation = uint8_t(detail::gen::CategoryType::ps),
+			closePunctuation = uint8_t(detail::gen::CategoryType::pe),
+			initialPunctuation = uint8_t(detail::gen::CategoryType::pi),
+			finalPunctuation = uint8_t(detail::gen::CategoryType::pf),
+			otherPunctuation = uint8_t(detail::gen::CategoryType::po),
+			mathSymbol = uint8_t(detail::gen::CategoryType::sm),
+			currencySymbol = uint8_t(detail::gen::CategoryType::sc),
+			modifierSymbol = uint8_t(detail::gen::CategoryType::sk),
+			otherSymbol = uint8_t(detail::gen::CategoryType::so),
+			spaceSeparator = uint8_t(detail::gen::CategoryType::zs),
+			lineSeparator = uint8_t(detail::gen::CategoryType::zl),
+			paragraphSeparator = uint8_t(detail::gen::CategoryType::zp),
+			control = uint8_t(detail::gen::CategoryType::cc),
+			format = uint8_t(detail::gen::CategoryType::cf),
+			surrogate = uint8_t(detail::gen::CategoryType::cs),
+			privateUse = uint8_t(detail::gen::CategoryType::co),
+			unassigned = uint8_t(detail::gen::CategoryType::cn),
 			Lu = uppercaseLetter,
 			Ll = lowercaseLetter,
 			Lt = titlecaseLetter,
@@ -471,12 +471,12 @@ namespace cp {
 
 		/* analyze the east-asian width of the codepoint [Unicode property East_Asian_Width] */
 		enum class EAWidthType : uint8_t {
-			neutral = detail::gen::EAWidthType::neutral,
-			fullWidth = detail::gen::EAWidthType::fullWidth,
-			halfWidth = detail::gen::EAWidthType::halfWidth,
-			wide = detail::gen::EAWidthType::wide,
-			narrow = detail::gen::EAWidthType::narrow,
-			ambiguous = detail::gen::EAWidthType::ambiguous
+			neutral = uint8_t(detail::gen::EAWidthType::neutral),
+			fullWidth = uint8_t(detail::gen::EAWidthType::fullWidth),
+			halfWidth = uint8_t(detail::gen::EAWidthType::halfWidth),
+			wide = uint8_t(detail::gen::EAWidthType::wide),
+			narrow = uint8_t(detail::gen::EAWidthType::narrow),
+			ambiguous = uint8_t(detail::gen::EAWidthType::ambiguous)
 		};
 		inline constexpr prop::EAWidthType GetEAWidth(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
