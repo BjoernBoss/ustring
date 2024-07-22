@@ -55,7 +55,7 @@ To allow local strings from being used, `str::Local<class CharType, ssize_t Capa
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
-### str::UStr, str::UView, str::UString
+### [str::UStr, str::UView, str::UString](str-ustring.h)
 The primary functionality is combined into the `str::UStr` or `str::UView` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. As an example:
 
 ```C++
@@ -65,7 +65,7 @@ The primary functionality is combined into the `str::UStr` or `str::UView` wrapp
 
 For convenience, `str::UString` is defined as `str::UStr<char16_t>`.
 
-### str::Float, str::Int, str::ParseNum
+### [str::Float, str::Int, str::ParseNum](str-number.h)
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::UView::asciiDecimals` function. Examples for interacting with numbers:
 
 ```C++
@@ -73,7 +73,7 @@ The number functions can parse any kind of number and produce float or integer-s
     float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
-### str::Format, str::Build, str::Fmt, str::Out
+### [str::Format, str::Build, str::Fmt, str::Out](str-format.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
@@ -83,7 +83,7 @@ For interacting with formatting, `str::Format` and `str::Build` exist, where `st
 
 For convenience, `str::Fmt`, `str::FmtLn`, `str::Out`, `str::OutLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::WFmt`, ...
 
-### str::ToWire, str::FromWire
+### [str::ToWire, str::FromWire](str-wire.h)
 To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
 
 ```C++
@@ -99,7 +99,7 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
     y.write(someFile, U" some other string");
 ```
 
-### str::Iterator
+### [str::Iterator](str-coding.h)
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::UView::it` or `str::UStr::it`. Example of using the iterators:
 
 ```C++
@@ -108,7 +108,7 @@ The `str::Iterator` provides a codepoint iterator, which allows iteration both f
         foo(it.get());
 ```
 
-## Coding Error Handling
+## [Coding Error Handling](str-coding.h)
 Any encoding or decoding errors will be handled according to the `CodeError` template parameter. Most corresponding functions in the `str` namespace will have the `CodeError` parameter, which is defaulted to `str::err::DefChar`. The following values are defined:
 
     str::err::Throw     Throw an error if an encoding or decoding error is encountered
@@ -120,16 +120,16 @@ Any encoding or decoding errors will be handled according to the `CodeError` tem
 ## Unicode Functionality
 The unicode related operations lie in the namespace `cp`. All codepoints are represented using `char32_t` as type.
 
-### cp::prop, cp::ascii
+### [cp::prop, cp::ascii](unicode/cp-property.h)
 The `cp::prop` and `cp::ascii` namespaces contain various test functions to query properties per single codepoint. Most functions are directly integrated into `str::UView` or `str::UStr`. The `IsUpper` or `IsLower` functions should not be used to determine if the string is uppercased or lowercased, as they only perform checks based on the unicode properties, without respecting any surrouunding context. Examples of using the properties:
 
 ```C++
     cp::prop::GCType gc = cp::prop::GetCategory(U'a');
     bool s = cp::prop::IsAssigned(U'\U0010ff00');
-    bool t = cp::ascii::GetRadix(U'9');
+    size_t t = cp::ascii::GetRadix(U'9');
 ```
 
-### cp::UpperCase, cp::LowerCase, cp::TitleCase, cp::FoldCase
+### [cp::UpperCase, cp::LowerCase, cp::TitleCase, cp::FoldCase](unicode/cp-casing.h)
 The objects for transforming the casing of the string all adhere to the `str::IsMapper` concept. They take an optional locale as constructor argument, and can then be used to instantiate a mapper object into any sink. For each of the transformations, a corresponding tester exists, such as `cp::TestUpperCase`, which checks if the given string would not be modified by the corresponding mapper anymore. All of these functions are directly introduced to `str::UView` and `str::UStr`. Example usage:
 
 ```C++
@@ -151,10 +151,10 @@ The objects for transforming the casing of the string all adhere to the `str::Is
 
 Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collectors to feed the output of the mappers either directly to a sink-object or to a lambda function.
 
-### cp::Decompose, cp::Compose, cp::NormFold
+### [cp::Decompose, cp::Compose, cp::NormFold](unicode/cp-normalization.h)
 Similar to the casing functionalities, the transformations to convert a stream of codepoints to the normalized composed `NFC` or decomposed versions `NFD` exist, as well as to convert the stream to a case-folded and decomposed stream.
 
-### Graphemes, Words, Sentences, Lines
+### [Graphemes, Words, Sentences, Lines](unicode/cp-segmentation.h)
 For each of the kinds of separations, there exist three implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeIterator`. 
 
 The Break object allows to instantiate an iterator, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
