@@ -3,6 +3,7 @@
 #pragma once
 
 #include "str-common.h"
+#include "str-wire.h"
 
 #include <vector>
 #include <iostream>
@@ -170,6 +171,30 @@ namespace str {
 		constexpr void done() {}
 	};
 
+	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire */
+	template <str::IsWire WiType, char32_t CodeError>
+	class WireOut {
+	private:
+		str::ToWire<CodeError>& pWire;
+		WiType&& pSink;
+
+	public:
+		WireOut(str::ToWire<CodeError>& wire, WiType&& sink) : pWire{ wire }, pSink{ sink } {}
+		WireOut(str::ToWire<CodeError>&& wire, WiType&& sink) : pWire{ wire }, pSink{ sink } {}
+
+	public:
+		constexpr void write(const char32_t* str, size_t size) {
+			pWire.write(pSink, std::u32string_view{ str, size });
+		}
+		constexpr void put(char32_t c) {
+			pWire.write(pSink, std::u32string_view{ &c, 1 });
+		}
+	};
+	template <class WiType, char32_t CodeError>
+	WireOut(str::ToWire<CodeError>, WiType&) -> WireOut<WiType&, CodeError>;
+	template <class WiType, char32_t CodeError>
+	WireOut(str::ToWire<CodeError>, WiType&&) -> WireOut<WiType, CodeError>;
+
 	/* specializations for char-writers */
 	template <class ChType>
 	struct CharWriter<std::basic_string<ChType>, ChType> {
@@ -216,6 +241,16 @@ namespace str {
 				sink.put(chr);
 		}
 		constexpr void operator()(str::Chars<ChType>& sink, const ChType* str, size_t size) const {
+			sink.write(str, size);
+		}
+	};
+	template <class WiType, char32_t CodeError>
+	struct CharWriter<str::WireOut<WiType, CodeError>, char32_t> {
+		constexpr void operator()(str::WireOut<WiType, CodeError>& sink, char32_t chr, size_t count) const {
+			for (size_t i = 0; i < count; ++i)
+				sink.put(chr);
+		}
+		constexpr void operator()(str::WireOut<WiType, CodeError>& sink, const char32_t* str, size_t size) const {
 			sink.write(str, size);
 		}
 	};

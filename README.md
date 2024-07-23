@@ -79,6 +79,9 @@ For interacting with formatting, `str::Format` and `str::Build` exist, where `st
 ```C++
     std::u16string s = str::Format<std::u16string>(u8"Test: {:.^#10x}\n", 65536);
     std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
+
+    /* using an argument to modify the argument-string dynamically (will effectively use: #020x on 512) */
+    std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
 ```
 
 For convenience, `str::Fmt`, `str::FmtLn`, `str::Out`, `str::OutLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::WFmt`, ...
@@ -97,6 +100,15 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
     auto y = str::ToWire{ str::WireCoding::utf16, true };
     y.write(someFile, u8"Some-String");
     y.write(someFile, U" some other string");
+```
+
+Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object.
+
+```C++
+    str::ofstream someFile = /* ... */;
+    str::ToWire wire{ str::WireCoding::utf16le };
+
+    str::FormatTo(str::WireOut{ wire, someFile }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
 ### [str::Iterator](str-coding.h)

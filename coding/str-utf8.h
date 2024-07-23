@@ -34,7 +34,7 @@ namespace str {
 			uint32_t cp = (c8 & detail::InitCharCodeBits[c8 >> 3]);
 
 			/* validate the buffer has capacity enough */
-			if (end - cur < len) {
+			if (uint32_t(end - cur) < len) {
 				if constexpr (AllowIncomplete)
 					return { str::Invalid, 0 };
 				return { str::Invalid, 1 };
