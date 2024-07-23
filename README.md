@@ -55,18 +55,18 @@ To allow local strings from being used, `str::Local<class CharType, ssize_t Capa
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
-### [str::UStr, str::UView, str::UString](str-ustring.h)
-The primary functionality is combined into the `str::UStr` or `str::UView` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. As an example:
+### [str::String, str::View, str::UString, str::UView](str-ustring.h)
+The primary functionality is combined into the `str::String` or `str::View` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. They both provide the same interface, and will therefore only be referenced through `str::View` here. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. As an example:
 
 ```C++
-    std::u16string s = str::UView{ L"abc-def" }.norm().to<std::u16string>();
-    bool t = str::UView{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
+    std::u16string s = str::View{ L"abc-def" }.norm().to<std::u16string>();
+    bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
 ```
 
-For convenience, `str::UString` is defined as `str::UStr<char16_t>`.
+For convenience, `str::UString` is defined as `str::String<char16_t, str::err::DefChar>` and `str::UView` is defined as `str::View<char16_t, str::err::DefChar>` to be used as default string types.
 
 ### [str::Float, str::Int, str::ParseNum](str-number.h)
-The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::UView::asciiDecimals` function. Examples for interacting with numbers:
+The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:
 
 ```C++
     std::wstring s = str::Float<std::wstring>(50.0f, str::FloatStyle::general);
@@ -100,10 +100,10 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
 ```
 
 ### [str::Iterator](str-coding.h)
-The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::UView::it` or `str::UStr::it`. Example of using the iterators:
+The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:
 
 ```C++
-    auto it = str::UView{ u"abc-def" }.it();
+    auto it = str::View{ u"abc-def" }.it();
     while (it.next())
         foo(it.get());
 ```
@@ -121,7 +121,7 @@ Any encoding or decoding errors will be handled according to the `CodeError` tem
 The unicode related operations lie in the namespace `cp`. All codepoints are represented using `char32_t` as type.
 
 ### [cp::prop, cp::ascii](unicode/cp-property.h)
-The `cp::prop` and `cp::ascii` namespaces contain various test functions to query properties per single codepoint. Most functions are directly integrated into `str::UView` or `str::UStr`. The `IsUpper` or `IsLower` functions should not be used to determine if the string is uppercased or lowercased, as they only perform checks based on the unicode properties, without respecting any surrouunding context. Examples of using the properties:
+The `cp::prop` and `cp::ascii` namespaces contain various test functions to query properties per single codepoint. Most functions are directly integrated into `str::View`. The `IsUpper` or `IsLower` functions should not be used to determine if the string is uppercased or lowercased, as they only perform checks based on the unicode properties, without respecting any surrouunding context. Examples of using the properties:
 
 ```C++
     cp::prop::GCType gc = cp::prop::GetCategory(U'a');
@@ -130,11 +130,11 @@ The `cp::prop` and `cp::ascii` namespaces contain various test functions to quer
 ```
 
 ### [cp::UpperCase, cp::LowerCase, cp::TitleCase, cp::FoldCase](unicode/cp-casing.h)
-The objects for transforming the casing of the string all adhere to the `str::IsMapper` concept. They take an optional locale as constructor argument, and can then be used to instantiate a mapper object into any sink. For each of the transformations, a corresponding tester exists, such as `cp::TestUpperCase`, which checks if the given string would not be modified by the corresponding mapper anymore. All of these functions are directly introduced to `str::UView` and `str::UStr`. Example usage:
+The objects for transforming the casing of the string all adhere to the `str::IsMapper` concept. They take an optional locale as constructor argument, and can then be used to instantiate a mapper object into any sink. For each of the transformations, a corresponding tester exists, such as `cp::TestUpperCase`, which checks if the given string would not be modified by the corresponding mapper anymore. All of these functions are directly introduced to `str::View`. Example usage:
 
 ```C++
     /* mapping a string to uppercase */
-    auto it0 = str::UView{ u"abc-def" }.it();
+    auto it0 = str::View{ u"abc-def" }.it();
     auto it1 = it0;
     std::string out;
     auto map = cp::UpperCase{ u8"en_us" }(str::Collect(out));
@@ -169,10 +169,10 @@ The Break object allows to instantiate an iterator, which produces the correspon
     words.done();
 ```
 
-The Iterator object will allow to perform arbitrary iteration starting at any point and return the crossed break-type on every step, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. For convenience, the `str::UView` and `str::UStr` expose functions to directly produce the iterator objects. Example usage:
+The Iterator object will allow to perform arbitrary iteration starting at any point and return the crossed break-type on every step, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. For convenience, the `str::View` expose functions to directly produce the iterator objects. Example usage:
 
 ```C++
-    auto it = str::UView{ "abc def" }.it(4);
+    auto it = str::View{ "abc def" }.it(4);
 
     auto words = cp::WordIterator{ it };
     cp::BreakMode brk = words.prev();

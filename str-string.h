@@ -18,55 +18,55 @@ namespace str {
 
 	/* wrap std::string_view to support the extended unicode-operations */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
-	struct UView : public detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::UView<ChType, CodeError>> {
+	struct View : public detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::View<ChType, CodeError>> {
 	private:
-		using Super = detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::UView<ChType, CodeError>>;
+		using Super = detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::View<ChType, CodeError>>;
 
 	public:
 		using Super::Super;
-		UView(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		UView(std::basic_string_view<ChType>&& v) : Super{ v } {}
+		View(const std::basic_string_view<ChType>& v) : Super{ v } {}
+		View(std::basic_string_view<ChType>&& v) : Super{ v } {}
 		template <char32_t OCodeError>
-		UView(const str::UView<ChType, OCodeError>& v) : Super{ v } {}
+		View(const str::View<ChType, OCodeError>& v) : Super{ v } {}
 		template <char32_t OCodeError>
-		UView(str::UView<ChType, OCodeError>&& v) : Super{ v } {}
+		View(str::View<ChType, OCodeError>&& v) : Super{ v } {}
 	};
 	template <str::IsStr<char> Type>
-	UView(Type) -> UView<char, err::DefChar>;
+	View(Type) -> View<char, err::DefChar>;
 	template <str::IsStr<wchar_t> Type>
-	UView(Type) -> UView<wchar_t, err::DefChar>;
+	View(Type) -> View<wchar_t, err::DefChar>;
 	template <str::IsStr<char8_t> Type>
-	UView(Type) -> UView<char8_t, err::DefChar>;
+	View(Type) -> View<char8_t, err::DefChar>;
 	template <str::IsStr<char16_t> Type>
-	UView(Type) -> UView<char16_t, err::DefChar>;
+	View(Type) -> View<char16_t, err::DefChar>;
 	template <str::IsStr<char32_t> Type>
-	UView(Type) -> UView<char32_t, err::DefChar>;
+	View(Type) -> View<char32_t, err::DefChar>;
 
 	/* wrap std::string to support the extended unicode-operations */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
-	struct UStr : public detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::UStr<ChType, CodeError>> {
+	struct String : public detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::String<ChType, CodeError>> {
 	private:
-		using Super = detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::UStr<ChType, CodeError>>;
+		using Super = detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::String<ChType, CodeError>>;
 
 	public:
 		using Super::Super;
-		UStr(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		UStr(std::basic_string_view<ChType>&& v) : Super{ v } {}
+		String(const std::basic_string_view<ChType>& v) : Super{ v } {}
+		String(std::basic_string_view<ChType>&& v) : Super{ v } {}
 		template <char32_t OCodeError>
-		UStr(const str::UStr<ChType, OCodeError>& v) : Super{ v } {}
+		String(const str::String<ChType, OCodeError>& v) : Super{ v } {}
 		template <char32_t OCodeError>
-		UStr(str::UStr<ChType, OCodeError>&& v) : Super{ v } {}
+		String(str::String<ChType, OCodeError>&& v) : Super{ v } {}
 	};
 	template <str::IsStr<char> Type>
-	UStr(Type) -> UStr<char, err::DefChar>;
+	String(Type) -> String<char, err::DefChar>;
 	template <str::IsStr<wchar_t> Type>
-	UStr(Type) -> UStr<wchar_t, err::DefChar>;
+	String(Type) -> String<wchar_t, err::DefChar>;
 	template <str::IsStr<char8_t> Type>
-	UStr(Type) -> UStr<char8_t, err::DefChar>;
+	String(Type) -> String<char8_t, err::DefChar>;
 	template <str::IsStr<char16_t> Type>
-	UStr(Type) -> UStr<char16_t, err::DefChar>;
+	String(Type) -> String<char16_t, err::DefChar>;
 	template <str::IsStr<char32_t> Type>
-	UStr(Type) -> UStr<char32_t, err::DefChar>;
+	String(Type) -> String<char32_t, err::DefChar>;
 
 	namespace detail {
 		template <class ChType, class BaseType, char32_t CodeError, class SelfType>
@@ -76,10 +76,10 @@ namespace str {
 			using CharType = ChType;
 
 			/* string-view type of the current object */
-			using UViewType = str::UView<ChType, CodeError>;
+			using ViewType = str::View<ChType, CodeError>;
 
 			/* string type of the current object */
-			using UStrType = str::UStr<ChType, CodeError>;
+			using StrType = str::String<ChType, CodeError>;
 
 			/* codepoint-iterator type of the current type */
 			using ItType = str::Iterator<ChType, CodeError>;
@@ -253,64 +253,64 @@ namespace str {
 
 		public:
 			/* convert the string to upper-case using cp::UpperCase */
-			constexpr UStrType upper(const char8_t* locale = 0) const {
-				UStrType out;
+			constexpr StrType upper(const char8_t* locale = 0) const {
+				StrType out;
 				fApply(str::Collect(out), cp::UpperCase{ locale });
 				return out;
 			}
 
 			/* convert the string to lower-case using cp::LowerCase */
-			constexpr UStrType lower(const char8_t* locale = 0) const {
-				UStrType out;
+			constexpr StrType lower(const char8_t* locale = 0) const {
+				StrType out;
 				fApply(str::Collect(out), cp::LowerCase{ locale });
 				return out;
 			}
 
 			/* convert the string to title-case using cp::TitleCase */
-			UStrType title(const char8_t* locale = 0) const {
-				UStrType out;
+			StrType title(const char8_t* locale = 0) const {
+				StrType out;
 				fApply(str::Collect(out), cp::TitleCase{ locale });
 				return out;
 			}
 
 			/* convert the string to case-folded using cp::FoldCase */
-			constexpr UStrType fold(const char8_t* locale = 0) const {
-				UStrType out;
+			constexpr StrType fold(const char8_t* locale = 0) const {
+				StrType out;
 				fApply(str::Collect(out), cp::FoldCase{ locale });
 				return out;
 			}
 
 			/* convert the string to its composed normalization form (NFC) using cp::Compose */
-			constexpr UStrType compose() const {
-				UStrType out;
+			constexpr StrType compose() const {
+				StrType out;
 				fApply(str::Collect(out), cp::Compose{});
 				return out;
 			}
 
 			/* convert the string to its decomposed normalization form (NFD) using cp::Decompose */
-			constexpr UStrType decompose() const {
-				UStrType out;
+			constexpr StrType decompose() const {
+				StrType out;
 				fApply(str::Collect(out), cp::Decompose{});
 				return out;
 			}
 
 			/* convert the string to its normalized form (NFD) using cp::Decompose */
-			constexpr UStrType norm() const {
-				UStrType out;
+			constexpr StrType norm() const {
+				StrType out;
 				fApply(str::Collect(out), cp::Decompose{});
 				return out;
 			}
 
 			/* convert the string to its case-folded normalized form (NFD) using cp::NormFold */
-			constexpr UStrType inorm(const char8_t* locale = 0) const {
-				UStrType out;
+			constexpr StrType inorm(const char8_t* locale = 0) const {
+				StrType out;
 				fApply(str::Collect(out), cp::NormFold{ locale });
 				return out;
 			}
 
 			/* convert the decimal digits into the string from any format to ascii 0-9 and leave the remaining characters unchanged */
-			constexpr UStrType asciiDecimals() const {
-				UStrType out;
+			constexpr StrType asciiDecimals() const {
+				StrType out;
 				ItType it{ fBase() };
 
 				/* iterate over the codepoints and either transform all decimal digits or simply forward the codepoints */
@@ -531,13 +531,13 @@ namespace str {
 		};
 	}
 
-	/* specializations for char-writers to support UStr */
+	/* specializations for char-writers to support String */
 	template <class ChType, char32_t CodeError>
-	struct CharWriter<str::UStr<ChType, CodeError>, ChType> {
-		constexpr void operator()(str::UStr<ChType, CodeError>& sink, ChType chr, size_t count) const {
+	struct CharWriter<str::String<ChType, CodeError>, ChType> {
+		constexpr void operator()(str::String<ChType, CodeError>& sink, ChType chr, size_t count) const {
 			sink.append(count, chr);
 		}
-		constexpr void operator()(str::UStr<ChType, CodeError>& sink, const ChType* str, size_t size) const {
+		constexpr void operator()(str::String<ChType, CodeError>& sink, const ChType* str, size_t size) const {
 			sink.append(str, size);
 		}
 	};

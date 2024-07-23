@@ -4,7 +4,7 @@
 
 #include "str-number.h"
 #include "str-coding.h"
-#include "str-ustring.h"
+#include "str-string.h"
 #include "str-format.h"
 #include "str-helper.h"
 #include "str-wire.h"
@@ -12,7 +12,10 @@
 
 namespace str {
 	/* default string-type to be used [utf-16] */
-	using UString = str::UStr<char16_t, err::DefChar>;
+	using UString = str::String<char16_t, err::DefChar>;
+
+	/* default string-view-type to be used [utf-16] */
+	using UView = str::View<char16_t, err::DefChar>;
 
 	/* convenience for fast formatting to std::cout */
 	constexpr void Fmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
