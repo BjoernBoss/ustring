@@ -149,7 +149,7 @@ The objects for transforming the casing of the string all adhere to the `str::Is
     auto it0 = str::View{ u"abc-def" }.it();
     auto it1 = it0;
     std::string out;
-    auto map = cp::UpperCase{ u8"en_us" }(str::Collect(out));
+    auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
     while (it0.next())
         map.next(it0.get());
     map.done();

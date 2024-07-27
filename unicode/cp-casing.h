@@ -17,53 +17,53 @@ namespace cp {
 			tr, /* tr; tur */
 			az  /* az; aze */
 		};
-		inline constexpr detail::CaseLocale ParseCaseLocale(const char8_t* locale) {
+		inline constexpr detail::CaseLocale ParseCaseLocale(const wchar_t* locale) {
 			detail::CaseLocale out = detail::CaseLocale::none;
 
 			/* fast way out for empty/english/chinese */
-			if (locale == 0 || *locale == u8'e' || *locale == u8'z' || *locale == u8'\0')
+			if (locale == 0 || *locale == L'e' || *locale == L'z' || *locale == L'\0')
 				return out;
 
 			/* check for lt/lit */
-			if (*locale == u8'l' || *locale == u8'L') {
+			if (*locale == L'l' || *locale == L'L') {
 				out = detail::CaseLocale::lt;
 				++locale;
 
-				if (*locale == u8'i' || *locale == u8'I')
+				if (*locale == L'i' || *locale == L'I')
 					++locale;
-				if (*locale != u8't' && *locale != u8'T')
+				if (*locale != L't' && *locale != L'T')
 					return detail::CaseLocale::none;
 				++locale;
 			}
 
 			/* check for tr/tur */
-			else if (*locale == u8't' || *locale == u8'T') {
+			else if (*locale == L't' || *locale == L'T') {
 				out = detail::CaseLocale::tr;
 				++locale;
 
-				if (*locale == u8'u' || *locale == u8'U')
+				if (*locale == L'u' || *locale == L'U')
 					++locale;
-				if (*locale != u8'r' && *locale != u8'R')
+				if (*locale != L'r' && *locale != L'R')
 					return detail::CaseLocale::none;
 				++locale;
 			}
 
 			/* check for az/aze */
-			else if (*locale == u8'a' || *locale == u8'A') {
+			else if (*locale == L'a' || *locale == L'A') {
 				out = detail::CaseLocale::az;
 				++locale;
 
-				if (*locale != u8'z' && *locale != u8'Z')
+				if (*locale != L'z' && *locale != L'Z')
 					return detail::CaseLocale::none;
 				++locale;
-				if (*locale == u8'e' || *locale == u8'E')
+				if (*locale == L'e' || *locale == L'E')
 					++locale;
 			}
 			else
 				return detail::CaseLocale::none;
 
 			/* check for a valid separator */
-			if (*locale == 0 || *locale == u8'-' || *locale == u8'_')
+			if (*locale == 0 || *locale == L'-' || *locale == L'_')
 				return out;
 			return detail::CaseLocale::none;
 		}
@@ -450,7 +450,7 @@ namespace cp {
 			bool pMatches = true;
 
 		public:
-			constexpr TestCasing(const char8_t* locale = 0) : pMapper{ Lambda{ *this }, detail::ParseCaseLocale(locale) } {}
+			constexpr TestCasing(const wchar_t* locale = 0) : pMapper{ Lambda{ *this }, detail::ParseCaseLocale(locale) } {}
 
 		private:
 			constexpr void fNext(char32_t cp) {
@@ -483,7 +483,7 @@ namespace cp {
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 	public:
-		constexpr UpperCase(const char8_t* locale = 0) {
+		constexpr UpperCase(const wchar_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 
@@ -504,7 +504,7 @@ namespace cp {
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 	public:
-		constexpr LowerCase(const char8_t* locale = 0) {
+		constexpr LowerCase(const wchar_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 
@@ -525,7 +525,7 @@ namespace cp {
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 	public:
-		constexpr TitleCase(const char8_t* locale = 0) {
+		constexpr TitleCase(const wchar_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 
@@ -546,7 +546,7 @@ namespace cp {
 		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 	public:
-		constexpr FoldCase(const char8_t* locale = 0) {
+		constexpr FoldCase(const wchar_t* locale = 0) {
 			pLocale = detail::ParseCaseLocale(locale);
 		}
 
@@ -560,24 +560,24 @@ namespace cp {
 	/* [str::IsAnalysis] check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
 	class TestUpperCase : public detail::TestCasing<detail::UpperMapper> {
 	public:
-		constexpr TestUpperCase(const char8_t* locale = 0) : detail::TestCasing<detail::UpperMapper>(locale) {}
+		constexpr TestUpperCase(const wchar_t* locale = 0) : detail::TestCasing<detail::UpperMapper>(locale) {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
 	class TestLowerCase : public detail::TestCasing<detail::LowerMapper> {
 	public:
-		constexpr TestLowerCase(const char8_t* locale = 0) : detail::TestCasing<detail::LowerMapper>(locale) {}
+		constexpr TestLowerCase(const wchar_t* locale = 0) : detail::TestCasing<detail::LowerMapper>(locale) {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
 	class TestTitleCase : public detail::TestCasing<detail::TitleMapper> {
 	public:
-		constexpr TestTitleCase(const char8_t* locale = 0) : detail::TestCasing<detail::TitleMapper>(locale) {}
+		constexpr TestTitleCase(const wchar_t* locale = 0) : detail::TestCasing<detail::TitleMapper>(locale) {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
 	class TestFoldCase : public detail::TestCasing<detail::FoldingMapper> {
 	public:
-		constexpr TestFoldCase(const char8_t* locale = 0) : detail::TestCasing<detail::FoldingMapper>(locale) {}
+		constexpr TestFoldCase(const wchar_t* locale = 0) : detail::TestCasing<detail::FoldingMapper>(locale) {}
 	};
 }

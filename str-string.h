@@ -282,28 +282,28 @@ namespace str {
 
 		public:
 			/* convert the string to upper-case using cp::UpperCase */
-			constexpr StrType upper(const char8_t* locale = 0) const {
+			constexpr StrType upper(const wchar_t* locale = 0) const {
 				StrType out;
 				fApply(str::Collect(out), cp::UpperCase{ locale });
 				return out;
 			}
 
 			/* convert the string to lower-case using cp::LowerCase */
-			constexpr StrType lower(const char8_t* locale = 0) const {
+			constexpr StrType lower(const wchar_t* locale = 0) const {
 				StrType out;
 				fApply(str::Collect(out), cp::LowerCase{ locale });
 				return out;
 			}
 
 			/* convert the string to title-case using cp::TitleCase */
-			StrType title(const char8_t* locale = 0) const {
+			StrType title(const wchar_t* locale = 0) const {
 				StrType out;
 				fApply(str::Collect(out), cp::TitleCase{ locale });
 				return out;
 			}
 
 			/* convert the string to case-folded using cp::FoldCase */
-			constexpr StrType fold(const char8_t* locale = 0) const {
+			constexpr StrType fold(const wchar_t* locale = 0) const {
 				StrType out;
 				fApply(str::Collect(out), cp::FoldCase{ locale });
 				return out;
@@ -331,7 +331,7 @@ namespace str {
 			}
 
 			/* convert the string to its case-folded normalized form (NFD) using cp::NormFold */
-			constexpr StrType inorm(const char8_t* locale = 0) const {
+			constexpr StrType inorm(const wchar_t* locale = 0) const {
 				StrType out;
 				fApply(str::Collect(out), cp::NormFold{ locale });
 				return out;
@@ -355,22 +355,22 @@ namespace str {
 
 		public:
 			/* test if the string is non-empty and upper-case using cp::TestUpperCase */
-			constexpr bool isUpper(const char8_t* locale = 0) const {
+			constexpr bool isUpper(const wchar_t* locale = 0) const {
 				return fAnalyze(cp::TestUpperCase{ locale });
 			}
 
 			/* test if the string is non-empty and lower-case using cp::TestLowerCase */
-			constexpr bool isLower(const char8_t* locale = 0) const {
+			constexpr bool isLower(const wchar_t* locale = 0) const {
 				return fAnalyze(cp::TestLowerCase{ locale });
 			}
 
 			/* test if the string is non-empty and title-case using cp::TestTitleCase */
-			constexpr bool isTitle(const char8_t* locale = 0) const {
+			constexpr bool isTitle(const wchar_t* locale = 0) const {
 				return fAnalyze(cp::TestTitleCase{ locale });
 			}
 
 			/* test if the string is non-empty and case-folded using cp::TestFoldCase */
-			constexpr bool isFold(const char8_t* locale = 0) const {
+			constexpr bool isFold(const wchar_t* locale = 0) const {
 				return fAnalyze(cp::TestFoldCase{ locale });
 			}
 
@@ -390,7 +390,7 @@ namespace str {
 			}
 
 			/* test if the string is non-empty and is case-folded normalized (NFD) using cp::TestNormFold */
-			constexpr bool isINorm(const char8_t* locale = 0) const {
+			constexpr bool isINorm(const wchar_t* locale = 0) const {
 				return fAnalyze(cp::TestNormFold{ locale });
 			}
 
@@ -475,19 +475,19 @@ namespace str {
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(const str::AnyStr auto& str, const char8_t* locale = 0) const {
+			constexpr bool icompare(const str::AnyStr auto& str, const wchar_t* locale = 0) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, const char8_t* locale = 0) const {
+			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, const wchar_t* locale = 0) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2, const char8_t* locale = 0) const {
+			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2, const wchar_t* locale = 0) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::NormFold{ locale });
 			}
