@@ -11,6 +11,9 @@
 #include "str-helper.h"
 
 namespace str {
+	template <str::IsChar ChType, char32_t CodeError>
+	struct String;
+
 	namespace detail {
 		template <class ChType, class BaseType, char32_t CodeError, class SelfType>
 		struct UWrapper;
@@ -26,10 +29,18 @@ namespace str {
 		using Super::Super;
 		View(const std::basic_string_view<ChType>& v) : Super{ v } {}
 		View(std::basic_string_view<ChType>&& v) : Super{ v } {}
+
+	public:
 		template <char32_t OCodeError>
 		View(const str::View<ChType, OCodeError>& v) : Super{ v } {}
 		template <char32_t OCodeError>
 		View(str::View<ChType, OCodeError>&& v) : Super{ v } {}
+
+	public:
+		template <char32_t OCodeError>
+		View(const str::String<ChType, OCodeError>& v) : Super{ std::basic_string_view<ChType>{ v } } {}
+		template <char32_t OCodeError>
+		View(str::String<ChType, OCodeError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 	};
 	template <str::IsStr<char> Type>
 	View(Type) -> View<char, err::DefChar>;
@@ -50,12 +61,19 @@ namespace str {
 
 	public:
 		using Super::Super;
-		String(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		String(std::basic_string_view<ChType>&& v) : Super{ v } {}
+		explicit String(const std::basic_string_view<ChType>& v) : Super{ v } {}
+		explicit String(std::basic_string_view<ChType>&& v) : Super{ v } {}
+
+	public:
 		template <char32_t OCodeError>
 		String(const str::String<ChType, OCodeError>& v) : Super{ v } {}
 		template <char32_t OCodeError>
 		String(str::String<ChType, OCodeError>&& v) : Super{ v } {}
+
+	public:
+		constexpr operator str::View<ChType, CodeError>() const {
+			return str::View<ChType, CodeError>{ *static_cast<const std::basic_string<ChType>*>(this) };
+		}
 	};
 	template <str::IsStr<char> Type>
 	String(Type) -> String<char, err::DefChar>;

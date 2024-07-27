@@ -9,9 +9,9 @@ It includes functions to perform various unicode testing, segmentation, transfor
 The library consideres any object to be convertible to a `string_view` of any type as a valid string.
 
 ## Using the library
-This library is a header only library. Simply clone the repository, and include `<str-tools/str.h>`
+This library is a header only library. Simply clone the repository, and include `<unicode-string/str.h>`
 
-    $ git clone https://github.com/BjoernBoss/str-tools.git
+    $ git clone https://github.com/BjoernBoss/unicode-string.git
 
 ## Requirements for String Types
 The library does have some requirements for the underlying types, which are also checked statically.

@@ -135,7 +135,8 @@ namespace str {
 		}
 	};
 
-	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink */
+	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
+	*	Note: Must not outlive the sink object as it stores a reference to it */
 	template <str::AnySink SinkType>
 	struct Collect {
 	private:
@@ -171,7 +172,8 @@ namespace str {
 		constexpr void done() {}
 	};
 
-	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire */
+	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
+	*	Note: Must not outlive the sink or wire object as it stores a reference to it */
 	template <str::IsWire WiType, char32_t CodeError>
 	class WireOut {
 	private:
