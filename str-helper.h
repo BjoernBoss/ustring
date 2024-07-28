@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <iostream>
+#include <memory>
 
 namespace str {
 	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
@@ -140,10 +141,10 @@ namespace str {
 	template <str::AnySink SinkType>
 	struct Collect {
 	private:
-		SinkType&& pSink;
+		SinkType& pSink;
 
 	public:
-		constexpr Collect(SinkType&& sink) : pSink{ sink } {}
+		constexpr Collect(SinkType& sink) : pSink{ sink } {}
 
 	public:
 		constexpr void next(char32_t cp) {
@@ -152,9 +153,7 @@ namespace str {
 		constexpr void done() {}
 	};
 	template <class SinkType>
-	Collect(SinkType&) -> Collect<SinkType&>;
-	template <class SinkType>
-	Collect(SinkType&&) -> Collect<SinkType>;
+	Collect(SinkType&) -> Collect<SinkType>;
 
 	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object */
 	template <str::IsReceiver<char32_t> CallType>
@@ -178,11 +177,11 @@ namespace str {
 	class WireOut {
 	private:
 		str::ToWire<CodeError>& pWire;
-		WiType&& pSink;
+		WiType& pSink;
 
 	public:
-		WireOut(str::ToWire<CodeError>& wire, WiType&& sink) : pWire{ wire }, pSink{ sink } {}
-		WireOut(str::ToWire<CodeError>&& wire, WiType&& sink) : pWire{ wire }, pSink{ sink } {}
+		WireOut(str::ToWire<CodeError>& wire, WiType& sink) : pWire{ wire }, pSink{ sink } {}
+		WireOut(str::ToWire<CodeError>&& wire, WiType& sink) : pWire{ wire }, pSink{ sink } {}
 
 	public:
 		constexpr void write(const char32_t* str, size_t size) {
@@ -193,9 +192,28 @@ namespace str {
 		}
 	};
 	template <class WiType, char32_t CodeError>
-	WireOut(str::ToWire<CodeError>, WiType&) -> WireOut<WiType&, CodeError>;
-	template <class WiType, char32_t CodeError>
-	WireOut(str::ToWire<CodeError>, WiType&&) -> WireOut<WiType, CodeError>;
+	WireOut(str::ToWire<CodeError>, WiType&) -> WireOut<WiType, CodeError>;
+
+	/* [str::IsSink] structure to inherit from which can be used as a sink */
+	struct InheritSink {
+	public:
+		constexpr InheritSink() = default;
+		virtual ~InheritSink() = default;
+
+	public:
+		virtual void write(const char32_t* str, size_t size) = 0;
+		virtual void write(char32_t chr, size_t count) = 0;
+	};
+
+	/* [str::IsWire] structure to inherit from which can be used as a wire */
+	struct InheritWire {
+	public:
+		constexpr InheritWire() = default;
+		virtual ~InheritWire() = default;
+
+	public:
+		virtual void write(const uint8_t* str, size_t size) = 0;
+	};
 
 	/* specializations for char-writers */
 	template <class ChType>
@@ -256,6 +274,47 @@ namespace str {
 			sink.write(str, size);
 		}
 	};
+	template <>
+	struct CharWriter<str::InheritSink, char32_t> {
+		constexpr void operator()(str::InheritSink& sink, char32_t chr, size_t count) const {
+			sink.write(chr, count);
+		}
+		constexpr void operator()(str::InheritSink& sink, const char32_t* str, size_t size) const {
+			sink.write(str, size);
+		}
+	};
+
+	/* specializations to unpack various pointer types */
+	template <class Type>
+	struct CharWriter<std::unique_ptr<Type>, str::SinkChar<Type>> {
+		using ChType = str::SinkChar<Type>;
+		constexpr void operator()(std::unique_ptr<Type>& sink, ChType chr, size_t count) const {
+			str::CallSink<ChType>(*sink, chr, count);
+		}
+		constexpr void operator()(std::unique_ptr<Type>& sink, const ChType* str, size_t size) const {
+			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+		}
+	};
+	template <class Type>
+	struct CharWriter<std::shared_ptr<Type>, str::SinkChar<Type>> {
+		using ChType = str::SinkChar<Type>;
+		constexpr void operator()(std::shared_ptr<Type>& sink, ChType chr, size_t count) const {
+			str::CallSink<ChType>(*sink, chr, count);
+		}
+		constexpr void operator()(std::shared_ptr<Type>& sink, const ChType* str, size_t size) const {
+			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+		}
+	};
+	template <class Type>
+	struct CharWriter<Type*, str::SinkChar<Type>> {
+		using ChType = str::SinkChar<Type>;
+		constexpr void operator()(Type* sink, ChType chr, size_t count) const {
+			str::CallSink<ChType>(*sink, chr, count);
+		}
+		constexpr void operator()(Type* sink, const ChType* str, size_t size) const {
+			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+		}
+	};
 
 	/* specializations for byte-writers */
 	template <>
@@ -272,8 +331,34 @@ namespace str {
 	};
 	template <>
 	struct ByteWriter<str::Bytes> {
-		void operator()(str::Bytes& sink, const uint8_t* ptr, size_t size) const {
+		constexpr void operator()(str::Bytes& sink, const uint8_t* ptr, size_t size) const {
 			sink.write(ptr, size);
+		}
+	};
+	template <>
+	struct ByteWriter<str::InheritWire> {
+		constexpr void operator()(str::InheritWire& sink, const uint8_t* ptr, size_t size) const {
+			sink.write(ptr, size);
+		}
+	};
+
+	/* specializations to unpack various pointer types */
+	template <class Type>
+	struct ByteWriter<std::unique_ptr<Type>> {
+		constexpr void operator()(std::unique_ptr<Type>& sink, const uint8_t* ptr, size_t size) const {
+			str::CallWire(*sink, ptr, size);
+		}
+	};
+	template <class Type>
+	struct ByteWriter<std::shared_ptr<Type>> {
+		constexpr void operator()(std::shared_ptr<Type>& sink, const uint8_t* ptr, size_t size) const {
+			str::CallWire(*sink, ptr, size);
+		}
+	};
+	template <class Type>
+	struct ByteWriter<Type*> {
+		constexpr void operator()(Type* sink, const uint8_t* ptr, size_t size) const {
+			str::CallWire(*sink, ptr, size);
 		}
 	};
 }
