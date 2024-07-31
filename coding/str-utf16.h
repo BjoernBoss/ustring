@@ -63,7 +63,7 @@ namespace str {
 			if (cp < 0x10000) {
 				if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
 					return false;
-				str::CallSink<ChType>(sink, ChType(cp), 1);
+				str::CallSink(sink, ChType(cp), 1);
 				return true;
 			}
 			if (cp >= detail::UnicodeRange)
@@ -74,7 +74,7 @@ namespace str {
 			ChType out[detail::Utf16Len] = { 0 };
 			out[0] = static_cast<ChType>(detail::SurrogateFirst + (cp >> 10));
 			out[1] = static_cast<ChType>(detail::SurrogateUpper + (cp & 0x03ff));
-			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + 2 });
+			str::CallSink(sink, std::basic_string_view<ChType>{ out, out + 2 });
 			return true;
 		}
 		template <class ChType>

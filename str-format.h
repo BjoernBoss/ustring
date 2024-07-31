@@ -28,12 +28,12 @@ namespace str {
 			if (index > 0)
 				return detail::FormatIndex<ChType, Args...>(sink, index - 1, fmt, args...);
 			else
-				return (str::CallFormat<ChType>(sink, arg, fmt) ? 1 : 0);
+				return (str::CallFormat(sink, arg, fmt) ? 1 : 0);
 		}
 
 		template <class ChType, class Arg, class... Args>
 		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
-			str::CallFormat<ChType>(sink, arg, U"");
+			str::CallFormat(sink, arg, U"");
 			if constexpr (sizeof...(args) > 0)
 				detail::Append<ChType, Args...>(sink, args...);
 		}
@@ -105,7 +105,7 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	constexpr auto& FormatTo(str::AnySink auto&& sink, const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr auto& FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StrChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgValid : uint8_t {
@@ -211,15 +211,15 @@ namespace str {
 	}
 
 	/* format the arguments to an object of the given sink-type using str::FormatTo and return it */
-	template <str::AnySink SinkType>
-	constexpr SinkType Format(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	template <str::IsSink SinkType>
+	constexpr SinkType Format(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		SinkType sink{};
 		str::FormatTo(sink, fmt, args...);
 		return sink;
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
-	constexpr auto& BuildTo(str::AnySink auto&& sink, const str::IsFormattable auto&... args) {
+	constexpr auto& BuildTo(str::IsSink auto&& sink, const str::IsFormattable auto&... args) {
 		using ChType = str::SinkChar<decltype(sink)>;
 		if constexpr (sizeof...(args) > 0)
 			detail::Append<ChType>(sink, args...);
@@ -227,7 +227,7 @@ namespace str {
 	}
 
 	/* build the arguments to an object of the given sink-type using str::BuildTo and return it */
-	template <str::AnySink SinkType>
+	template <str::IsSink SinkType>
 	constexpr SinkType Build(const str::IsFormattable auto&... args) {
 		SinkType sink{};
 		str::BuildTo(sink, args...);
@@ -335,7 +335,7 @@ namespace str {
 		}
 
 		/* write the padded string out and apply the corresponding padding */
-		constexpr void WritePadded(str::AnySink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
+		constexpr void WritePadded(str::IsSink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
 			/* check if the string is smaller than the minimum and add the padding */
 			if (str.size() < padding.minimum) {
 				size_t diff = (padding.minimum - str.size());
@@ -534,7 +534,7 @@ namespace str {
 	*		[0]: Optional (if no alignment specified, to indicate null-padding)
 	*	[bBqQoOdDxX]: radix and casing */
 	template <str::IsInteger Type> struct Formatter<Type> {
-		constexpr bool operator()(str::AnySink auto& sink, Type val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -623,7 +623,7 @@ namespace str {
 	*		=> gG: FloatStyle::general
 	*		=> fF: FloatStyle::fixed */
 	template <str::IsFloat Type> struct Formatter<Type> {
-		constexpr bool operator()(str::AnySink auto& sink, Type val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -725,8 +725,8 @@ namespace str {
 	/*	Normal padding
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
-	template <str::AnyStr Type> struct Formatter<Type> {
-		constexpr bool operator()(str::AnySink auto& sink, const Type& t, const std::u32string_view& fmt) const {
+	template <str::IsStr Type> struct Formatter<Type> {
+		constexpr bool operator()(str::IsSink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the string-formatting */
@@ -776,7 +776,7 @@ namespace str {
 	/*	Normal padding
 	*	[uU]: uppercase */
 	template <> struct Formatter<void*> {
-		constexpr bool operator()(str::AnySink auto& sink, void* val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, void* val, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -805,7 +805,7 @@ namespace str {
 	/*	Normal padding
 	*	[sS]: as string (true/false vs True/False) */
 	template <> struct Formatter<bool> {
-		constexpr bool operator()(str::AnySink auto& sink, bool val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, bool val, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -836,27 +836,27 @@ namespace str {
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <> struct Formatter<char> {
-		constexpr bool operator()(str::AnySink auto& sink, char val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<wchar_t> {
-		constexpr bool operator()(str::AnySink auto& sink, wchar_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, wchar_t val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<wchar_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char8_t> {
-		constexpr bool operator()(str::AnySink auto& sink, char8_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char8_t val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char8_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char16_t> {
-		constexpr bool operator()(str::AnySink auto& sink, char16_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char16_t val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char16_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char32_t> {
-		constexpr bool operator()(str::AnySink auto& sink, char32_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char32_t val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char32_t>(sink, val, fmt);
 		}
 	};

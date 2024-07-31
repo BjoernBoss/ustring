@@ -25,6 +25,14 @@ namespace str {
 			constexpr void next(char32_t) {}
 			constexpr void done() {}
 		};
+
+		/* check what string-type the character is */
+		template <class Type> struct StrType { using type = void; };
+		template <std::convertible_to<std::string_view> Type> struct StrType<Type> { using type = char; };
+		template <std::convertible_to<std::wstring_view> Type> struct StrType<Type> { using type = wchar_t; };
+		template <std::convertible_to<std::u8string_view> Type> struct StrType<Type> { using type = char8_t; };
+		template <std::convertible_to<std::u16string_view> Type> struct StrType<Type> { using type = char16_t; };
+		template <std::convertible_to<std::u32string_view> Type> struct StrType<Type> { using type = char32_t; };
 	}
 
 	/* is type a supported character (not convertible, but exact type!) */
@@ -33,8 +41,9 @@ namespace str {
 
 	/* character writable interface which requires:
 	*	operator() to take the writable object and a character and a count (can be zero)
-	*	operator() to take the writable object and a pointer and a size */
-	template <class Type, class ChType>
+	*	operator() to take the writable object and a pointer and a size
+	*	ChType: the character type of the writer */
+	template <class Type>
 	struct CharWriter;
 
 	/* byte sink interface which requires:
@@ -48,19 +57,30 @@ namespace str {
 	template <class Type>
 	struct Formatter;
 
-	/* string is anything convertible to a string-view of the given char-type */
+	/* type is anything convertible to a string-view */
+	template <class Type>
+	concept IsStr = !std::is_void_v<typename detail::StrType<Type>::type>;
+
+	/* type is anything convertible to a string-view of the specific type */
 	template <class Type, class ChType>
-	concept IsStr = requires(const Type & t) {
-		{ t } -> std::convertible_to<std::basic_string_view<ChType>>;
+	concept IsChStr = std::convertible_to<Type, std::basic_string_view<ChType>>;
+
+	/* type is anything that implements the str::CharWriter interface */
+	template <class Type>
+	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
+		requires(Type & t, size_t sz) {
+		typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
+		str::CharWriter<std::remove_cvref_t<Type>>{}(t, std::declval<typename str::CharWriter<std::remove_cvref_t<Type>>::ChType>(), sz);
+		str::CharWriter<std::remove_cvref_t<Type>>{}(t, std::declval<const typename str::CharWriter<std::remove_cvref_t<Type>>::ChType*>(), sz);
 	};
 
-	/* type is anything that implements the str::CharWriter interface for the given char-type */
-	template <class Type, class ChType>
-	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
-		requires(Type & t, ChType chr, const ChType * str, size_t sz) {
-		str::CharWriter<std::remove_cvref_t<Type>, ChType>{}(t, chr, sz);
-		str::CharWriter<std::remove_cvref_t<Type>, ChType>{}(t, str, sz);
-	};
+	/* extract the character type of the type, which satisfies str::IsSink */
+	template <str::IsSink Type>
+	using SinkChar = typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
+
+	/* extract the character type of the type, which satisfies str::IsStr */
+	template <class Type>
+	using StrChar = typename detail::StrType<Type>::type;
 
 	/* type is anything that implements the str::ByteWriter interface */
 	template <class Type>
@@ -78,38 +98,6 @@ namespace str {
 		{ str::Formatter<std::remove_cvref_t<Type>>{}(u16s, val, fmt) } -> std::same_as<bool>;
 		{ str::Formatter<std::remove_cvref_t<Type>>{}(u32s, val, fmt) } -> std::same_as<bool>;
 	};
-
-	namespace detail {
-		template <class Type> struct StrType { using type = void; };
-		template <str::IsStr<char> Type> struct StrType<Type> { using type = char; };
-		template <str::IsStr<wchar_t> Type> struct StrType<Type> { using type = wchar_t; };
-		template <str::IsStr<char8_t> Type> struct StrType<Type> { using type = char8_t; };
-		template <str::IsStr<char16_t> Type> struct StrType<Type> { using type = char16_t; };
-		template <str::IsStr<char32_t> Type> struct StrType<Type> { using type = char32_t; };
-
-		template <class Type> struct SinkType { using type = void; };
-		template <str::IsSink<char> Type> struct SinkType<Type> { using type = char; };
-		template <str::IsSink<wchar_t> Type> struct SinkType<Type> { using type = wchar_t; };
-		template <str::IsSink<char8_t> Type> struct SinkType<Type> { using type = char8_t; };
-		template <str::IsSink<char16_t> Type> struct SinkType<Type> { using type = char16_t; };
-		template <str::IsSink<char32_t> Type> struct SinkType<Type> { using type = char32_t; };
-	}
-
-	/* string is str::IsStr for any valid character type */
-	template <class Type>
-	concept AnyStr = !std::is_void_v<typename detail::StrType<Type>::type>;
-
-	/* type is str::IsSink for any valid character type */
-	template <class Type>
-	concept AnySink = !std::is_void_v<typename detail::SinkType<Type>::type>;
-
-	/* extract the character type of the type, which satisfies str::AnyStr */
-	template <class Type>
-	using StrChar = typename detail::StrType<Type>::type;
-
-	/* extract the character type of the type, which satisfies str::AnySink */
-	template <class Type>
-	using SinkChar = typename detail::SinkType<Type>::type;
 
 	/* codepoint-iterator must move itself upon prev()/next() and return true or return false
 	*	(in which case it must stay) and must return the currently pointed to codepoint on get()
@@ -159,15 +147,13 @@ namespace str {
 	};
 
 	/* wrappers to interact with character-sinks */
-	template <str::IsChar ChType>
-	constexpr void CallSink(str::IsSink<ChType> auto&& sink, ChType chr, size_t count = 1) {
-		using Type = std::remove_cvref_t<decltype(sink)>;
-		str::CharWriter<Type, ChType>{}(sink, chr, count);
+	template <str::IsSink SinkType>
+	constexpr void CallSink(SinkType&& sink, str::SinkChar<SinkType> chr, size_t count = 1) {
+		str::CharWriter<std::remove_cvref_t<SinkType>>{}(sink, chr, count);
 	}
-	template <str::IsChar ChType>
-	constexpr void CallSink(str::IsSink<ChType> auto&& sink, const std::basic_string_view<ChType>& str) {
-		using Type = std::remove_cvref_t<decltype(sink)>;
-		str::CharWriter<Type, ChType>{}(sink, str.data(), str.size());
+	template <str::IsSink SinkType>
+	constexpr void CallSink(SinkType&& sink, const std::basic_string_view<str::SinkChar<SinkType>>& str) {
+		str::CharWriter<std::remove_cvref_t<SinkType>>{}(sink, str.data(), str.size());
 	}
 
 	/* wrapper to write to a byte-sink */
@@ -177,8 +163,7 @@ namespace str {
 	}
 
 	/* wrapper to interact with formatters */
-	template <class ChType>
-	constexpr bool CallFormat(str::IsSink<ChType> auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
+	constexpr bool CallFormat(str::IsSink auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
 		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
 	}
 

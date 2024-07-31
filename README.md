@@ -35,12 +35,11 @@ Disclaimer: while this should work in theory, at least in `Visual Studio 2019` u
 The library defines a set of concepts, which it frequently uses.
 
  - `str::IsChar` Check if the type is a supported character (`char`, `wchar_t`, ...)
- - `str::IsStr<T>` Check if the type can be converted to a `basic_string_view<T>`
- - `str::IsSink<T>` Check if the type specialized the str::CharWriter interface (used by all writing functions)
+ - `str::IsStr` Check if the type can be converted to a `string_view` (use `str::StrChar` to get the corresponding character-type)
+ - `str::IsChStr<T>` Check if the type can be converted to a `basic_string_view<T>`
+ - `str::IsSink` Check if the type specialized the str::CharWriter interface (used by all writing functions;  use `str::SinkChar` to get the corresponding character-type)
  - `str::IsWire` Check if the type specialized the str::ByteWriter interface (used for `str::ToWire`)
  - `str::IsFormattable` Check if the type specialized the str::Formatter interface
- - `str::AnyStr` Check if the type can be converted to a `basic_string_view` of any character-type (use `str::StrChar` to get the corresponding character-type)
- - `str::AnySink` Check if the type specialized the str::CharWriter of any character-type (use `str::SinkChar` to get the corresponding character-type)
  - `str::IsIterator` Check if the type is a codepoint iterator
  - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
  - `str::IsCollector` Check if the type has a `next(char32_t)` and `done()` method to act as recipient for transformed codepoints

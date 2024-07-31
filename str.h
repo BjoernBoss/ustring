@@ -18,19 +18,19 @@ namespace str {
 	using UView = str::View<char16_t, err::DefChar>;
 
 	/* convenience for fast formatting to std::cout */
-	constexpr void Fmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr void Fmt(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatTo(std::cout, fmt, args...);
 	}
-	constexpr void FmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr void FmtLn(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatTo(std::cout, fmt, args...);
 		std::cout << '\n';
 	}
 
 	/* convenience for fast formatting to std::wcout */
-	constexpr void WFmt(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr void WFmt(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatTo(std::wcout, fmt, args...);
 	}
-	constexpr void WFmtLn(const str::AnyStr auto& fmt, const str::IsFormattable auto&... args) {
+	constexpr void WFmtLn(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatTo(std::wcout, fmt, args...);
 		std::wcout << L'\n';
 	}

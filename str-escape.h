@@ -13,7 +13,8 @@
 *		\xhh (hh describing a hex-number from 00-ff interpreted as unicode-codepoint)
 *		\u{hhhh} (hhhh describing a hex-number from 0-10ffff interpreted as unicode-codepoint without leading nulls)
 *
-*	Escape sequences will be encoded out as single codepoints, not as one whole unit
+*	Escape sequences will be encoded out as single codepoints, not as one whole unit,
+*		as each codepoint in itself is a valid codepoint enocding
 */
 namespace str {
 	namespace detail {
@@ -227,14 +228,14 @@ namespace str {
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr auto& EscapeTo(str::AnySink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
+	constexpr auto& EscapeTo(str::IsSink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
 		detail::EscapeTo<CodeError>(sink, cp, compact, count);
 		return sink;
 	}
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)}
 	*	and write it to an object of the given sink-type using str::EscapeTo (compact is designed for one-liner strings) */
-	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
+	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
 	constexpr SinkType Escape(char32_t cp, bool compact = false, size_t count = 1) {
 		SinkType out{};
 		detail::EscapeTo<CodeError>(out, cp, compact, count);
@@ -244,7 +245,7 @@ namespace str {
 	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid
 	*	if the source is empty, otherwise at least consume one character at all times) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr str::Decoded GetEscaped(const str::AnyStr auto& source) {
+	constexpr str::Decoded GetEscaped(const str::IsStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
@@ -265,7 +266,7 @@ namespace str {
 	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid if the source
 	*	is empty or the next codepoint is incomplete, otherwise at least consume one character at all times) */
 	template <char32_t CodeError = err::DefChar>
-	constexpr str::Decoded PartialEscaped(const str::AnyStr auto& source) {
+	constexpr str::Decoded PartialEscaped(const str::IsStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		if (view.empty())
@@ -285,7 +286,7 @@ namespace str {
 
 	/* escape the entire source-string to the sink and return it */
 	template <char32_t CodeError = err::DefChar>
-	constexpr auto& EscapeAllTo(str::AnySink auto&& sink, const str::AnyStr auto& source, bool compact = false) {
+	constexpr auto& EscapeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source, bool compact = false) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -297,8 +298,8 @@ namespace str {
 	}
 
 	/* escape the entire source-string to an object of the given sink-type using str::EscapeAllTo and return it */
-	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
-	constexpr SinkType EscapeAll(const str::AnyStr auto& source, bool compact = false) {
+	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	constexpr SinkType EscapeAll(const str::IsStr auto& source, bool compact = false) {
 		SinkType out{};
 		str::EscapeAllTo<CodeError>(out, source, compact);
 		return out;
@@ -306,7 +307,7 @@ namespace str {
 
 	/* read the entire source-string as an escaped string and write it to the sink and return it */
 	template <char32_t CodeError = err::DefChar>
-	constexpr auto& AllEscapedTo(str::AnySink auto&& sink, const str::AnyStr auto& source) {
+	constexpr auto& AllEscapedTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
 		using ChType = str::StrChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -325,8 +326,8 @@ namespace str {
 
 	/* read the entire source-string as an escaped string and write it to an
 	*	object of the given sink-type using str::AllEscapedTo and return it */
-	template <str::AnySink SinkType, char32_t CodeError = err::DefChar>
-	constexpr SinkType AllEscaped(const str::AnyStr auto& source) {
+	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	constexpr SinkType AllEscaped(const str::IsStr auto& source) {
 		SinkType out{};
 		str::AllEscapedTo<CodeError>(out, source);
 		return out;

@@ -19,7 +19,7 @@ namespace str {
 		template <size_t Capacity> using SizeType = std::conditional_t<Capacity <= std::numeric_limits<uint64_t>::max(), detail::SizeType64OrLess<Capacity>, size_t>;
 	}
 
-	/* string-buffer overflow/underflow exception */
+	/* local string-buffer overflow/underflow exception */
 	struct LocalException : public std::runtime_error {
 		LocalException(const std::string& s) : runtime_error(s) {}
 	};
@@ -40,9 +40,8 @@ namespace str {
 
 	public:
 		constexpr Local() = default;
-		constexpr Local(const str::IsStr<ChType> auto& s) {
-			std::basic_string_view<ChType> _view{ s };
-			fAppend(_view.data(), _view.size());
+		constexpr Local(const std::basic_string_view<ChType>& s) {
+			fAppend(s.data(), s.size());
 		}
 		constexpr Local(const ChType* str, size_t sz) {
 			fAppend(str, sz);
@@ -78,19 +77,17 @@ namespace str {
 		}
 
 	public:
-		constexpr ThisType& operator+=(const str::IsStr<ChType> auto& s) {
-			std::basic_string_view<ChType> _view{ s };
-			fAppend(_view.data(), _view.size());
+		constexpr ThisType& operator+=(const std::basic_string_view<ChType>& s) {
+			fAppend(s.data(), s.size());
 			return *this;
 		}
 		constexpr ThisType& operator+=(ChType c) {
 			fAppend(c, 1);
 			return *this;
 		}
-		constexpr ThisType& operator=(const str::IsStr<ChType> auto& s) {
-			std::basic_string_view<ChType> _view{ s };
+		constexpr ThisType& operator=(const std::basic_string_view<ChType>& s) {
 			pSize = 0;
-			fAppend(_view.data(), _view.size());
+			fAppend(s.data(), s.size());
 			return *this;
 		}
 		constexpr ThisType& operator=(ChType c) {
@@ -112,10 +109,9 @@ namespace str {
 		constexpr std::basic_string<ChType> str() const {
 			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
 		}
-		constexpr ThisType& assign(const str::IsStr<ChType> auto& s) {
-			std::basic_string_view<ChType> _view{ s };
+		constexpr ThisType& assign(const std::basic_string_view<ChType>& s) {
 			pSize = 0;
-			fAppend(_view.data(), _view.size());
+			fAppend(s.data(), s.size());
 			return *this;
 		}
 		constexpr ThisType& assign(const ChType* str, size_t sz) {
@@ -128,9 +124,8 @@ namespace str {
 			fAppend(c, count);
 			return *this;
 		}
-		constexpr ThisType& append(const str::IsStr<ChType> auto& s) {
-			std::basic_string_view<ChType> _view{ s };
-			fAppend(_view.data(), _view.size());
+		constexpr ThisType& append(const std::basic_string_view<ChType>& s) {
+			fAppend(s.data(), s.size());
 			return *this;
 		}
 		constexpr ThisType& append(const ChType* str, size_t sz) {

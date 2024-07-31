@@ -138,7 +138,7 @@ namespace str {
 
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
 	*	Note: Must not outlive the sink object as it stores a reference to it */
-	template <str::AnySink SinkType>
+	template <str::IsSink SinkType>
 	struct Collect {
 	private:
 		SinkType& pSink;
@@ -216,8 +216,9 @@ namespace str {
 	};
 
 	/* specializations for char-writers */
-	template <class ChType>
-	struct CharWriter<std::basic_string<ChType>, ChType> {
+	template <class Type>
+	struct CharWriter<std::basic_string<Type>> {
+		using ChType = Type;
 		constexpr void operator()(std::basic_string<ChType>& sink, ChType chr, size_t count) const {
 			sink.append(count, chr);
 		}
@@ -225,8 +226,9 @@ namespace str {
 			sink.append(str, size);
 		}
 	};
-	template <class ChType, intptr_t Capacity>
-	struct CharWriter<str::Local<ChType, Capacity>, ChType> {
+	template <class Type, intptr_t Capacity>
+	struct CharWriter<str::Local<Type, Capacity>> {
+		using ChType = Type;
 		constexpr void operator()(str::Local<ChType, Capacity>& sink, ChType chr, size_t count) const {
 			sink.append(count, chr);
 		}
@@ -234,8 +236,9 @@ namespace str {
 			sink.append(str, size);
 		}
 	};
-	template <class ChType>
-	struct CharWriter<std::basic_ostream<ChType>, ChType> {
+	template <class Type>
+	struct CharWriter<std::basic_ostream<Type>> {
+		using ChType = Type;
 		constexpr void operator()(std::basic_ostream<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
@@ -244,8 +247,9 @@ namespace str {
 			sink.write(str, size);
 		}
 	};
-	template <class ChType>
-	struct CharWriter<str::NullChars<ChType>, ChType> {
+	template <class Type>
+	struct CharWriter<str::NullChars<Type>> {
+		using ChType = Type;
 		constexpr void operator()(str::NullChars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
@@ -254,8 +258,9 @@ namespace str {
 			sink.write(str, size);
 		}
 	};
-	template <class ChType>
-	struct CharWriter<str::Chars<ChType>, ChType> {
+	template <class Type>
+	struct CharWriter<str::Chars<Type>> {
+		using ChType = Type;
 		constexpr void operator()(str::Chars<ChType>& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
@@ -265,7 +270,8 @@ namespace str {
 		}
 	};
 	template <class WiType, char32_t CodeError>
-	struct CharWriter<str::WireOut<WiType, CodeError>, char32_t> {
+	struct CharWriter<str::WireOut<WiType, CodeError>> {
+		using ChType = char32_t;
 		constexpr void operator()(str::WireOut<WiType, CodeError>& sink, char32_t chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
@@ -275,7 +281,8 @@ namespace str {
 		}
 	};
 	template <>
-	struct CharWriter<str::InheritSink, char32_t> {
+	struct CharWriter<str::InheritSink> {
+		using ChType = char32_t;
 		constexpr void operator()(str::InheritSink& sink, char32_t chr, size_t count) const {
 			sink.write(chr, count);
 		}
@@ -286,33 +293,33 @@ namespace str {
 
 	/* specializations to unpack various pointer types */
 	template <class Type>
-	struct CharWriter<std::unique_ptr<Type>, str::SinkChar<Type>> {
+	struct CharWriter<std::unique_ptr<Type>> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(std::unique_ptr<Type>& sink, ChType chr, size_t count) const {
-			str::CallSink<ChType>(*sink, chr, count);
+			str::CallSink(*sink, chr, count);
 		}
 		constexpr void operator()(std::unique_ptr<Type>& sink, const ChType* str, size_t size) const {
-			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+			str::CallSink(*sink, std::basic_string_view<ChType>{ str, size });
 		}
 	};
 	template <class Type>
-	struct CharWriter<std::shared_ptr<Type>, str::SinkChar<Type>> {
+	struct CharWriter<std::shared_ptr<Type>> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(std::shared_ptr<Type>& sink, ChType chr, size_t count) const {
-			str::CallSink<ChType>(*sink, chr, count);
+			str::CallSink(*sink, chr, count);
 		}
 		constexpr void operator()(std::shared_ptr<Type>& sink, const ChType* str, size_t size) const {
-			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+			str::CallSink(*sink, std::basic_string_view<ChType>{ str, size });
 		}
 	};
 	template <class Type>
-	struct CharWriter<Type*, str::SinkChar<Type>> {
+	struct CharWriter<Type*> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(Type* sink, ChType chr, size_t count) const {
-			str::CallSink<ChType>(*sink, chr, count);
+			str::CallSink(*sink, chr, count);
 		}
 		constexpr void operator()(Type* sink, const ChType* str, size_t size) const {
-			str::CallSink<ChType>(*sink, std::basic_string_view<ChType>{ str, size });
+			str::CallSink(*sink, std::basic_string_view<ChType>{ str, size });
 		}
 	};
 

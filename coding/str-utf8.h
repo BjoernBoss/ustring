@@ -90,7 +90,7 @@ namespace str {
 		inline constexpr bool MakeUtf8(auto&& sink, char32_t cp) {
 			/* check if its a single character, which can just be pushed */
 			if (cp <= 0x7f) {
-				str::CallSink<ChType>(sink, ChType(cp), 1);
+				str::CallSink(sink, ChType(cp), 1);
 				return true;
 			}
 
@@ -122,7 +122,7 @@ namespace str {
 			}
 
 			/* write the string to the sink */
-			str::CallSink<ChType>(sink, std::basic_string_view<ChType>{ out, out + len });
+			str::CallSink(sink, std::basic_string_view<ChType>{ out, out + len });
 			return true;
 		}
 		template <class ChType>

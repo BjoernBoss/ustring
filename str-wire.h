@@ -242,11 +242,11 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& to(str::AnySink auto&& sink, const uint8_t* ptr, size_t size, bool sourceComplete = false) {
+		constexpr auto& to(str::IsSink auto&& sink, const uint8_t* ptr, size_t size, bool sourceComplete = false) {
 			fSinkInto(sink, ptr, size, sourceComplete);
 			return sink;
 		}
-		template <str::AnySink SinkType>
+		template <str::IsSink SinkType>
 		constexpr SinkType read(const uint8_t* ptr, size_t size, bool sourceComplete = false) {
 			SinkType out{};
 			fSinkInto(out, ptr, size, sourceComplete);
@@ -324,7 +324,7 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& write(str::IsWire auto&& sink, const str::AnyStr auto& string) {
+		constexpr auto& write(str::IsWire auto&& sink, const str::IsStr auto& string) {
 			using ChType = str::StrChar<decltype(string)>;
 			std::basic_string_view<ChType> view{ string };
 

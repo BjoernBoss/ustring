@@ -1496,7 +1496,7 @@ namespace str {
 	*		- with h any hex-digit, and d any decimal-digit
 	*/
 	template <str::IsNumber Type>
-	constexpr str::NumParseOut<Type> ParseNum(const str::AnyStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+	constexpr str::NumParseOut<Type> ParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
 		using ChType = str::StrChar<decltype(source)>;
 		str::NumParseOut<Type> out{};
 
@@ -1548,7 +1548,7 @@ namespace str {
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)
 	*	and return defRadix for invalid prefixes or the radix (prefixes: [0b/0q/0o/0d/0x]) */
 	template <str::IsNumber Type = unsigned>
-	constexpr size_t PeekPrefix(const str::AnyStr auto& source, size_t defRadix = 10) {
+	constexpr size_t PeekPrefix(const str::IsStr auto& source, size_t defRadix = 10) {
 		using ChType = str::StrChar<decltype(source)>;
 
 		/* check if the string is empty */
@@ -1582,7 +1582,7 @@ namespace str {
 	}
 
 	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
-	constexpr auto& IntTo(str::AnySink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr auto& IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* ensure the radix is valid and print the integer */
@@ -1595,7 +1595,7 @@ namespace str {
 	}
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
-	constexpr auto& FloatTo(str::AnySink auto&& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr auto& FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */
@@ -1611,7 +1611,7 @@ namespace str {
 	}
 
 	/* write the integer to an object of the given sink-type using str::IntTo and return it */
-	template <str::AnySink SinkType>
+	template <str::IsSink SinkType>
 	constexpr SinkType Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 		SinkType sink{};
 		str::IntTo(sink, num, radix, numStyle);
@@ -1619,7 +1619,7 @@ namespace str {
 	}
 
 	/* write the float to an object of the given sink-type using str::FloatTo and return it */
-	template <str::AnySink SinkType>
+	template <str::IsSink SinkType>
 	constexpr SinkType Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 		SinkType sink{};
 		str::FloatTo(sink, num, style, precision, radix, numStyle);

@@ -33,7 +33,7 @@ namespace str {
 				return false;
 			if (cp >= detail::UnicodeRange)
 				return false;
-			str::CallSink<ChType>(sink, ChType(cp), 1);
+			str::CallSink(sink, ChType(cp), 1);
 			return true;
 		}
 		template <class ChType>

@@ -42,15 +42,15 @@ namespace str {
 		template <char32_t OCodeError>
 		View(str::String<ChType, OCodeError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 	};
-	template <str::IsStr<char> Type>
+	template <str::IsChStr<char> Type>
 	View(Type) -> View<char, err::DefChar>;
-	template <str::IsStr<wchar_t> Type>
+	template <str::IsChStr<wchar_t> Type>
 	View(Type) -> View<wchar_t, err::DefChar>;
-	template <str::IsStr<char8_t> Type>
+	template <str::IsChStr<char8_t> Type>
 	View(Type) -> View<char8_t, err::DefChar>;
-	template <str::IsStr<char16_t> Type>
+	template <str::IsChStr<char16_t> Type>
 	View(Type) -> View<char16_t, err::DefChar>;
-	template <str::IsStr<char32_t> Type>
+	template <str::IsChStr<char32_t> Type>
 	View(Type) -> View<char32_t, err::DefChar>;
 
 	/* wrap std::string to support the extended unicode-operations */
@@ -75,15 +75,15 @@ namespace str {
 			return str::View<ChType, CodeError>{ *static_cast<const std::basic_string<ChType>*>(this) };
 		}
 	};
-	template <str::IsStr<char> Type>
+	template <str::IsChStr<char> Type>
 	String(Type) -> String<char, err::DefChar>;
-	template <str::IsStr<wchar_t> Type>
+	template <str::IsChStr<wchar_t> Type>
 	String(Type) -> String<wchar_t, err::DefChar>;
-	template <str::IsStr<char8_t> Type>
+	template <str::IsChStr<char8_t> Type>
 	String(Type) -> String<char8_t, err::DefChar>;
-	template <str::IsStr<char16_t> Type>
+	template <str::IsChStr<char16_t> Type>
 	String(Type) -> String<char16_t, err::DefChar>;
-	template <str::IsStr<char32_t> Type>
+	template <str::IsChStr<char32_t> Type>
 	String(Type) -> String<char32_t, err::DefChar>;
 
 	namespace detail {
@@ -253,7 +253,7 @@ namespace str {
 			}
 
 			/* convert the string to the corrsponding string-type */
-			template <str::AnySink SinkType>
+			template <str::IsSink SinkType>
 			constexpr SinkType to() const {
 				return str::TranscodeAll<SinkType, CodeError>(fBase());
 			}
@@ -270,7 +270,7 @@ namespace str {
 			}
 
 			/* convert the string to the corresponding string-type but as an escaped string */
-			template <str::AnySink SinkType>
+			template <str::IsSink SinkType>
 			constexpr SinkType escape(bool compact = false) const {
 				return str::EscapeAll<SinkType, CodeError>(fBase(), compact);
 			}
@@ -457,37 +457,37 @@ namespace str {
 
 		public:
 			/* perform a normalized comparison of this string and the other string */
-			constexpr bool ucompare(const str::AnyStr auto& str) const {
+			constexpr bool ucompare(const str::IsStr auto& str) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::Decompose{});
 			}
 
 			/* perform a normalized comparison of this string and the other string */
-			constexpr bool ucompare(size_t pos1, size_t count1, const str::AnyStr auto& str) const {
+			constexpr bool ucompare(size_t pos1, size_t count1, const str::IsStr auto& str) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::Decompose{});
 			}
 
 			/* perform a normalized comparison of this string and the other string */
-			constexpr bool ucompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2) const {
+			constexpr bool ucompare(size_t pos1, size_t count1, const str::IsStr auto& str, size_t pos2, size_t count2) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::Decompose{});
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(const str::AnyStr auto& str, const std::wstring_view& locale = {}) const {
+			constexpr bool icompare(const str::IsStr auto& str, const std::wstring_view& locale = {}) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, const std::wstring_view& locale = {}) const {
+			constexpr bool icompare(size_t pos1, size_t count1, const str::IsStr auto& str, const std::wstring_view& locale = {}) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
-			constexpr bool icompare(size_t pos1, size_t count1, const str::AnyStr auto& str, size_t pos2, size_t count2, const std::wstring_view& locale = {}) const {
+			constexpr bool icompare(size_t pos1, size_t count1, const str::IsStr auto& str, size_t pos2, size_t count2, const std::wstring_view& locale = {}) const {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::NormFold{ locale });
 			}
@@ -499,7 +499,7 @@ namespace str {
 			}
 
 			/* apply all of the transformations in nested order and write the result to an object of the given type and return it */
-			template <str::AnySink SinkType>
+			template <str::IsSink SinkType>
 			constexpr SinkType transform(const str::IsMapper auto&... mapper) {
 				SinkType out{};
 				fApply(str::Collect(out), mapper...);
@@ -524,7 +524,7 @@ namespace str {
 			}
 
 			/* apply all of the transformations in nested order to this string and the other string and compare the two transformed outputs */
-			constexpr bool transformEqual(const str::AnyStr auto& str, const str::IsMapper auto&... mapper) {
+			constexpr bool transformEqual(const str::IsStr auto& str, const str::IsMapper auto&... mapper) {
 				using OChType = str::StrChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, mapper...);
 			}
@@ -561,8 +561,9 @@ namespace str {
 	}
 
 	/* specializations for char-writers to support String */
-	template <class ChType, char32_t CodeError>
-	struct CharWriter<str::String<ChType, CodeError>, ChType> {
+	template <class Type, char32_t CodeError>
+	struct CharWriter<str::String<Type, CodeError>> {
+		using ChType = Type;
 		constexpr void operator()(str::String<ChType, CodeError>& sink, ChType chr, size_t count) const {
 			sink.append(count, chr);
 		}

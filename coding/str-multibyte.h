@@ -127,7 +127,7 @@ namespace str {
 			else {
 				/* fast-path for ascii-characters */
 				if (str::CharHoldsAscii && uint32_t(cp) <= detail::AsciiRange) {
-					str::CallSink<char>(sink, char(cp), 1);
+					str::CallSink(sink, char(cp), 1);
 					return true;
 				}
 
@@ -155,9 +155,9 @@ namespace str {
 
 				/* write the characters to the sink (res should never be zero) */
 				if (res == 1)
-					str::CallSink<char>(sink, char(buf[0]), 1);
+					str::CallSink(sink, char(buf[0]), 1);
 				else
-					str::CallSink<char>(sink, buf);
+					str::CallSink(sink, buf);
 				return true;
 			}
 		}
