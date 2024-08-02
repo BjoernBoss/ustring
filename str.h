@@ -6,9 +6,9 @@
 #include "str-coding.h"
 #include "str-string.h"
 #include "str-format.h"
-#include "str-helper.h"
 #include "str-wire.h"
 #include "str-escape.h"
+#include "str-specializations.h"
 
 namespace str {
 	/* default string-type to be used [utf-16] */

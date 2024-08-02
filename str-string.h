@@ -8,9 +8,43 @@
 #include "unicode/cp-segmentation.h"
 #include "str-coding.h"
 #include "str-escape.h"
-#include "str-helper.h"
 
 namespace str {
+	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
+	*	Note: Must not outlive the sink object as it stores a reference to it */
+	template <str::IsSink SinkType>
+	struct Collect {
+	private:
+		SinkType& pSink;
+
+	public:
+		constexpr Collect(SinkType& sink) : pSink{ sink } {}
+
+	public:
+		constexpr void next(char32_t cp) {
+			str::CodepointTo(pSink, cp, 1);
+		}
+		constexpr void done() {}
+	};
+	template <class SinkType>
+	Collect(SinkType&) -> Collect<SinkType>;
+
+	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object */
+	template <str::IsReceiver<char32_t> CallType>
+	struct ForEach {
+	private:
+		CallType pSink;
+
+	public:
+		constexpr ForEach(CallType&& sink) : pSink{ std::forward<CallType>(sink) } {}
+
+	public:
+		constexpr void next(char32_t cp) {
+			pSink(cp);
+		}
+		constexpr void done() {}
+	};
+
 	template <str::IsChar ChType, char32_t CodeError>
 	struct String;
 
@@ -19,7 +53,7 @@ namespace str {
 		struct UWrapper;
 	}
 
-	/* wrap std::string_view to support the extended unicode-operations */
+	/* [str::IsStr] wrap std::string_view to support the extended unicode-operations */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
 	struct View : public detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::View<ChType, CodeError>> {
 	private:
@@ -53,7 +87,7 @@ namespace str {
 	template <str::IsChStr<char32_t> Type>
 	View(Type) -> View<char32_t, err::DefChar>;
 
-	/* wrap std::string to support the extended unicode-operations */
+	/* [str::IsStr/str::IsSink] wrap std::string to support the extended unicode-operations */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
 	struct String : public detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::String<ChType, CodeError>> {
 	private:
@@ -559,16 +593,4 @@ namespace str {
 			}
 		};
 	}
-
-	/* specializations for char-writers to support String */
-	template <class Type, char32_t CodeError>
-	struct CharWriter<str::String<Type, CodeError>> {
-		using ChType = Type;
-		constexpr void operator()(str::String<ChType, CodeError>& sink, ChType chr, size_t count) const {
-			sink.append(count, chr);
-		}
-		constexpr void operator()(str::String<ChType, CodeError>& sink, const ChType* str, size_t size) const {
-			sink.append(str, size);
-		}
-	};
 }

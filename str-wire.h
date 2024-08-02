@@ -242,14 +242,24 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& to(str::IsSink auto&& sink, const uint8_t* ptr, size_t size, bool sourceComplete = false) {
-			fSinkInto(sink, ptr, size, sourceComplete);
+		constexpr auto& readTo(str::IsSink auto&& sink, const str::Data& data) {
+			fSinkInto(sink, data.ptr, data.size, false);
 			return sink;
 		}
 		template <str::IsSink SinkType>
-		constexpr SinkType read(const uint8_t* ptr, size_t size, bool sourceComplete = false) {
+		constexpr SinkType read(const str::Data& data) {
 			SinkType out{};
-			fSinkInto(out, ptr, size, sourceComplete);
+			fSinkInto(out, data, false);
+			return out;
+		}
+		constexpr auto& lastTo(str::IsSink auto&& sink, const str::Data& data) {
+			fSinkInto(sink, data.ptr, data.size, true);
+			return sink;
+		}
+		template <str::IsSink SinkType>
+		constexpr SinkType last(const str::Data& data) {
+			SinkType out{};
+			fSinkInto(out, data, true);
 			return out;
 		}
 	};
@@ -286,14 +296,14 @@ namespace str {
 			/* check if an ascii-encoded character should be written out */
 			if constexpr (AsciiMode) {
 				str::Escaped<char8_t> enc = str::Escape<str::Escaped<char8_t>, CodeError>(cp, false, 1);
-				str::CallWire(sink, reinterpret_cast<const uint8_t*>(enc.data()), enc.size());
+				str::CallWire(sink, { reinterpret_cast<const uint8_t*>(enc.data()), enc.size() });
 			}
 			else {
 				str::Encoded<WiType> enc = str::Codepoint<str::Encoded<WiType>, CodeError>(cp, 1);
 
 				/* check if the data can be written out directly or apply the byte-order */
 				if constexpr (sizeof(WiType) == 1)
-					str::CallWire(sink, reinterpret_cast<const uint8_t*>(enc.data()), enc.size());
+					str::CallWire(sink, { reinterpret_cast<const uint8_t*>(enc.data()), enc.size() });
 				else {
 					uint8_t buf[str::MaxEncBytes<WiType>] = { 0 };
 					size_t off = 0;
@@ -301,7 +311,7 @@ namespace str {
 						fToBytes<WiType, LittleEndian>(buf + off, enc[i]);
 						off += sizeof(WiType);
 					}
-					str::CallWire(sink, buf, off);
+					str::CallWire(sink, { buf, off });
 				}
 			}
 		}
@@ -344,4 +354,44 @@ namespace str {
 			return sink;
 		}
 	};
+
+	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
+	*	Note: Must not outlive target-wire as it stores a reference to it */
+	template <str::IsWire Type, char32_t CodeError = err::DefChar>
+	class WireOut {
+		friend struct CharWriter<str::WireOut<Type, CodeError>>;
+	private:
+		Type& pSink;
+		str::ToWire<CodeError> pWire;
+
+	public:
+		WireOut(Type& sink, const str::ToWire<CodeError>& wire = {}) : pSink{ sink }, pWire{ wire } {}
+
+	public:
+		constexpr void write(const std::u32string_view& s) {
+			pWire.write(pSink, s);
+		}
+		constexpr void put(char32_t c) {
+			pWire.write(pSink, std::u32string_view{ &c, 1 });
+		}
+	};
+	template <class Type, char32_t CodeError>
+	WireOut(Type&, str::ToWire<CodeError>) -> str::WireOut<Type, CodeError>;
+
+	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
+	*	Note: Must not outlive the source as it may store a reference to it */
+	template <str::IsSource Type, char32_t CodeError = err::DefChar>
+	class WireIn {
+		friend struct str::CharStream<str::WireIn<Type, CodeError>>;
+	private:
+		str::Source<Type> pSource;
+		str::FromWire<CodeError> pWire;
+		std::u32string pBuffer;
+		std::u32string_view pView;
+
+	public:
+		WireIn(Type& source, const str::FromWire<CodeError>& wire = {}) : pSource{ source }, pWire{ wire } {}
+	};
+	template <class Type, char32_t CodeError>
+	WireIn(Type&, str::FromWire<CodeError>) -> str::WireIn<Type, CodeError>;
 }

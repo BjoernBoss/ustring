@@ -37,8 +37,10 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsChar` Check if the type is a supported character (`char`, `wchar_t`, ...)
  - `str::IsStr` Check if the type can be converted to a `string_view` (use `str::StrChar` to get the corresponding character-type)
  - `str::IsChStr<T>` Check if the type can be converted to a `basic_string_view<T>`
- - `str::IsSink` Check if the type specialized the str::CharWriter interface (used by all writing functions;  use `str::SinkChar` to get the corresponding character-type)
- - `str::IsWire` Check if the type specialized the str::ByteWriter interface (used for `str::ToWire`)
+ - `str::IsSink` Check if the type specialized the `str::CharWriter` interface (used by all writing functions;  use `str::SinkChar` to get the corresponding character-type)
+ - `str::IsWire` Check if the type specialized the `str::ByteWriter` interface (used for `str::ToWire`)
+ - `str::IsStream` Check if the type specialized the `str::CharStream` interface (used for character streaming such as `str::WireIn`)
+ - `str::IsSource` Check if the type specialized the `str::ByteSource` interface (used for byte streaming such as for `str::WireIn`)
  - `str::IsFormattable` Check if the type specialized the str::Formatter interface
  - `str::IsIterator` Check if the type is a codepoint iterator
  - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
@@ -101,13 +103,23 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
     y.write(someFile, U" some other string");
 ```
 
-Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object.
+Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object. Similarly, `str::WireIn` exists to create a character-stream from a byte-source and immediately transcoding the characters.
 
 ```C++
     str::ofstream someFile = /* ... */;
-    str::ToWire wire{ str::WireCoding::utf16le };
 
-    str::FormatTo(str::WireOut{ wire, someFile }, "abc: {:#0{}x}\n", 12345, 19);
+    str::FormatTo(str::WireOut{ someFile, str::ToWire{ str::WireCoding::utf16le } }, "abc: {:#0{}x}\n", 12345, 19);
+```
+
+### [str::Stream, str::Source](str-common.h)
+The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
+
+```C++
+    str::Stream stream{ u8"Some-String" };
+    while (!stream.done()) {
+        str::OutLn(stream.load(64));
+        stream.consume();
+    }
 ```
 
 ### [str::Iterator](str-coding.h)
