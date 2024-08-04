@@ -335,7 +335,7 @@ namespace str {
 
 	public:
 		constexpr auto& write(str::IsWire auto&& sink, const str::IsStr auto& string) {
-			using ChType = str::StrChar<decltype(string)>;
+			using ChType = str::StringChar<decltype(string)>;
 			std::basic_string_view<ChType> view{ string };
 
 			/* pass the data to the proper handler (will automatically write the BOM if necessary) */
@@ -355,6 +355,20 @@ namespace str {
 		}
 	};
 
+	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
+	*	Note: Must not outlive the source as it may store a reference to it */
+	template <str::IsSource Type, char32_t CodeError = err::DefChar>
+	class WireIn {
+		friend struct str::CharStream<str::WireIn<Type, CodeError>>;
+	private:
+		str::Source<Type> pSource;
+		str::WireCoding pCoding;
+		str::BOMMode pMode;
+
+	public:
+		WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
+	};
+
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
 	*	Note: Must not outlive target-wire as it stores a reference to it */
 	template <str::IsWire Type, char32_t CodeError = err::DefChar>
@@ -365,7 +379,7 @@ namespace str {
 		str::ToWire<CodeError> pWire;
 
 	public:
-		WireOut(Type& sink, const str::ToWire<CodeError>& wire = {}) : pSink{ sink }, pWire{ wire } {}
+		WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
 
 	public:
 		constexpr void write(const std::u32string_view& s) {
@@ -375,23 +389,4 @@ namespace str {
 			pWire.write(pSink, std::u32string_view{ &c, 1 });
 		}
 	};
-	template <class Type, char32_t CodeError>
-	WireOut(Type&, str::ToWire<CodeError>) -> str::WireOut<Type, CodeError>;
-
-	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: Must not outlive the source as it may store a reference to it */
-	template <str::IsSource Type, char32_t CodeError = err::DefChar>
-	class WireIn {
-		friend struct str::CharStream<str::WireIn<Type, CodeError>>;
-	private:
-		str::Source<Type> pSource;
-		str::FromWire<CodeError> pWire;
-		std::u32string pBuffer;
-		std::u32string_view pView;
-
-	public:
-		WireIn(Type& source, const str::FromWire<CodeError>& wire = {}) : pSource{ source }, pWire{ wire } {}
-	};
-	template <class Type, char32_t CodeError>
-	WireIn(Type&, str::FromWire<CodeError>) -> str::WireIn<Type, CodeError>;
 }

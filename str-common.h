@@ -172,14 +172,6 @@ namespace str {
 		str::CharWriter<std::remove_cvref_t<Type>>{}(t, std::declval<const std::basic_string_view<typename str::CharWriter<std::remove_cvref_t<Type>>::ChType>&>());
 	};
 
-	/* extract the character type of the type, which satisfies str::IsSink */
-	template <str::IsSink Type>
-	using SinkChar = typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
-
-	/* extract the character type of the type, which satisfies str::IsStr */
-	template <class Type>
-	using StrChar = typename detail::StrType<Type>::type;
-
 	/* type is anything that implements the str::ByteWriter interface
 	*	operator(const str::Data&) to write the corresponding data */
 	template <class Type>
@@ -202,10 +194,6 @@ namespace str {
 		{ str::CharStream<std::remove_cvref_t<Type>>{ t }.done() } -> std::same_as<bool>;
 	};
 
-	/* extract the character type of the type, which satisfies str::IsStream */
-	template <str::IsStream Type>
-	using StreamChar = typename str::CharStream<std::remove_cvref_t<Type>>::ChType;
-
 	/* check if the type specializes str::ByteSource accordingly and defines all necessary operations
 	*	Note: May keep a reference to the source object
 	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them
@@ -217,6 +205,18 @@ namespace str {
 		{ str::ByteSource<std::remove_cvref_t<Type>>{ t }.consume(i) } -> std::same_as<void>;
 		{ str::ByteSource<std::remove_cvref_t<Type>>{ t }.done() } -> std::same_as<bool>;
 	};
+
+	/* extract the character type of the type, which satisfies str::IsSink */
+	template <str::IsSink Type>
+	using SinkChar = typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
+
+	/* extract the character type of the type, which satisfies str::IsStr */
+	template <class Type>
+	using StringChar = typename detail::StrType<Type>::type;
+
+	/* extract the character type of the type, which satisfies str::IsStream */
+	template <str::IsStream Type>
+	using StreamChar = typename str::CharStream<std::remove_cvref_t<Type>>::ChType;
 
 	/* type is anything that implements thr str::Formatter interface */
 	template <class Type>
@@ -297,7 +297,9 @@ namespace str {
 	}
 
 	/* [str::IsStream] stream-reader to interact with a char-stream
-	*	Note: Must not outlive the stream object as it may store a reference to it */
+	*	Note: Must not outlive the stream object as it may store a reference to it
+	*	Important: Stream-object may build up state around the source-stream, which already extracts more
+	*	than requested and therefore source-streams should be passed around as str::Stream-objects */
 	template <str::IsStream Type>
 	class Stream {
 	private:
@@ -311,6 +313,7 @@ namespace str {
 
 	public:
 		constexpr Stream(Type& s) : pSource{ s } {}
+		constexpr Stream(Type&& s) : pSource{ std::forward<Type>(s) } {}
 
 	public:
 		constexpr std::basic_string_view<ChType> load(size_t count) {
@@ -325,7 +328,9 @@ namespace str {
 	};
 
 	/* [str::IsSource] source-reader to interact with a byte-source
-	*	Note: Must not outlive the source object as it may store a reference to it */
+	*	Note: Must not outlive the source object as it may store a reference to it
+	*	Important: Stream-object may build up state around the source, which already extracts more
+	*	than requested and therefore sources should be passed around as str::Source-objects */
 	template <str::IsSource Type>
 	class Source {
 	private:
@@ -336,6 +341,7 @@ namespace str {
 
 	public:
 		constexpr Source(Type& s) : pSource{ s } {}
+		constexpr Source(Type&& s) : pSource{ std::forward<Type>(s) } {}
 
 	public:
 		constexpr str::Data load(size_t count) {
@@ -581,18 +587,16 @@ namespace str {
 			return pBuffer;
 		}
 	};
-
-	/* convenience for fast usage */
 	template <intptr_t Capacity>
-	using LocCh = str::Local<char, Capacity>;
+	using LocalCh = str::Local<char, Capacity>;
 	template <intptr_t Capacity>
-	using LocWd = str::Local<wchar_t, Capacity>;
+	using LocalWd = str::Local<wchar_t, Capacity>;
 	template <intptr_t Capacity>
-	using LocU8 = str::Local<char8_t, Capacity>;
+	using LocalU8 = str::Local<char8_t, Capacity>;
 	template <intptr_t Capacity>
-	using LocU16 = str::Local<char16_t, Capacity>;
+	using LocalU16 = str::Local<char16_t, Capacity>;
 	template <intptr_t Capacity>
-	using LocU32 = str::Local<char32_t, Capacity>;
+	using LocalU32 = str::Local<char32_t, Capacity>;
 
 	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
 	template <str::IsChar ChType>

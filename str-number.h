@@ -1497,7 +1497,7 @@ namespace str {
 	*/
 	template <str::IsNumber Type>
 	constexpr str::NumParseOut<Type> ParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 		str::NumParseOut<Type> out{};
 
 		/* check if the string is empty */
@@ -1549,7 +1549,7 @@ namespace str {
 	*	and return defRadix for invalid prefixes or the radix (prefixes: [0b/0q/0o/0d/0x]) */
 	template <str::IsNumber Type = unsigned>
 	constexpr size_t PeekPrefix(const str::IsStr auto& source, size_t defRadix = 10) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 
 		/* check if the string is empty */
 		std::basic_string_view<ChType> view{ source };

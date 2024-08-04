@@ -35,7 +35,7 @@ Disclaimer: while this should work in theory, at least in `Visual Studio 2019` u
 The library defines a set of concepts, which it frequently uses.
 
  - `str::IsChar` Check if the type is a supported character (`char`, `wchar_t`, ...)
- - `str::IsStr` Check if the type can be converted to a `string_view` (use `str::StrChar` to get the corresponding character-type)
+ - `str::IsStr` Check if the type can be converted to a `string_view` (use `str::StringChar` to get the corresponding character-type)
  - `str::IsChStr<T>` Check if the type can be converted to a `basic_string_view<T>`
  - `str::IsSink` Check if the type specialized the `str::CharWriter` interface (used by all writing functions;  use `str::SinkChar` to get the corresponding character-type)
  - `str::IsWire` Check if the type specialized the `str::ByteWriter` interface (used for `str::ToWire`)
@@ -52,7 +52,7 @@ The library defines a set of concepts, which it frequently uses.
 ## Standard Functionality
 The standard string functionality lies in the namespace `str` for all string-related operations.
 
-To allow local strings from being used, `str::Local<class CharType, ssize_t Capacity>` is provided, which allows to create a string on the stack of the given character type and the given capacity.
+To allow local strings from being used, `str::Local<class CharType, ssize_t Capacity>` is provided, which allows to create a string on the stack of the given character type and the given capacity. For convenience, `str::LocalCh` / `str::LocalWd` / ... has been defined for each corresponding character type.
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
@@ -103,12 +103,12 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
     y.write(someFile, U" some other string");
 ```
 
-Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object. Similarly, `str::WireIn` exists to create a character-stream from a byte-source and immediately transcoding the characters.
+Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object. Similarly, `str::WireIn` exists to create a character-stream from a byte-source and immediately transcode the characters.
 
 ```C++
     str::ofstream someFile = /* ... */;
 
-    str::FormatTo(str::WireOut{ someFile, str::ToWire{ str::WireCoding::utf16le } }, "abc: {:#0{}x}\n", 12345, 19);
+    str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
 ### [str::Stream, str::Source](str-common.h)
@@ -121,6 +121,8 @@ The `str::Stream` object creates a wrapper around a type, which implements the c
         stream.consume();
     }
 ```
+
+The `str::Convert` wrapper implements a stream, which allows to create a stream, which transcodes any source stream to a stream of the given character type. For convenice `str::ConvertCh` / `str::ConvertWd` / ... has been defined.
 
 ### [str::Iterator](str-coding.h)
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:

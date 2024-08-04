@@ -227,7 +227,7 @@ namespace str {
 		}
 	};
 
-	/* specializations to allow for interactions between str::Stream */
+	/* specializations for character streams */
 	template <str::IsStream Type>
 	struct CharStream<str::Stream<Type>> {
 		using ChType = str::StreamChar<Type>;
@@ -248,8 +248,6 @@ namespace str {
 			return pStream.done();
 		}
 	};
-
-	/* specializations for character streams */
 	template <str::IsChStr<char> Type>
 	struct CharStream<Type> {
 		using ChType = char;
@@ -355,54 +353,118 @@ namespace str {
 		using ChType = char32_t;
 		static constexpr size_t BytesPerIteration = 256;
 	private:
-		str::WireIn<Type, CodeError>& pStream;
+		str::Source<Type>& pSource;
+		str::FromWire<CodeError> pWire;
+		std::u32string pBuffer;
+		std::u32string_view pView;
 
 	public:
-		constexpr CharStream(str::WireIn<Type, CodeError>& s) : pStream{ s } {}
+		constexpr CharStream(str::WireIn<Type, CodeError>& s) : pSource{ s.pSource }, pWire{ s.pCoding, s.pMode } {}
+		constexpr CharStream(str::WireIn<Type, CodeError>&& s) : pSource{ s.pSource }, pWire{ s.pCoding, s.pMode } {}
 
 	public:
 		constexpr std::u32string_view load(size_t count) {
 			/* check if the capacity is already available */
-			if (count <= pStream.pView.size())
-				return pStream.pView;
+			if (count <= pView.size())
+				return pView;
 
 			/* check if the offset should be reset */
-			size_t offset = (pStream.pView.empty() ? 0 : pStream.pView.data() - pStream.pBuffer.data());
-			if (offset > pStream.pView.size()) {
-				pStream.pBuffer = pStream.pBuffer.substr(offset);
+			size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
+			if (offset > pView.size()) {
+				pBuffer = pBuffer.substr(offset);
 				offset = 0;
 			}
 			else
 				count += offset;
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
-			while (pStream.pBuffer.size() < count) {
-				str::Data data = pStream.pSource.load(BytesPerIteration);
+			while (pBuffer.size() < count) {
+				str::Data data = pSource.load(BytesPerIteration);
 
 				/* feed the data through the wire and consume them from the source */
-				pStream.pWire.readTo(pStream.pBuffer, data);
-				pStream.pSource.consume(data.size);
+				pWire.readTo(pBuffer, data);
+				pSource.consume(data.size);
 
 				/* check if the end has been reached */
 				if (data.size >= BytesPerIteration)
 					continue;
-				pStream.pWire.lastTo(pStream.pBuffer, {});
+				pWire.lastTo(pBuffer, {});
 				break;
 			}
 
 			/* update the view */
-			pStream.pView = std::u32string_view{ pStream.pBuffer }.substr(offset);
-			return pStream.pView;
+			pView = std::u32string_view{ pBuffer }.substr(offset);
+			return pView;
 		}
 		constexpr void consume(size_t count) {
-			pStream.pView = pStream.pView.substr(std::min<size_t>(count, pStream.pView.size()));
+			pView = pView.substr(std::min<size_t>(count, pView.size()));
 		}
 		constexpr bool done() const {
-			return (pStream.pView.empty() && pStream.pSource.done());
+			return (pView.empty() && pSource.done());
+		}
+	};
+	template <class DChType, class Type, char32_t CodeError>
+	struct CharStream<str::Convert<DChType, Type, CodeError>> {
+		using ChType = DChType;
+		using SChType = str::StreamChar<Type>;
+		static constexpr size_t CharsPerIteration = 64;
+	private:
+		str::Stream<Type>& pStream;
+		std::basic_string<DChType> pBuffer;
+		std::basic_string_view<DChType> pView;
+		bool pClosed = false;
+
+	public:
+		constexpr CharStream(str::Convert<DChType, Type, CodeError>& s) : pStream{ s.pStream } {}
+		constexpr CharStream(str::Convert<DChType, Type, CodeError>&& s) : pStream{ s.pStream } {}
+
+	public:
+		constexpr std::basic_string_view<ChType> load(size_t count) {
+			/* check if the capacity is already available or if the source is closed */
+			if (count <= pView.size() || pClosed)
+				return pView;
+			count = std::max<size_t>(count, CharsPerIteration);
+
+			/* check if the offset should be reset */
+			size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
+			if (offset > pView.size()) {
+				pBuffer = pBuffer.substr(offset);
+				offset = 0;
+			}
+			else
+				count += offset;
+
+			/* iterate until the given number of characters has been produced or until the end has been reached */
+			while (pBuffer.size() < count) {
+				auto [cp, consumed] = str::PartialTranscode<DChType, CodeError>(pStream.load(str::MaxEncSize<SChType>));
+
+				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
+				if (consumed == 0) {
+					auto [cp, consumed] = str::GetTranscode<DChType, CodeError>(pStream.load(str::MaxEncSize<SChType>));
+					pStream.consume(consumed);
+					pBuffer.append(cp);
+					pClosed = true;
+					break;
+				}
+
+				/* write the actual codepoint out to the buffer and consume it */
+				pStream.consume(consumed);
+				pBuffer.append(cp);
+			}
+
+			/* update the view */
+			pView = std::u32string_view{ pBuffer }.substr(offset);
+			return pView;
+		}
+		constexpr void consume(size_t count) {
+			pView = pView.substr(std::min<size_t>(count, pView.size()));
+		}
+		constexpr bool done() const {
+			return (pView.empty() && pStream.done());
 		}
 	};
 
-	/* specializations to allow for interactions between str::Source */
+	/* specializations for byte streams */
 	template <str::IsSource Type>
 	struct ByteSource<str::Source<Type>> {
 	private:
@@ -422,8 +484,6 @@ namespace str {
 			return pSource.done();
 		}
 	};
-
-	/* specializations for byte streams */
 	template <std::convertible_to<str::Data> Type>
 	struct ByteSource<Type> {
 	private:
@@ -450,14 +510,15 @@ namespace str {
 		std::istream& pStream;
 		std::vector<uint8_t> pBuffer;
 		str::Data pData;
+		bool pClosed = false;
 
 	public:
 		constexpr ByteSource(Type& s) : pStream{ s } {}
 
 	public:
 		constexpr str::Data load(size_t count) {
-			/* check if the capacity is already available */
-			if (count <= pData.size)
+			/* check if the capacity is already available or if the source is done */
+			if (count <= pData.size || pClosed)
 				return pData;
 			count = std::max<size_t>(count, MinBytesToLoad);
 
@@ -472,7 +533,9 @@ namespace str {
 			/* setup the data-object and read the actual data from the stream */
 			uint8_t* data = pBuffer.data() + offset;
 			pStream.read(reinterpret_cast<char*>(data), count);
-			pData = { data, pData.size + pStream.gcount() };
+			count = pStream.gcount();
+			pData = { data, pData.size + count };
+			pClosed = (count == 0);
 			return pData;
 		}
 		constexpr void consume(size_t count) {

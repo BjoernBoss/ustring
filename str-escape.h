@@ -151,6 +151,23 @@ namespace str {
 			return { str::Invalid, out.consumed };
 		}
 
+		template <class ChType, char32_t CodeError, bool AllowIncomplete>
+		constexpr str::Decoded SingleEscaped(const std::basic_string_view<ChType>& view) {
+			if (view.empty())
+				return {};
+			str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
+
+			/* check if an error occurred and the codepoint should either be replaced or an exception raised */
+			if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
+				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
+					if constexpr (CodeError == err::Throw)
+						throw str::CodingException("Escaped codepoint could not be decoded");
+					dec.cp = CodeError;
+				}
+			}
+			return dec;
+		}
+
 		template <char32_t CodeError>
 		constexpr inline void EscapeTo(auto&& sink, char32_t cp, bool compact, size_t count) {
 			const char32_t* escaped = 0;
@@ -242,52 +259,30 @@ namespace str {
 		return out;
 	}
 
-	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid
-	*	if the source is empty, otherwise at least consume one character at all times) */
+	/* parse the escape-sequence in the style as produced by str::EscapeTo (return consumed null
+	*	if the source is empty and otherwise consume at all times at least one character and return
+	*	str::Invalid on errors, if CodeError does not define alternative behavior) */
 	template <char32_t CodeError = err::DefChar>
 	constexpr str::Decoded GetEscaped(const str::IsStr auto& source) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
-			return {};
-		str::Decoded dec = detail::ParseEscaped<ChType, false>(view);
-
-		/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-		if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
-			if (dec.cp == str::Invalid) {
-				if constexpr (CodeError == err::Throw)
-					throw str::CodingException("Invalid codepoint encountered in str::GetEscaped");
-				dec.cp = CodeError;
-			}
-		}
-		return dec;
+		return detail::SingleEscaped<ChType, CodeError, false>(view);
 	}
 
-	/* parse the escape-sequence in the style as produced by str::EscapeTo (return str::Invalid if the source
-	*	is empty or the next codepoint is incomplete, otherwise at least consume one character at all times) */
+	/* parse the escape-sequence in the style as produced by str::EscapeTo (return consumed null if the
+	*	source is empty or the next codepoint is incomplete and otherwise consume at all times at least
+	*	one character and return str::Invalid on errors, if CodeError does not define alternative behavior) */
 	template <char32_t CodeError = err::DefChar>
 	constexpr str::Decoded PartialEscaped(const str::IsStr auto& source) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
-			return {};
-		str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
-
-		/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-		if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
-			if (dec.cp == str::Invalid && dec.consumed > 0) {
-				if constexpr (CodeError == err::Throw)
-					throw str::CodingException("Invalid codepoint encountered in str::PartialEscaped");
-				dec.cp = CodeError;
-			}
-		}
-		return dec;
+		return detail::SingleEscaped<ChType, CodeError, true>(view);
 	}
 
 	/* escape the entire source-string to the sink and return it */
 	template <char32_t CodeError = err::DefChar>
 	constexpr auto& EscapeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source, bool compact = false) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		/* iterate over the codepoints and escape them all to the sink */
@@ -308,7 +303,7 @@ namespace str {
 	/* read the entire source-string as an escaped string and write it to the sink and return it */
 	template <char32_t CodeError = err::DefChar>
 	constexpr auto& AllEscapedTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
-		using ChType = str::StrChar<decltype(source)>;
+		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		while (!view.empty()) {

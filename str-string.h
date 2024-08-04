@@ -492,37 +492,37 @@ namespace str {
 		public:
 			/* perform a normalized comparison of this string and the other string */
 			constexpr bool ucompare(const str::IsStr auto& str) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::Decompose{});
 			}
 
 			/* perform a normalized comparison of this string and the other string */
 			constexpr bool ucompare(size_t pos1, size_t count1, const str::IsStr auto& str) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::Decompose{});
 			}
 
 			/* perform a normalized comparison of this string and the other string */
 			constexpr bool ucompare(size_t pos1, size_t count1, const str::IsStr auto& str, size_t pos2, size_t count2) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::Decompose{});
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
 			constexpr bool icompare(const str::IsStr auto& str, const std::wstring_view& locale = {}) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
 			constexpr bool icompare(size_t pos1, size_t count1, const str::IsStr auto& str, const std::wstring_view& locale = {}) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }, cp::NormFold{ locale });
 			}
 
 			/* perform a case-insensitive normalized comparison of this string and the other string */
 			constexpr bool icompare(size_t pos1, size_t count1, const str::IsStr auto& str, size_t pos2, size_t count2, const std::wstring_view& locale = {}) const {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }.substr(pos1, count1), std::basic_string_view<OChType>{ str }.substr(pos2, count2), cp::NormFold{ locale });
 			}
 
@@ -559,7 +559,7 @@ namespace str {
 
 			/* apply all of the transformations in nested order to this string and the other string and compare the two transformed outputs */
 			constexpr bool transformEqual(const str::IsStr auto& str, const str::IsMapper auto&... mapper) {
-				using OChType = str::StrChar<decltype(str)>;
+				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, mapper...);
 			}
 

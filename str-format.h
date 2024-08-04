@@ -106,7 +106,7 @@ namespace str {
 
 	/* format the arguments into the sink, based on the formatting-string */
 	constexpr auto& FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
-		using FmtType = str::StrChar<decltype(fmt)>;
+		using FmtType = str::StringChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgValid : uint8_t {
 			valid,
@@ -505,7 +505,7 @@ namespace str {
 				return true;
 
 			/* create the temporary buffer containing the single codepoint */
-			str::LocU32<str::MaxEscapeSize> buffer;
+			str::LocalU32<str::MaxEscapeSize> buffer;
 			if (escape && (ascii || !cp::prop::IsPrint(cp)))
 				str::EscapeTo(buffer, cp, true);
 			else
@@ -567,7 +567,7 @@ namespace str {
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::LocU32<4> prefix;
+				str::LocalU32<4> prefix;
 				detail::NumPreambleInto<Type>(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
@@ -679,7 +679,7 @@ namespace str {
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::LocU32<4> prefix;
+				str::LocalU32<4> prefix;
 				detail::NumPreambleInto(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
@@ -747,7 +747,7 @@ namespace str {
 			/* write the string to an intermediate buffer */
 			std::u32string buffer;
 			if (escape) {
-				using ChType = str::StrChar<Type>;
+				using ChType = str::StringChar<Type>;
 				std::basic_string_view<ChType> view{ t };
 
 				/* extract all separate characters */
@@ -791,7 +791,7 @@ namespace str {
 				return false;
 
 			/* construct the output-string */
-			str::LocU32<sizeof(void*) * 2> buffer;
+			str::LocalU32<sizeof(void*) * 2> buffer;
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
 			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
