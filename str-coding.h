@@ -516,6 +516,7 @@ namespace str {
 
 	public:
 		Convert(Type& stream) : pStream{ stream } {}
+		Convert(Type&& stream) : pStream{ stream } {}
 	};
 	template <str::IsStream Type, char32_t CodeError = err::DefChar>
 	using ConvertCh = str::Convert<char, Type, CodeError>;

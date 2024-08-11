@@ -122,7 +122,7 @@ The `str::Stream` object creates a wrapper around a type, which implements the c
     }
 ```
 
-The `str::Convert` wrapper implements a stream, which allows to create a stream, which transcodes any source stream to a stream of the given character type. For convenice `str::ConvertCh` / `str::ConvertWd` / ... has been defined.
+The `str::Convert` wrapper implements a stream, which allows to create a stream, which transcodes any source stream to a stream of the given character type. For convenice `str::ConvertCh` / `str::ConvertWd` / ... has been defined. The `str::LimitStream` and `str::LimitSource` wrapper implement a source or stream, which limits the number of tokens to be consumed.
 
 ### [str::Iterator](str-coding.h)
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:

@@ -5,10 +5,10 @@
 #include "str-number.h"
 #include "str-coding.h"
 #include "str-string.h"
-#include "str-format.h"
 #include "str-wire.h"
 #include "str-escape.h"
 #include "str-specializations.h"
+#include "str-format.h"
 
 namespace str {
 	/* default string-type to be used [utf-16] */

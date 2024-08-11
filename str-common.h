@@ -747,4 +747,32 @@ namespace str {
 	public:
 		virtual void write(const str::Data& d) = 0;
 	};
+
+	/* [str::IsStream] wrapper to create a stream which reads at most count-number of characters from the stream
+	*	Note: Must not outlive the stream as it may store a reference to it */
+	template <str::IsStream Type>
+	class LimitStream {
+		friend struct str::CharStream<str::LimitStream<Type>>;
+	private:
+		str::Stream<Type> pStream;
+		size_t pCount = 0;
+
+	public:
+		LimitStream(Type& stream, size_t count) : pStream{ stream }, pCount{ count } {}
+		LimitStream(Type&& stream, size_t count) : pStream{ stream }, pCount{ count } {}
+	};
+
+	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
+	*	Note: Must not outlive the source as it may store a reference to it */
+	template <str::IsSource Type>
+	class LimitSource {
+		friend struct str::ByteSource<str::LimitSource<Type>>;
+	private:
+		str::Source<Type> pSource;
+		size_t pCount = 0;
+
+	public:
+		LimitSource(Type& source, size_t count) : pSource{ source }, pCount{ count } {}
+		LimitSource(Type&& source, size_t count) : pSource{ source }, pCount{ count } {}
+	};
 }

@@ -367,6 +367,7 @@ namespace str {
 
 	public:
 		WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
+		WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
 	};
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire

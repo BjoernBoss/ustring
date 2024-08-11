@@ -236,6 +236,7 @@ namespace str {
 
 	public:
 		constexpr CharStream(str::Stream<Type>& s) : pStream{ s } {}
+		constexpr CharStream(str::Stream<Type>&& s) : pStream{ s } {}
 
 	public:
 		constexpr std::basic_string_view<ChType> load(size_t count) {
@@ -346,6 +347,31 @@ namespace str {
 		}
 		constexpr bool done() const {
 			return pView.empty();
+		}
+	};
+	template <class Type>
+	struct CharStream<str::LimitStream<Type>> {
+		using ChType = str::StreamChar<Type>;
+	private:
+		str::Stream<Type>& pStream;
+		size_t pCount = 0;
+
+	public:
+		constexpr CharStream(str::LimitStream<Type>& s) : pStream{ s.pStream }, pCount{ s.pCount } {}
+		constexpr CharStream(str::LimitStream<Type>&& s) : pStream{ s.pStream }, pCount{ s.pCount } {}
+
+	public:
+		constexpr std::u32string_view load(size_t count) {
+			std::u32string_view str = pStream.load(std::min<size_t>(count, pCount));
+			return (str.size() > pCount ? str.substr(0, pCount) : str);
+		}
+		constexpr void consume(size_t count) {
+			count = std::min<size_t>(count, pCount);
+			pCount -= count;
+			pStream.consume(count);
+		}
+		constexpr bool done() const {
+			return (pCount == 0 || pStream.done());
 		}
 	};
 	template <class Type, char32_t CodeError>
@@ -472,6 +498,7 @@ namespace str {
 
 	public:
 		constexpr ByteSource(str::Source<Type>& s) : pSource{ s } {}
+		constexpr ByteSource(str::Source<Type>&& s) : pSource{ s } {}
 
 	public:
 		constexpr str::Data load(size_t count) {
@@ -514,6 +541,7 @@ namespace str {
 
 	public:
 		constexpr ByteSource(Type& s) : pStream{ s } {}
+		constexpr ByteSource(Type&& s) : pStream{ s } {}
 
 	public:
 		constexpr str::Data load(size_t count) {
@@ -543,6 +571,30 @@ namespace str {
 		}
 		constexpr bool done() const {
 			return (pData.empty() && pStream.eof());
+		}
+	};
+	template <class Type>
+	struct ByteSource<str::LimitSource<Type>> {
+	private:
+		str::Source<Type>& pSource;
+		size_t pCount = 0;
+
+	public:
+		constexpr ByteSource(str::LimitSource<Type>& s) : pSource{ s.pSource }, pCount{ s.pCount } {}
+		constexpr ByteSource(str::LimitSource<Type>&& s) : pSource{ s.pSource }, pCount{ s.pCount } {}
+
+	public:
+		constexpr str::Data load(size_t count) {
+			str::Data data = pSource.load(std::min<size_t>(count, pCount));
+			return str::Data{ data.ptr, std::min<size_t>(data.size, pCount) };
+		}
+		constexpr void consume(size_t count) {
+			count = std::min<size_t>(count, pCount);
+			pCount -= count;
+			pSource.consume(count);
+		}
+		constexpr bool done() const {
+			return (pCount == 0 || pSource.done());
 		}
 	};
 }
