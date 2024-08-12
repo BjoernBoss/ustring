@@ -75,8 +75,13 @@ namespace str {
 		fixed = fixedTrim
 	};
 
+	struct ParsedNum {
+		size_t consumed = 0;
+		str::NumResult result = str::NumResult::empty;
+	};
+
 	template <str::IsNumber Type>
-	struct NumParseOut {
+	struct ParsedNumValue {
 		Type value = 0;
 		size_t consumed = 0;
 		str::NumResult result = str::NumResult::empty;
@@ -714,22 +719,22 @@ namespace str {
 		}
 
 		template <class Type, class ChType>
-		constexpr str::NumParseOut<Type> ParseInteger(const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
+		constexpr str::ParsedNum ParseInteger(Type& num, const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
 			str::Decoded dec = str::GetAscii<err::Nothing>(view);
 			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<Type, ChType>(view, radix, dec, negative);
 
 			/* check if an overflow occurred and setup the overflow value */
-			str::NumParseOut<Type> out{};
 			if (!overflow)
-				out.value = value;
+				num = value;
 			else if (std::is_signed_v<Type> && negative)
-				value = std::numeric_limits<Type>::min();
+				num = std::numeric_limits<Type>::min();
 			else
-				value = std::numeric_limits<Type>::max();
+				num = std::numeric_limits<Type>::max();
 
 			/* finalize the output structure (string cannot be empty, or will only be empty if a prefix
 			*	has already been parsed, in which case the empty string will be considered an error as well) */
+			str::ParsedNum out{};
 			out.consumed = totalConsumed;
 			if (totalConsumed == 0)
 				out.result = str::NumResult::invalid;
@@ -882,7 +887,7 @@ namespace str {
 							out.mantissa = (uMantissa << (32 - out.shift)) | (uint64_t(uint32_t(lMantissa)) >> out.shift);
 
 							/* mark the value as closed as any additional information will not affect the
-							*	accumulated mantissa and update the trailiing-flag for the discarded bits */
+							*	accumulated mantissa and update the trailing-flag for the discarded bits */
 							valueClosed = true;
 							out.trailIsNonNull = ((lMantissa & ~(~uint64_t(0) << out.shift)) != 0);
 						}
@@ -1011,7 +1016,7 @@ namespace str {
 		}
 
 		template <class Type, class ChType>
-		constexpr str::NumParseOut<Type> ParseFloat(const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
+		constexpr str::ParsedNum ParseFloat(Type& num, const std::basic_string_view<ChType>& view, size_t radix, bool negative, bool hexFloat) {
 			using Limits = std::numeric_limits<Type>;
 
 			/* validate the float-type is usable (to ensure the exponent cannot trigger any overflow in the power-operations) */
@@ -1027,14 +1032,17 @@ namespace str {
 			detail::SpecialOut special = detail::ParseFloatSpecial<ChType>(view, radix, dec);
 			if (special.consumed > 0) {
 				Type value = (special.nan ? (Limits::has_quiet_NaN ? Limits::quiet_NaN() : Limits::signaling_NaN()) : Limits::infinity());
-				return str::NumParseOut<Type>{ (negative ? -value : value), special.consumed, str::NumResult::valid };
+				num = (negative ? -value : value);
+				return str::ParsedNum{ special.consumed, str::NumResult::valid };
 			}
 
 			/* parse the mantissa and check if an error occurred (ignore range errors for now; radix will already be 16 for hex-floats) */
 			detail::MantissaOut mantissa = detail::ParseFloatMantissa<ChType>(view, radix, dec);
 			totalConsumed += mantissa.consumed;
-			if (mantissa.invalid)
-				return str::NumParseOut<Type>{ (negative ? -Type(0) : Type(0)), totalConsumed, str::NumResult::invalid };
+			if (mantissa.invalid) {
+				num = (negative ? -Type(0) : Type(0));
+				return str::ParsedNum{ totalConsumed, str::NumResult::invalid };
+			}
 
 			/* check if an exponent has been detected and parse it */
 			detail::ExponentOut exponent;
@@ -1044,8 +1052,10 @@ namespace str {
 				/* parse the exponent and check if an error occurred */
 				exponent = detail::ParseFloatExponent<ChType>(view.substr(totalConsumed), (hexFloat ? 10 : radix), dec);
 				totalConsumed += exponent.consumed;
-				if (exponent.invalid)
-					return str::NumParseOut<Type>{ (negative ? -Type(0) : Type(0)), totalConsumed, str::NumResult::invalid };
+				if (exponent.invalid) {
+					num = (negative ? -Type(0) : Type(0));
+					return str::ParsedNum{ totalConsumed, str::NumResult::invalid };
+				}
 			}
 
 			/* check if a range-error occurred */
@@ -1066,8 +1076,10 @@ namespace str {
 				range = (exponent.exponent < 0 ? -1 : 1);
 
 			/* check if the mantissa is null, in which case any range-errors are ignored */
-			if (mantissa.mantissa == 0)
-				return str::NumParseOut<Type>{ Type(), totalConsumed, str::NumResult::valid};
+			if (mantissa.mantissa == 0) {
+				num = 0;
+				return str::ParsedNum{ totalConsumed, str::NumResult::valid };
+			}
 
 			/* construct the final float value */
 			if (range == 0) {
@@ -1075,16 +1087,16 @@ namespace str {
 
 				/* check if a valid result has been found and return it */
 				if (result.second == 0) {
-					if (negative)
-						result.first = -result.first;
-					return str::NumParseOut<Type>{ result.first, totalConsumed, str::NumResult::valid };
+					num = (negative ? -result.first : result.first);
+					return str::ParsedNum{ totalConsumed, str::NumResult::valid };
 				}
 				range = result.second;
 			}
 
 			/* setup the range-error value and return the response */
 			Type value = (range < 0 ? Type(0.0) : Limits::infinity());
-			return str::NumParseOut<Type>{ (negative ? -value : value), totalConsumed, str::NumResult::range };
+			num = (negative ? -value : value);
+			return str::ParsedNum{ totalConsumed, str::NumResult::range };
 		}
 
 		constexpr void FlushFloatDigits(auto& sink, char32_t digit, size_t count, intptr_t& digitsBeforePoint) {
@@ -1483,7 +1495,7 @@ namespace str {
 	}
 
 	/*
-	*	Parse the integer/float with an optional leading sign and optional prefix for the radix (prefixes: [0b/0q/0o/0d/0x])
+	*	Parse the next integer/float with an optional leading sign and optional prefix for the radix (prefixes: [0b/0q/0o/0d/0x])
 	*	Use the radix for the mantissa, exponent, and base of floats. (Use str::HexFloat-radix to parse hex-floats)
 	*		=> Fox hex-floats, overwrite/detect-prefix modes will be mapped to the other modes
 	*
@@ -1496,14 +1508,16 @@ namespace str {
 	*		- with h any hex-digit, and d any decimal-digit
 	*/
 	template <str::IsNumber Type>
-	constexpr str::NumParseOut<Type> ParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+	constexpr str::ParsedNum ParseNumTo(const str::IsStr auto& source, Type& num, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
 		using ChType = str::StringChar<decltype(source)>;
-		str::NumParseOut<Type> out{};
+		str::ParsedNum out{};
 
 		/* check if the string is empty */
 		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
+		if (view.empty()) {
+			num = 0;
 			return out;
+		}
 
 		/* ensure the radix is valid (set it even for hex-floats in order to ensure the prefix is parsed correctly) */
 		bool hexFloat = (radix == str::HexFloat);
@@ -1522,6 +1536,7 @@ namespace str {
 		if (prefix == str::PrefixMode::mandatory || prefix == str::PrefixMode::detect) {
 			if (prefixParsed.prefixConsumed == 0 || (prefix == str::PrefixMode::mandatory && prefixParsed.radix != radix)) {
 				out.result = str::NumResult::invalid;
+				num = 0;
 				return out;
 			}
 
@@ -1538,11 +1553,19 @@ namespace str {
 
 		/* parse the integer or float and add the sign/prefix consumed characters to the overall consumed characters */
 		if constexpr (std::is_integral_v<Type>)
-			out = detail::ParseInteger<Type, ChType>(view.substr(prefixSize), radix, prefixParsed.negative);
+			out = detail::ParseInteger<Type, ChType>(num, view.substr(prefixSize), radix, prefixParsed.negative);
 		else
-			out = detail::ParseFloat<Type, ChType>(view.substr(prefixSize), radix, prefixParsed.negative, hexFloat);
+			out = detail::ParseFloat<Type, ChType>(num, view.substr(prefixSize), radix, prefixParsed.negative, hexFloat);
 		out.consumed += prefixSize;
 		return out;
+	}
+
+	/* parse the next integer/float using str::ParseNumTo and return it as one structure */
+	template <str::IsNumber Type>
+	constexpr str::ParsedNumValue<Type> ParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+		Type num = 0;
+		auto [consumed, result] = str::ParseNumTo<Type>(source, num, radix, prefix);
+		return str::ParsedNumValue<Type>{ num, consumed, result };
 	}
 
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)

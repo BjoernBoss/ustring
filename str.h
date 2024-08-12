@@ -9,6 +9,10 @@
 #include "str-escape.h"
 #include "str-specializations.h"
 #include "str-format.h"
+#include "unicode/cp-casing.h"
+#include "unicode/cp-normalization.h"
+#include "unicode/cp-property.h"
+#include "unicode/cp-segmentation.h"
 
 namespace str {
 	/* default string-type to be used [utf-16] */
