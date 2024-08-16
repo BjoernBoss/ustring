@@ -243,7 +243,7 @@ namespace str {
 
 	public:
 		constexpr auto& readTo(str::IsSink auto&& sink, const str::Data& data) {
-			fSinkInto(sink, data.ptr, data.size, false);
+			fSinkInto(sink, data.data(), data.size(), false);
 			return sink;
 		}
 		template <str::IsSink SinkType>
@@ -253,7 +253,7 @@ namespace str {
 			return out;
 		}
 		constexpr auto& lastTo(str::IsSink auto&& sink, const str::Data& data) {
-			fSinkInto(sink, data.ptr, data.size, true);
+			fSinkInto(sink, data.data(), data.size(), true);
 			return sink;
 		}
 		template <str::IsSink SinkType>
@@ -352,42 +352,6 @@ namespace str {
 			else
 				fProcess<ChType, char8_t, false, true>(sink, view);
 			return sink;
-		}
-	};
-
-	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: Must not outlive the source as it may store a reference to it */
-	template <str::IsSource Type, char32_t CodeError = err::DefChar>
-	class WireIn {
-		friend struct str::CharStream<str::WireIn<Type, CodeError>>;
-	private:
-		str::Source<Type> pSource;
-		str::WireCoding pCoding;
-		str::BOMMode pMode;
-
-	public:
-		WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
-		WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
-	};
-
-	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
-	*	Note: Must not outlive target-wire as it stores a reference to it */
-	template <str::IsWire Type, char32_t CodeError = err::DefChar>
-	class WireOut {
-		friend struct CharWriter<str::WireOut<Type, CodeError>>;
-	private:
-		Type& pSink;
-		str::ToWire<CodeError> pWire;
-
-	public:
-		WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
-
-	public:
-		constexpr void write(const std::u32string_view& s) {
-			pWire.write(pSink, s);
-		}
-		constexpr void put(char32_t c) {
-			pWire.write(pSink, std::u32string_view{ &c, 1 });
 		}
 	};
 }

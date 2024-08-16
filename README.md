@@ -9,9 +9,9 @@ It includes functions to perform various unicode testing, segmentation, transfor
 The library consideres any object to be convertible to a `string_view` of any type as a valid string.
 
 ## Using the library
-This library is a header only library. Simply clone the repository, and include `<unicode-string/str.h>`
+This library is a header only library. Simply clone the repository, and include `<ustring/str.h>`
 
-    $ git clone https://github.com/BjoernBoss/unicode-string.git
+    $ git clone https://github.com/BjoernBoss/ustring.git
 
 ## Requirements for String Types
 The library does have some requirements for the underlying types, which are also checked statically.
@@ -74,7 +74,7 @@ The number functions can parse any kind of number and produce float or integer-s
     float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
-### [str::Format, str::Build, str::Fmt, str::Out](str-format.h)
+### [str::Format, str::Build](str-format.h), [str::Fmt, str::Out](str.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
@@ -111,7 +111,7 @@ Note: For convenience, `str::WireOut` exists as valid sink to feed the string ou
     str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
-### [str::Stream, str::Source](str-common.h)
+### [str::Stream, str::Source](str-helper.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
 
 ```C++

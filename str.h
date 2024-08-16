@@ -2,10 +2,12 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
+#include "str-local.h"
 #include "str-number.h"
 #include "str-coding.h"
 #include "str-string.h"
 #include "str-wire.h"
+#include "str-helper.h"
 #include "str-escape.h"
 #include "str-specializations.h"
 #include "str-format.h"

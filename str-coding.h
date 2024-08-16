@@ -432,7 +432,8 @@ namespace str {
 
 	/* decode a single codepoint from the source and return it (return consumed null if the source is empty or
 	*	the next codepoint is incomplete and otherwise consume at all times at least one character and return
-	*	str::Invalid on errors, if CodeError does not define alternative behavior) */
+	*	str::Invalid on errors, if CodeError does not define alternative behavior; will not return incomplete
+	*	if MaxSize number of characters are provided) */
 	template <char32_t CodeError = err::DefChar>
 	constexpr str::Decoded PartialCodepoint(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
@@ -505,27 +506,4 @@ namespace str {
 		str::TranscodeAllTo<CodeError>(out, source);
 		return out;
 	}
-
-	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to the target character-type
-	*	Note: Must not outlive the source as it may store a reference to it */
-	template <str::IsChar ChType, str::IsStream Type, char32_t CodeError = err::DefChar>
-	struct Convert {
-		friend struct str::CharStream<str::Convert<ChType, Type, CodeError>>;
-	private:
-		str::Stream<Type> pStream;
-
-	public:
-		Convert(Type& stream) : pStream{ stream } {}
-		Convert(Type&& stream) : pStream{ stream } {}
-	};
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertCh = str::Convert<char, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertWd = str::Convert<wchar_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU8 = str::Convert<char8_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU16 = str::Convert<char16_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU32 = str::Convert<char32_t, Type, CodeError>;
 }

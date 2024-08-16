@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../str-common.h"
+#include "../str-local.h"
 
 #include "str-utf8.h"
 #include "str-wide.h"
@@ -56,7 +57,8 @@ namespace str {
 				if (res == static_cast<size_t>(-1))
 					return { str::Invalid, 1 };
 				if (res == static_cast<size_t>(-2)) {
-					if constexpr (AllowIncomplete)
+					/* ensure the max character-length promise is not broken */
+					if (AllowIncomplete && size_t(end - cur) < detail::CharLen)
 						return { str::Invalid, 0 };
 					return { str::Invalid, 1 };
 				}
