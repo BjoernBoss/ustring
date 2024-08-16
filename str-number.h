@@ -248,11 +248,11 @@ namespace str {
 				return out;
 
 			/* write the value itself to the output integer, as compressed as possible */
-			if (out.data[0] = uint32_t(v))
+			if ((out.data[0] = uint32_t(v)))
 				out.size = 1;
 			else
 				out.nulls = 1;
-			if (out.data[out.size] = uint32_t(v >> 32))
+			if ((out.data[out.size] = uint32_t(v >> 32)))
 				++out.size;
 			return out;
 		}
@@ -757,7 +757,7 @@ namespace str {
 			uint64_t act = 0;
 			bool negative = false;
 			if constexpr (std::is_signed_v<NumType>) {
-				if (negative = (num < 0))
+				if ((negative = (num < 0)))
 					act = uint64_t(-int64_t(num));
 				else
 					act = uint64_t(int64_t(num));

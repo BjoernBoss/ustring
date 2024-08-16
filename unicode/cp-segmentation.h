@@ -228,6 +228,8 @@ namespace cp {
 					if (self.fGB9cHasConsonant())
 						return Break::combine;
 					break;
+				default:
+					break;
 				}
 
 				switch (l) {
@@ -266,6 +268,8 @@ namespace cp {
 					/* GB8 */
 					if (r == Type::t)
 						return Break::combine;
+					break;
+				default:
 					break;
 				}
 
@@ -468,6 +472,8 @@ namespace cp {
 					if (l == Type::zwj)
 						return Break::combine;
 					break;
+				default:
+					break;
 				}
 
 				l = self.fSkipWB4(l);
@@ -556,6 +562,8 @@ namespace cp {
 					/* WB15/WB16 */
 					if (r == Type::regionalIndicator && self.fIsLeftRIOdd())
 						return Break::combine;
+					break;
+				default:
 					break;
 				}
 
@@ -922,6 +930,8 @@ namespace cp {
 					if (c == Chain::aTermLowUp || c == Chain::aTerm || c == Chain::aClose || c == Chain::aSpace)
 						return self.fSB8Check();
 					break;
+				default:
+					break;
 				}
 
 				/* SB11 */
@@ -1071,6 +1081,8 @@ namespace cp {
 						return Host::Chain::sSpace;
 					else if (pChain != Host::Chain::none)
 						return Host::Chain::aSpace;
+					break;
+				default:
 					break;
 				}
 				return Host::Chain::none;
@@ -1285,6 +1297,8 @@ namespace cp {
 
 					/* LB21/LB22 */
 					return Break::combine;
+				default:
+					break;
 				}
 
 				switch (l) {
@@ -1465,6 +1479,8 @@ namespace cp {
 					/* LB30a */
 					if (r == Type::ri && self.fIsLeftRIOdd())
 						return Break::combine;
+					break;
+				default:
 					break;
 				}
 

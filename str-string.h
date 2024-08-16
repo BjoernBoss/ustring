@@ -215,7 +215,7 @@ namespace str {
 			}
 
 			template <class AChType, class BChType, class... Transforms>
-			static constexpr bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, Transforms&&... transforms) {
+			static bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, Transforms&&... transforms) {
 				bool valid = true;
 				detail::LocalBuffer<char32_t> buffer;
 				int8_t state = 0;

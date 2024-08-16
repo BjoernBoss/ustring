@@ -48,7 +48,7 @@ namespace str {
 				pBuffer.resize(endOfData + count);
 
 				/* setup the data-object and read the actual data from the stream */
-				pStream.read(reinterpret_cast<char*>(pBuffer.data() + endOfData), count);
+				pStream.read(reinterpret_cast<ChType*>(pBuffer.data() + endOfData), count);
 				count = pStream.gcount();
 				pView = { pBuffer.data() + offset, pView.size() + count };
 				pClosed = (count == 0);
@@ -71,16 +71,6 @@ namespace str {
 			sink.append(count, chr);
 		}
 		constexpr void operator()(std::basic_string<ChType>& sink, const std::basic_string_view<ChType>& s) const {
-			sink.append(s);
-		}
-	};
-	template <class Type, intptr_t Capacity>
-	struct CharWriter<str::Local<Type, Capacity>> {
-		using ChType = Type;
-		constexpr void operator()(str::Local<ChType, Capacity>& sink, ChType chr, size_t count) const {
-			sink.append(count, chr);
-		}
-		constexpr void operator()(str::Local<ChType, Capacity>& sink, const std::basic_string_view<ChType>& s) const {
 			sink.append(s);
 		}
 	};
@@ -151,39 +141,6 @@ namespace str {
 	template <detail::IsImpl<std::basic_ostream<wchar_t>> Type>
 	struct CharWriter<Type> {
 		using ChType = wchar_t;
-		constexpr void operator()(Type& sink, ChType chr, size_t count) const {
-			for (size_t i = 0; i < count; ++i)
-				sink.put(chr);
-		}
-		constexpr void operator()(Type& sink, const std::basic_string_view<ChType>& s) const {
-			sink.write(s.data(), s.size());
-		}
-	};
-	template <detail::IsImpl<std::basic_ostream<char8_t>> Type>
-	struct CharWriter<Type> {
-		using ChType = char8_t;
-		constexpr void operator()(Type& sink, ChType chr, size_t count) const {
-			for (size_t i = 0; i < count; ++i)
-				sink.put(chr);
-		}
-		constexpr void operator()(Type& sink, const std::basic_string_view<ChType>& s) const {
-			sink.write(s.data(), s.size());
-		}
-	};
-	template <detail::IsImpl<std::basic_ostream<char16_t>> Type>
-	struct CharWriter<Type> {
-		using ChType = char16_t;
-		constexpr void operator()(Type& sink, ChType chr, size_t count) const {
-			for (size_t i = 0; i < count; ++i)
-				sink.put(chr);
-		}
-		constexpr void operator()(Type& sink, const std::basic_string_view<ChType>& s) const {
-			sink.write(s.data(), s.size());
-		}
-	};
-	template <detail::IsImpl<std::basic_ostream<char32_t>> Type>
-	struct CharWriter<Type> {
-		using ChType = char32_t;
 		constexpr void operator()(Type& sink, ChType chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
@@ -571,69 +528,6 @@ namespace str {
 			return pStream.done();
 		}
 	};
-	template <detail::IsImpl<std::basic_istream<char8_t>> Type>
-	struct CharStream<Type> {
-		using ChType = char8_t;
-	private:
-		detail::IStreamWrapper<char8_t> pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::u8string_view load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-	template <detail::IsImpl<std::basic_istream<char16_t>> Type>
-	struct CharStream<Type> {
-		using ChType = char16_t;
-	private:
-		detail::IStreamWrapper<char16_t> pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::u16string_view load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-	template <detail::IsImpl<std::basic_istream<char32_t>> Type>
-	struct CharStream<Type> {
-		using ChType = char32_t;
-	private:
-		detail::IStreamWrapper<char32_t> pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::u32string_view load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
 
 	/* specializations for byte streams */
 	template <str::IsSource Type>
@@ -669,7 +563,7 @@ namespace str {
 			return pData;
 		}
 		constexpr void consume(size_t count) {
-			pData = pData.subdata(std::min<size_t>(count, pData.size));
+			pData = pData.subdata(std::min<size_t>(count, pData.size()));
 		}
 		constexpr bool done() const {
 			return pData.empty();

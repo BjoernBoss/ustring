@@ -306,7 +306,7 @@ namespace str {
 
 			/* parse the number and check if ellipsis should be added */
 			fmt::FmtNumber num = fmt::ParseIndicatedNumber(fmt, U',', 0);
-			if (ellipsis = (num.consumed == 0))
+			if ((ellipsis = (num.consumed == 0)))
 				num = fmt::ParseIndicatedNumber(fmt, U';', 0);
 			if (num.consumed == 0)
 				return 0;

@@ -250,4 +250,16 @@ namespace str {
 	using LocalU16 = str::Local<char16_t, Capacity>;
 	template <intptr_t Capacity>
 	using LocalU32 = str::Local<char32_t, Capacity>;
+
+	/* specializations for str::Local to be used as sink */
+	template <class Type, intptr_t Capacity>
+	struct CharWriter<str::Local<Type, Capacity>> {
+		using ChType = Type;
+		constexpr void operator()(str::Local<ChType, Capacity>& sink, ChType chr, size_t count) const {
+			sink.append(count, chr);
+		}
+		constexpr void operator()(str::Local<ChType, Capacity>& sink, const std::basic_string_view<ChType>& s) const {
+			sink.append(s);
+		}
+	};
 }

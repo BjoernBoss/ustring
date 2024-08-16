@@ -144,6 +144,8 @@ namespace cp {
 					if (type == Type::regInd)
 						return State::flagSeq;
 					break;
+				default:
+					break;
 				}
 				return State::burnt;
 			}
