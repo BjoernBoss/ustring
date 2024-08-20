@@ -392,13 +392,18 @@ namespace str {
 				return pView;
 
 			/* check if the offset should be reset */
-			size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
-			if (offset > pView.size()) {
-				pBuffer = pBuffer.substr(offset);
-				offset = 0;
+			size_t offset = 0;
+			if (pView.empty())
+				pBuffer.clear();
+			else {
+				offset = (pView.data() - pBuffer.data());
+				if (offset >= pView.size()) {
+					pBuffer = pBuffer.substr(offset);
+					offset = 0;
+				}
+				else
+					count += offset;
 			}
-			else
-				count += offset;
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
 			while (pBuffer.size() < count) {
@@ -449,13 +454,18 @@ namespace str {
 			count = std::max<size_t>(count, CharsPerIteration + pView.size());
 
 			/* check if the offset should be reset */
-			size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
-			if (offset > pView.size()) {
-				pBuffer = pBuffer.substr(offset);
-				offset = 0;
+			size_t offset = 0;
+			if (pView.empty())
+				pBuffer.clear();
+			else {
+				offset = (pView.data() - pBuffer.data());
+				if (offset >= pView.size()) {
+					pBuffer = pBuffer.substr(offset);
+					offset = 0;
+				}
+				else
+					count += offset;
 			}
-			else
-				count += offset;
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
 			while (pBuffer.size() < count) {
