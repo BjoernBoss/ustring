@@ -579,6 +579,25 @@ namespace str {
 			return pData.empty();
 		}
 	};
+	template <>
+	struct ByteSource<std::vector<uint8_t>> {
+	private:
+		str::Data pData;
+
+	public:
+		constexpr ByteSource(const std::vector<uint8_t>& d) : pData{ d.data(), d.size() } {}
+
+	public:
+		constexpr str::Data load(size_t count) {
+			return pData;
+		}
+		constexpr void consume(size_t count) {
+			pData = pData.subdata(std::min<size_t>(count, pData.size()));
+		}
+		constexpr bool done() const {
+			return pData.empty();
+		}
+	};
 	template <detail::IsImpl<std::istream> Type>
 	struct ByteSource<Type> {
 	private:
