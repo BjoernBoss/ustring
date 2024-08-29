@@ -8,6 +8,7 @@
 #include "coding/str-wide.h"
 #include "coding/str-multibyte.h"
 #include "str-common.h"
+#include "str-chars.h"
 
 /*
 *	All codepoints are represented as char32_t

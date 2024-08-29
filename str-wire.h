@@ -2,8 +2,10 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
+#include "str-bytes.h"
 #include "str-coding.h"
 #include "str-escape.h"
+#include "str-chars.h"
 
 namespace str {
 	enum class WireCoding : uint8_t {
@@ -242,24 +244,28 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& readTo(str::IsSink auto&& sink, const str::Data& data) {
-			fSinkInto(sink, data.data(), data.size(), false);
+		constexpr auto& readTo(str::IsSink auto&& sink, const str::IsData auto& data) {
+			str::Data _data = str::CallData(data);
+			fSinkInto(sink, _data.data(), _data.size(), false);
 			return sink;
 		}
 		template <str::IsSink SinkType>
-		constexpr SinkType read(const str::Data& data) {
+		constexpr SinkType read(const str::IsData auto& data) {
+			str::Data _data = str::CallData(data);
 			SinkType out{};
-			fSinkInto(out, data, false);
+			fSinkInto(out, _data.data(), _data.size(), false);
 			return out;
 		}
-		constexpr auto& lastTo(str::IsSink auto&& sink, const str::Data& data) {
-			fSinkInto(sink, data.data(), data.size(), true);
+		constexpr auto& lastTo(str::IsSink auto&& sink, const str::IsData auto& data) {
+			str::Data _data = str::CallData(data);
+			fSinkInto(sink, _data.data(), _data.size(), true);
 			return sink;
 		}
 		template <str::IsSink SinkType>
-		constexpr SinkType last(const str::Data& data) {
+		constexpr SinkType last(const str::IsData auto& data) {
+			str::Data _data = str::CallData(data);
 			SinkType out{};
-			fSinkInto(out, data, true);
+			fSinkInto(out, _data.data(), _data.size(), true);
 			return out;
 		}
 	};

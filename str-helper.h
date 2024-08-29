@@ -3,9 +3,12 @@
 #pragma once
 
 #include "str-common.h"
+#include "str-bytes.h"
+#include "str-chars.h"
 
 namespace str {
-	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero) */
+	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero)
+	*	Note: Must not outlive the source data as it stores a reference to it */
 	template <str::IsChar ChType>
 	class NullChars {
 	private:
@@ -53,7 +56,8 @@ namespace str {
 		}
 	};
 
-	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer and make the written size available */
+	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer and make the written size available
+	*	Note: Must not outlive the source data as it stores a reference to it */
 	template <str::IsChar ChType>
 	class Chars {
 	private:
@@ -97,7 +101,8 @@ namespace str {
 		}
 	};
 
-	/* [str::IsWire] wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available */
+	/* [str::IsWire] wrapper to create a byte-sink into a constant buffer or a pointer and make the written size available
+	*	Note: Must not outlive the source data as it stores a reference to it */
 	class Bytes {
 	private:
 		uint8_t* pPtr = 0;
@@ -134,156 +139,113 @@ namespace str {
 		}
 	};
 
-	/* [str::IsSink] structure to inherit from which can be used as a sink */
-	struct InheritSink {
-	public:
-		constexpr InheritSink() = default;
-		virtual ~InheritSink() = default;
-
-	public:
-		virtual void write(const std::u32string_view& s) = 0;
-		virtual void write(char32_t chr, size_t count) = 0;
-	};
-
-	/* [str::IsWire] structure to inherit from which can be used as a wire */
-	struct InheritWire {
-	public:
-		constexpr InheritWire() = default;
-		virtual ~InheritWire() = default;
-
-	public:
-		virtual void write(const str::Data& d) = 0;
-	};
-
-	/* [str::IsStream] stream-reader to interact with a char-stream
-	*	Note: Must not outlive the stream object as it may store a reference to it
-	*	Important: Stream-object may build up state around the source-stream, which already extracts more
-	*	than requested and therefore source-streams should be passed around as str::Stream-objects */
-	template <str::IsStream Type>
-	class Stream {
-	private:
-		using Impl = str::CharStream<std::remove_cvref_t<Type>>;
-
-	public:
-		using ChType = typename Impl::ChType;
-
-	private:
-		Impl pStream;
-
-	public:
-		constexpr Stream(Type& s) : pStream{ s } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		constexpr Stream(Type&& s) : pStream{ s } {}
-
-	public:
-		constexpr std::basic_string_view<ChType> load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count = size_t(-1)) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-
-	/* [str::IsSource] source-reader to interact with a byte-source
-	*	Note: Must not outlive the source object as it may store a reference to it
-	*	Important: Stream-object may build up state around the source, which already extracts more
-	*	than requested and therefore sources should be passed around as str::Source-objects */
+	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
+	*	Note: Must not outlive the source as it stores a reference to it */
 	template <str::IsSource Type>
-	class Source {
+	class LimitSource {
 	private:
-		using Impl = str::ByteSource<std::remove_cvref_t<Type>>;
-
-	private:
-		Impl pSource;
+		str::Source<Type> pSource;
+		size_t pCount = 0;
 
 	public:
-		constexpr Source(Type& s) : pSource{ s } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		constexpr Source(Type&& s) : pSource{ s } {}
+		constexpr LimitSource(Type& source, size_t count) : pSource{ source }, pCount{ count } {}
+		constexpr LimitSource(Type&& source, size_t count) : pSource{ std::move(source) }, pCount{ count } {}
 
 	public:
-		constexpr str::Data load(size_t count) {
-			return pSource.load(count);
-		}
-		constexpr void consume(size_t count = size_t(-1)) {
-			pSource.consume(count);
-		}
-		constexpr bool done() const {
-			return pSource.done();
+		constexpr size_t read(uint8_t* buffer, size_t size) {
+			size = pSource.read(buffer, std::min<size_t>(pCount, size));
+			pCount -= size;
+			return size;
 		}
 	};
 
 	/* [str::IsStream] wrapper to create a stream which reads at most count-number of characters from the stream
-	*	Note: Must not outlive the stream as it may store a reference to it */
+	*	Note: Must not outlive the stream as it stores a reference to it */
 	template <str::IsStream Type>
 	class LimitStream {
-		friend struct str::CharStream<str::LimitStream<Type>>;
+	public:
+		using ChType = str::StreamChar<Type>;
+
 	private:
 		str::Stream<Type> pStream;
 		size_t pCount = 0;
 
 	public:
-		LimitStream(Type& stream, size_t count) : pStream{ stream }, pCount{ count } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		LimitStream(Type&& stream, size_t count) : pStream{ stream }, pCount{ count } {}
-	};
-
-	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
-	*	Note: Must not outlive the source as it may store a reference to it */
-	template <str::IsSource Type>
-	class LimitSource {
-		friend struct str::ByteSource<str::LimitSource<Type>>;
-	private:
-		str::Source<Type> pSource;
-		size_t pCount = 0;
+		constexpr LimitStream(Type& stream, size_t count) : pStream{ stream }, pCount{ count } {}
+		constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::move(stream) }, pCount{ count } {}
 
 	public:
-		LimitSource(Type& source, size_t count) : pSource{ source }, pCount{ count } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		LimitSource(Type&& source, size_t count) : pSource{ source }, pCount{ count } {}
+		constexpr size_t read(ChType* buffer, size_t size) {
+			size = pStream.read(buffer, std::min<size_t>(pCount, size));
+			pCount -= size;
+			return size;
+		}
 	};
-
-	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to the target character-type
-	*	Note: Must not outlive the source as it may store a reference to it */
-	template <str::IsChar ChType, str::IsStream Type, char32_t CodeError = err::DefChar>
-	struct Convert {
-		friend struct str::CharStream<str::Convert<ChType, Type, CodeError>>;
-	private:
-		str::Stream<Type> pStream;
-
-	public:
-		Convert(Type& stream) : pStream{ stream } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		Convert(Type&& stream) : pStream{ stream } {}
-	};
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertCh = str::Convert<char, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertWd = str::Convert<wchar_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU8 = str::Convert<char8_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU16 = str::Convert<char16_t, Type, CodeError>;
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
-	using ConvertU32 = str::Convert<char32_t, Type, CodeError>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: Must not outlive the source as it may store a reference to it */
+	*	Note: Must not outlive the source as it stores a reference to it */
 	template <str::IsSource Type, char32_t CodeError = err::DefChar>
 	class WireIn {
-		friend struct str::CharStream<str::WireIn<Type, CodeError>>;
+	private:
+		static constexpr size_t BytesPerIteration = 256;
+
 	private:
 		str::Source<Type> pSource;
-		str::WireCoding pCoding;
-		str::BOMMode pMode;
+		str::FromWire<CodeError> pWire;
+		std::u32string pBuffer;
+		std::u32string_view pView;
+		bool pClosed = false;
 
 	public:
-		WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pCoding{ coding }, pMode{ mode } {}
+		constexpr WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
+		constexpr WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::move(source) }, pWire{ coding, mode } {}
+
+	private:
+		constexpr void fLoad(size_t size) {
+			/* check if the offset should be reset */
+			size_t offset = 0;
+			if (pView.empty())
+				pBuffer.clear();
+			else {
+				offset = (pView.data() - pBuffer.data());
+				if (offset >= pView.size()) {
+					pBuffer = pBuffer.substr(offset);
+					offset = 0;
+				}
+				else
+					size += offset;
+			}
+
+			/* iterate until the given number of characters has been produced or until the end has been reached */
+			while (pBuffer.size() < size) {
+				str::Data data = pSource.load(BytesPerIteration);
+
+				/* feed the data through the wire and consume them from the source */
+				pWire.readTo(pBuffer, data);
+				pSource.consume(data.size());
+
+				/* check if the end has been reached */
+				if (data.size() >= BytesPerIteration)
+					continue;
+				pWire.lastTo(pBuffer, str::Data{});
+				pClosed = true;
+				break;
+			}
+			pView = std::u32string_view{ pBuffer }.substr(offset);
+		}
+
+	public:
+		constexpr size_t read(char32_t* buffer, size_t size) {
+			/* check if the capacity is not yet available */
+			if (size > pView.size() && !pClosed)
+				fLoad(size);
+
+			/* copy the data out */
+			size = std::min<size_t>(size, pView.size());
+			std::copy(pView.begin(), pView.begin() + size, buffer);
+			pView = pView.substr(size);
+			return size;
+		}
 	};
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
@@ -296,9 +258,8 @@ namespace str {
 		str::ToWire<CodeError> pWire;
 
 	public:
-		WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
-		template <class _ = std::enable_if_t<!std::is_rvalue_reference_v<Type>>>
-		WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
+		constexpr WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
+		constexpr WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
 
 	public:
 		constexpr void write(const std::u32string_view& s) {
@@ -306,6 +267,195 @@ namespace str {
 		}
 		constexpr void put(char32_t c) {
 			pWire.write(pSink, std::u32string_view{ &c, 1 });
+		}
+	};
+
+	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
+	*	Note: Must not outlive the source as it stores a reference to it */
+	template <str::IsStream Type, char32_t CodeError = err::DefChar>
+	struct U32Stream {
+	public:
+		using ChType = char32_t;
+
+	private:
+		using SChType = str::StreamChar<Type>;
+		static constexpr size_t CharsPerIteration = 64;
+
+	private:
+		str::Stream<Type> pStream;
+		std::u32string pBuffer;
+		std::u32string_view pView;
+		bool pClosed = false;
+
+	public:
+		constexpr U32Stream(Type& stream) : pStream{ stream } {}
+		constexpr U32Stream(Type&& stream) : pStream{ std::move(stream) } {}
+
+	private:
+		constexpr void fLoad(size_t size) {
+			size = std::max<size_t>(size, CharsPerIteration + pView.size());
+
+			/* check if the offset should be reset */
+			size_t offset = 0;
+			if (pView.empty())
+				pBuffer.clear();
+			else {
+				offset = (pView.data() - pBuffer.data());
+				if (offset >= pView.size()) {
+					pBuffer = pBuffer.substr(offset);
+					offset = 0;
+				}
+				else
+					size += offset;
+			}
+
+			/* iterate until the given number of characters has been produced or until the end has been reached */
+			while (pBuffer.size() < size) {
+				auto [cp, consumed] = str::PartialCodepoint<CodeError>(pStream.load(str::MaxEncSize<SChType>));
+
+				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
+				if (consumed == 0) {
+					auto [cp, consumed] = str::GetCodepoint<CodeError>(pStream.load(str::MaxEncSize<SChType>));
+					pStream.consume(consumed);
+					pBuffer.push_back(cp);
+					pClosed = true;
+					break;
+				}
+
+				/* write the actual codepoint out to the buffer and consume it */
+				pStream.consume(consumed);
+				pBuffer.push_back(cp);
+			}
+			pView = std::u32string_view{ pBuffer }.substr(offset);
+		}
+
+	public:
+		constexpr size_t read(char32_t* buffer, size_t size) {
+			/* check if the capacity is not yet available */
+			if (size > pView.size() && !pClosed)
+				fLoad(size);
+
+			/* copy the data out */
+			size = std::min<size_t>(size, pView.size());
+			std::copy(pView.begin(), pView.begin() + size, buffer);
+			pView = pView.substr(size);
+			return size;
+		}
+	};
+
+	/* [str::IsWire] structure to inherit from which can be used as a wire */
+	struct InheritWire {
+	public:
+		constexpr InheritWire() = default;
+		virtual ~InheritWire() = default;
+
+	public:
+		virtual void write(const str::Data& d) = 0;
+	};
+
+	/* wrapper type to create str::InheritWire from any wire-type
+	*	Note: cannot be directly used, as only str::InheritWire implements the wire-specialization
+	*	Note: Must not outlive the wire as it stores a reference to it */
+	template <str::IsWire Type>
+	struct WireImplementation final : public str::InheritWire {
+	private:
+		Type& pWire;
+
+	public:
+		constexpr WireImplementation(Type& wire) : pWire{ wire } {}
+		constexpr WireImplementation(Type&& wire) : pWire{ wire } {}
+
+	public:
+		void write(const str::Data& d) override {
+			str::CallWire(pWire, d);
+		}
+	};
+
+	/* [str::IsSink] structure to inherit from which can be used as a sink */
+	struct InheritSink {
+	public:
+		constexpr InheritSink() = default;
+		virtual ~InheritSink() = default;
+
+	public:
+		virtual void write(const std::u32string_view& s) = 0;
+		virtual void write(char32_t chr, size_t count) = 0;
+	};
+
+	/* wrapper type to create str::InheritSink from any sink-type
+	*	Note: cannot be directly used, as only str::InheritSink implements the sink-specialization
+	*	Note: Must not outlive the sink as it stores a reference to it */
+	template <str::IsSink Type>
+	struct SinkImplementation final : public str::InheritSink {
+	private:
+		Type& pSink;
+
+	public:
+		constexpr SinkImplementation(Type& sink) : pSink{ sink } {}
+		constexpr SinkImplementation(Type&& sink) : pSink{ sink } {}
+
+	public:
+		void write(char32_t chr, size_t count) override {
+			str::CodepointTo<str::err::DefChar>(pSink, chr, count);
+		}
+		void write(const std::u32string_view& s) override {
+			str::TranscodeAllTo<str::err::DefChar>(pSink, s);
+		}
+	};
+
+	/* [str::IsSource] structure to inherit from which can be used as a source */
+	struct InheritSource {
+	public:
+		constexpr InheritSource() = default;
+		virtual ~InheritSource() = default;
+
+	public:
+		virtual size_t read(uint8_t* buffer, size_t size) = 0;
+	};
+
+	/* wrapper type to create str::InheritSource from any source-type
+	*	Note: cannot be directly used, as only str::InheritSource implements the source-specialization
+	*	Note: Must not outlive the wire as it stores a reference to it */
+	template <str::IsSource Type>
+	struct SourceImplementation final : public str::InheritSource {
+	private:
+		str::Source<Type> pSource;
+
+	public:
+		constexpr SourceImplementation(Type& source) : pSource{ source } {}
+		constexpr SourceImplementation(Type&& source) : pSource{ std::move(source) } {}
+
+	public:
+		size_t read(uint8_t* buffer, size_t size) override {
+			return pSource.read(buffer, size);
+		}
+	};
+
+	/* [str::IsStream] structure to inherit from which can be used as a stream */
+	struct InheritStream {
+	public:
+		constexpr InheritStream() = default;
+		virtual ~InheritStream() = default;
+
+	public:
+		virtual size_t read(char32_t* buffer, size_t size) = 0;
+	};
+
+	/* wrapper type to create str::InheritStream from any stream-type
+	*	Note: cannot be directly used, as only str::InheritStream implements the stream-specialization
+	*	Note: Must not outlive the stream as it stores a reference to it */
+	template <str::IsStream Type>
+	struct StreamImplementation final : public str::InheritStream {
+	private:
+		str::U32Stream<Type, str::err::DefChar> pStream;
+
+	public:
+		StreamImplementation(Type& stream) : pStream{ stream } {}
+		StreamImplementation(Type&& stream) : pStream{ std::move(stream) } {}
+
+	public:
+		size_t read(char32_t* buffer, size_t size) override {
+			return str::CallCharLoader(pStream, buffer, size);
 		}
 	};
 }

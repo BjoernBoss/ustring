@@ -17,6 +17,27 @@
 *		(except when produced by other functions using other rules, such as str::Int/...)
 */
 namespace str {
+	/* formattable interface which requires:
+	*	operator() to take a sink of any type, a value of the type, a utf32 string-view with formatting-string and a boolean return-value
+	*	if the format-string was valid (should leave the sink untouched if the format is invalid; empty format should be valid at all times) */
+	template <class Type>
+	struct Formatter;
+
+	/* type is anything that implements thr str::Formatter interface */
+	template <class Type>
+	concept IsFormattable = requires(const Type & val, const std::u32string_view & fmt, std::string & cs, std::wstring & ws, std::u8string & u8s, std::u16string & u16s, std::u32string & u32s) {
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(cs, val, fmt) } -> std::same_as<bool>;
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(ws, val, fmt) } -> std::same_as<bool>;
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u8s, val, fmt) } -> std::same_as<bool>;
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u16s, val, fmt) } -> std::same_as<bool>;
+		{ str::Formatter<std::remove_cvref_t<Type>>{}(u32s, val, fmt) } -> std::same_as<bool>;
+	};
+
+	/* wrapper to interact with formatters */
+	constexpr bool CallFormat(str::IsSink auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
+		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
+	}
+
 	namespace detail {
 		template <class ChType>
 		constexpr int8_t FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt) {

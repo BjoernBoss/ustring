@@ -37,10 +37,13 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsChar` Check if the type is a supported character (`char`, `wchar_t`, ...)
  - `str::IsStr` Check if the type can be converted to a `string_view` (use `str::StringChar` to get the corresponding character-type)
  - `str::IsChStr<T>` Check if the type can be converted to a `basic_string_view<T>`
- - `str::IsSink` Check if the type specialized the `str::CharWriter` interface (used by all writing functions;  use `str::SinkChar` to get the corresponding character-type)
- - `str::IsWire` Check if the type specialized the `str::ByteWriter` interface (used for `str::ToWire`)
- - `str::IsStream` Check if the type specialized the `str::CharStream` interface (used for character streaming such as `str::WireIn`)
- - `str::IsSource` Check if the type specialized the `str::ByteSource` interface (used for byte streaming such as for `str::WireIn`)
+ - `str::IsData` Check if the type specialized the `str::ByteReader` (used for `str::FromWire` and such)
+ - `str::IsSink` Check if the type specialized the `str::CharWriter` interface (used by all writing functions; use `str::SinkChar` to get the corresponding character-type)
+ - `str::IsWire` Check if the type specialized the `str::ByteWriter` interface (used for `str::ToWire` and such)
+ - `str::IsCharLoader` Check if the type specialized the `str::CharLoader` interface (used for character streaming such as `str::WireIn`)
+ - `str::IsStream` Check if the type fulfills `str::IsStr` or `str::IsCharLoader` (used for `str::Stream` and such)
+ - `str::IsByteLoader` Check if the type specialized the `str::ByteLoader` interface (used for byte streaming such as `str::WireIn`)
+ - `str::IsSource` Check if the type fulfills `str::IsData` or `str::IsByteLoader` (used for `str::Source` and such)
  - `str::IsFormattable` Check if the type specialized the str::Formatter interface
  - `str::IsIterator` Check if the type is a codepoint iterator
  - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
@@ -48,6 +51,16 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector` when receiving a `str::IsCollector` to write its output to
  - `str::IsAnalysis` Check if the type performs a boolean analysis on a stream of codepoints
  - `str::IsTester` Check if the type performs a boolean analysis on a single codepoint 
+
+## Sinks, Sources, and Streams
+
+By default the library uses the concepts of sinks or wires to write to, and strings or data to read from. A sink is anything that fulfills `str::IsSink`, for which many default specializations exist. For convenience, further implementations, such as `str::NullChars`, `str::Chars`, and `str::InheritSink` exist, to allow using buffers and virtualized sinks. A sink defines its supported character type, and all operations, which write to the sink, will ensure only the proper type of characters is written out. Further, no partially encoded codepoints will be written out. They will always be written out in a single batch. 
+
+A wire is defined in the same way as `str::IsWire`, and also offers `str::Bytes` and `str::InheritWire` as support. 
+
+A source for strings is anything that is convertible to an `std::basic_string_view`. For bytes, it is any type that fulfills `str::IsData`, for which many default specializations exist. Similarly to sinks, strings also define their source character type, which also defines their encoding used. 
+
+To further support streaming of data, `str::IsStream` exists for character streams, and `str::IsSource` for byte streams. In order to use them properly, `str::Stream` or `str::Source` exist, which wrap the type, and build up internal cached states to prevent repeated fetching of data, and allowing lookaheads.
 
 ## Standard Functionality
 The standard string functionality lies in the namespace `str` for all string-related operations.
@@ -74,7 +87,7 @@ The number functions can parse any kind of number and produce float or integer-s
     float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
-### [str::Format, str::Build](str-format.h), [str::Fmt, str::Out](str.h)
+### [str::Format, str::Build](str-format.h), [str::Fmt, str::Print](str.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
@@ -85,7 +98,7 @@ For interacting with formatting, `str::Format` and `str::Build` exist, where `st
     std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
 ```
 
-For convenience, `str::Fmt`, `str::FmtLn`, `str::Out`, `str::OutLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::WFmt`, ...
+For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ...
 
 ### [str::ToWire, str::FromWire](str-wire.h)
 To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
@@ -111,18 +124,20 @@ Note: For convenience, `str::WireOut` exists as valid sink to feed the string ou
     str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
-### [str::Stream, str::Source](str-helper.h)
+### [str::Stream](str-chars.h), [str::Source](str-bytes.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
 
 ```C++
     str::Stream stream{ u8"Some-String" };
     while (!stream.done()) {
-        str::OutLn(stream.load(64));
+        str::PrintLn(stream.load(64));
         stream.consume();
     }
 ```
 
-The `str::Convert` wrapper implements a stream, which allows to create a stream, which transcodes any source stream to a stream of the given character type. For convenice `str::ConvertCh` / `str::ConvertWd` / ... has been defined. The `str::LimitStream` and `str::LimitSource` wrapper implement a source or stream, which limits the number of tokens to be consumed.
+The `str::U32Stream` wrapper implements a stream, which allows to create a stream, which decodes any source stream to a stream of type char32_t. The `str::LimitStream` and `str::LimitSource` wrapper implement a source or stream, which limits the number of tokens to be consumed.
+
+Similarly, `str::InheritSource` and `str::InheritStream` exist, alongside with `str::SourceImplementation` and `str::StreamImplementation`. These allow to create virtualized sources or streams, thus preventing to use templates everywhere.
 
 ### [str::Iterator](str-coding.h)
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:

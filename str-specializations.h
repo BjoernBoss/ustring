@@ -7,60 +7,16 @@
 #include "str-coding.h"
 #include "str-string.h"
 
-#include <vector>
 #include <memory>
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstring>
 
 namespace str {
 	namespace detail {
 		template <class Derived, class Base>
 		concept IsImpl = std::is_base_of_v<Base, Derived>;
-
-		template <class ChType>
-		struct IStreamWrapper {
-			static constexpr size_t MinBytesToLoad = 256;
-		private:
-			std::basic_istream<ChType>& pStream;
-			std::vector<ChType> pBuffer;
-			std::basic_string_view<ChType> pView;
-			bool pClosed = false;
-
-		public:
-			template <class CType>
-			constexpr IStreamWrapper(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-		public:
-			constexpr std::basic_string_view<ChType> load(size_t count) {
-				/* check if the capacity is already available or if the source is done */
-				if (count <= pView.size() || pClosed)
-					return pView;
-				count = std::max<size_t>(count, MinBytesToLoad);
-
-				/* check if the buffer should be reset and reset it to have enough capacity */
-				size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
-				if (offset >= pView.size()) {
-					std::memmove(pBuffer.data(), pView.data(), pView.size());
-					offset = 0;
-				}
-				size_t endOfData = offset + pView.size();
-				pBuffer.resize(endOfData + count);
-
-				/* setup the data-object and read the actual data from the stream */
-				pStream.read(reinterpret_cast<ChType*>(pBuffer.data() + endOfData), count);
-				count = pStream.gcount();
-				pView = { pBuffer.data() + offset, pView.size() + count };
-				pClosed = (count == 0);
-				return pView;
-			}
-			constexpr void consume(size_t count) {
-				pView = pView.substr(std::min<size_t>(count, pView.size()));
-			}
-			constexpr bool done() const {
-				return (pView.empty() && pStream.eof());
-			}
-		};
 	}
 
 	/* specializations for char-writers */
@@ -149,7 +105,7 @@ namespace str {
 			sink.write(s.data(), s.size());
 		}
 	};
-	template <class Type>
+	template <str::IsSink Type>
 	struct CharWriter<std::unique_ptr<Type>> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(std::unique_ptr<Type>& sink, ChType chr, size_t count) const {
@@ -159,7 +115,7 @@ namespace str {
 			str::CallSink(*sink, s);
 		}
 	};
-	template <class Type>
+	template <str::IsSink Type>
 	struct CharWriter<std::shared_ptr<Type>> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(std::shared_ptr<Type>& sink, ChType chr, size_t count) const {
@@ -169,7 +125,7 @@ namespace str {
 			str::CallSink(*sink, s);
 		}
 	};
-	template <class Type>
+	template <str::IsSink Type>
 	struct CharWriter<Type*> {
 		using ChType = str::SinkChar<Type>;
 		constexpr void operator()(Type* sink, ChType chr, size_t count) const {
@@ -177,6 +133,98 @@ namespace str {
 		}
 		constexpr void operator()(Type* sink, const std::basic_string_view<ChType>& s) const {
 			str::CallSink(*sink, s);
+		}
+	};
+
+	/* specializations for character streams */
+	template <class Type>
+	struct CharLoader<str::Stream<Type>> {
+		using ChType = str::StreamChar<Type>;
+		constexpr size_t operator()(str::Stream<Type>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+	template <detail::IsImpl<std::basic_istream<char>> Type>
+	struct CharLoader<Type> {
+		using ChType = char;
+		constexpr size_t operator()(std::basic_istream<char>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size).gcount();
+		}
+	};
+	template <detail::IsImpl<std::basic_istream<wchar_t>> Type>
+	struct CharLoader<Type> {
+		using ChType = wchar_t;
+		constexpr size_t operator()(std::basic_istream<wchar_t>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size).gcount();
+		}
+	};
+	template <class Type>
+	struct CharLoader<str::LimitStream<Type>> {
+		using ChType = str::LimitStream<Type>::ChType;
+		constexpr size_t operator()(str::LimitStream<Type>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+	template <str::IsCharLoader Type>
+	struct CharLoader<std::unique_ptr<Type>> {
+		using ChType = str::CharLoaderChar<Type>;
+		constexpr size_t operator()(std::unique_ptr<Type>& src, ChType* buffer, size_t size) const {
+			return str::CallCharLoader(*src, buffer, size);
+		}
+	};
+	template <str::IsCharLoader Type>
+	struct CharLoader<std::shared_ptr<Type>> {
+		using ChType = str::CharLoaderChar<Type>;
+		constexpr size_t operator()(std::shared_ptr<Type>& src, ChType* buffer, size_t size) const {
+			return str::CallCharLoader(*src, buffer, size);
+		}
+	};
+	template <str::IsCharLoader Type>
+	struct CharLoader<Type*> {
+		using ChType = str::CharLoaderChar<Type>;
+		constexpr size_t operator()(Type* src, ChType* buffer, size_t size) const {
+			return str::CallCharLoader(*src, buffer, size);
+		}
+	};
+	template <class Type, char32_t CodeError>
+	struct CharLoader<str::WireIn<Type, CodeError>> {
+		using ChType = char32_t;
+		constexpr size_t operator()(str::WireIn<Type, CodeError>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+	template <class Type, char32_t CodeError>
+	struct CharLoader<str::U32Stream<Type, CodeError>> {
+		using ChType = char32_t;
+		constexpr size_t operator()(str::U32Stream<Type, CodeError>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+	template <>
+	struct CharLoader<str::InheritStream> {
+		using ChType = char32_t;
+		constexpr size_t operator()(str::InheritStream& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+
+	/* specializations for byte-reader */
+	template <>
+	struct ByteReader<str::Data> {
+		constexpr str::Data operator()(const str::Data& data) {
+			return data;
+		}
+	};
+	template <>
+	struct ByteReader<std::vector<uint8_t>> {
+		constexpr str::Data operator()(const std::vector<uint8_t>& data) {
+			return { data.data(), data.size() };
+		}
+	};
+	template <>
+	struct ByteReader<std::span<uint8_t>> {
+		constexpr str::Data operator()(const std::span<uint8_t>& data) {
+			return { data.data(), data.size() };
 		}
 	};
 
@@ -205,442 +253,66 @@ namespace str {
 			sink.write(d);
 		}
 	};
-	template <class Type>
+	template <str::IsWire Type>
 	struct ByteWriter<std::unique_ptr<Type>> {
 		constexpr void operator()(std::unique_ptr<Type>& sink, const str::Data& d) const {
 			str::CallWire(*sink, d);
 		}
 	};
-	template <class Type>
+	template <str::IsWire Type>
 	struct ByteWriter<std::shared_ptr<Type>> {
 		constexpr void operator()(std::shared_ptr<Type>& sink, const str::Data& d) const {
 			str::CallWire(*sink, d);
 		}
 	};
-	template <class Type>
+	template <str::IsWire Type>
 	struct ByteWriter<Type*> {
 		constexpr void operator()(Type* sink, const str::Data& d) const {
 			str::CallWire(*sink, d);
 		}
 	};
 
-	/* specializations for character streams */
-	template <str::IsStream Type>
-	struct CharStream<str::Stream<Type>> {
-		using ChType = str::StreamChar<Type>;
-	private:
-		str::Stream<Type>& pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::basic_string_view<ChType> load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-	template <str::IsChStr<char> Type>
-	struct CharStream<Type> {
-		using ChType = char;
-	private:
-		std::string_view pView;
-
-	public:
-		constexpr CharStream(const Type& s) : pView{ s } {}
-
-	public:
-		constexpr std::string_view load(size_t count) {
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return pView.empty();
-		}
-	};
-	template <str::IsChStr<wchar_t> Type>
-	struct CharStream<Type> {
-		using ChType = wchar_t;
-	private:
-		std::wstring_view pView;
-
-	public:
-		constexpr CharStream(const Type& s) : pView{ s } {}
-
-	public:
-		constexpr std::wstring_view load(size_t count) {
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return pView.empty();
-		}
-	};
-	template <str::IsChStr<char8_t> Type>
-	struct CharStream<Type> {
-		using ChType = char8_t;
-	private:
-		std::u8string_view pView;
-
-	public:
-		constexpr CharStream(const Type& s) : pView{ s } {}
-
-	public:
-		constexpr std::u8string_view load(size_t count) {
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return pView.empty();
-		}
-	};
-	template <str::IsChStr<char16_t> Type>
-	struct CharStream<Type> {
-		using ChType = char16_t;
-	private:
-		std::u16string_view pView;
-
-	public:
-		constexpr CharStream(const Type& s) : pView{ s } {}
-
-	public:
-		constexpr std::u16string_view load(size_t count) {
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return pView.empty();
-		}
-	};
-	template <str::IsChStr<char32_t> Type>
-	struct CharStream<Type> {
-		using ChType = char32_t;
-	private:
-		std::u32string_view pView;
-
-	public:
-		constexpr CharStream(const Type& s) : pView{ s } {}
-
-	public:
-		constexpr std::u32string_view load(size_t count) {
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return pView.empty();
-		}
-	};
-	template <class Type>
-	struct CharStream<str::LimitStream<Type>> {
-		using ChType = str::StreamChar<Type>;
-	private:
-		str::Stream<Type>& pStream;
-		size_t pCount = 0;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ s.pStream }, pCount{ s.pCount } {}
-
-	public:
-		constexpr std::u32string_view load(size_t count) {
-			std::u32string_view str = pStream.load(std::min<size_t>(count, pCount));
-			return (str.size() > pCount ? str.substr(0, pCount) : str);
-		}
-		constexpr void consume(size_t count) {
-			count = std::min<size_t>(count, pCount);
-			pCount -= count;
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return (pCount == 0 || pStream.done());
-		}
-	};
-	template <class Type, char32_t CodeError>
-	struct CharStream<str::WireIn<Type, CodeError>> {
-		using ChType = char32_t;
-		static constexpr size_t BytesPerIteration = 256;
-	private:
-		str::Source<Type>& pSource;
-		str::FromWire<CodeError> pWire;
-		std::u32string pBuffer;
-		std::u32string_view pView;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pSource{ s.pSource }, pWire{ s.pCoding, s.pMode } {}
-
-	public:
-		constexpr std::u32string_view load(size_t count) {
-			/* check if the capacity is already available */
-			if (count <= pView.size())
-				return pView;
-
-			/* check if the offset should be reset */
-			size_t offset = 0;
-			if (pView.empty())
-				pBuffer.clear();
-			else {
-				offset = (pView.data() - pBuffer.data());
-				if (offset >= pView.size()) {
-					pBuffer = pBuffer.substr(offset);
-					offset = 0;
-				}
-				else
-					count += offset;
-			}
-
-			/* iterate until the given number of characters has been produced or until the end has been reached */
-			while (pBuffer.size() < count) {
-				str::Data data = pSource.load(BytesPerIteration);
-
-				/* feed the data through the wire and consume them from the source */
-				pWire.readTo(pBuffer, data);
-				pSource.consume(data.size());
-
-				/* check if the end has been reached */
-				if (data.size() >= BytesPerIteration)
-					continue;
-				pWire.lastTo(pBuffer, {});
-				break;
-			}
-
-			/* update the view */
-			pView = std::u32string_view{ pBuffer }.substr(offset);
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return (pView.empty() && pSource.done());
-		}
-	};
-	template <class DChType, class Type, char32_t CodeError>
-	struct CharStream<str::Convert<DChType, Type, CodeError>> {
-		using ChType = DChType;
-		using SChType = str::StreamChar<Type>;
-		static constexpr size_t CharsPerIteration = 64;
-	private:
-		str::Stream<Type>& pStream;
-		std::basic_string<DChType> pBuffer;
-		std::basic_string_view<DChType> pView;
-		bool pClosed = false;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ s.pStream } {}
-
-	public:
-		constexpr std::basic_string_view<ChType> load(size_t count) {
-			/* check if the capacity is already available or if the source is closed */
-			if (count <= pView.size() || pClosed)
-				return pView;
-			count = std::max<size_t>(count, CharsPerIteration + pView.size());
-
-			/* check if the offset should be reset */
-			size_t offset = 0;
-			if (pView.empty())
-				pBuffer.clear();
-			else {
-				offset = (pView.data() - pBuffer.data());
-				if (offset >= pView.size()) {
-					pBuffer = pBuffer.substr(offset);
-					offset = 0;
-				}
-				else
-					count += offset;
-			}
-
-			/* iterate until the given number of characters has been produced or until the end has been reached */
-			while (pBuffer.size() < count) {
-				auto [cp, consumed] = str::PartialTranscode<DChType, CodeError>(pStream.load(str::MaxEncSize<SChType>));
-
-				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
-				if (consumed == 0) {
-					auto [cp, consumed] = str::GetTranscode<DChType, CodeError>(pStream.load(str::MaxEncSize<SChType>));
-					pStream.consume(consumed);
-					pBuffer.append(cp);
-					pClosed = true;
-					break;
-				}
-
-				/* write the actual codepoint out to the buffer and consume it */
-				pStream.consume(consumed);
-				pBuffer.append(cp);
-			}
-
-			/* update the view */
-			pView = std::u32string_view{ pBuffer }.substr(offset);
-			return pView;
-		}
-		constexpr void consume(size_t count) {
-			pView = pView.substr(std::min<size_t>(count, pView.size()));
-		}
-		constexpr bool done() const {
-			return (pView.empty() && pStream.done());
-		}
-	};
-	template <detail::IsImpl<std::basic_istream<char>> Type>
-	struct CharStream<Type> {
-		using ChType = char;
-	private:
-		detail::IStreamWrapper<char> pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::string_view load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-	template <detail::IsImpl<std::basic_istream<wchar_t>> Type>
-	struct CharStream<Type> {
-		using ChType = wchar_t;
-	private:
-		detail::IStreamWrapper<wchar_t> pStream;
-
-	public:
-		template <class CType>
-		constexpr CharStream(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr std::wstring_view load(size_t count) {
-			return pStream.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
-		}
-	};
-
 	/* specializations for byte streams */
-	template <str::IsSource Type>
-	struct ByteSource<str::Source<Type>> {
-	private:
-		str::Source<Type>& pSource;
-
-	public:
-		template <class CType>
-		constexpr ByteSource(CType&& s) : pSource{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr str::Data load(size_t count) {
-			return pSource.load(count);
-		}
-		constexpr void consume(size_t count) {
-			pSource.consume(count);
-		}
-		constexpr bool done() const {
-			return pSource.done();
-		}
-	};
-	template <std::convertible_to<str::Data> Type>
-	struct ByteSource<Type> {
-	private:
-		str::Data pData;
-
-	public:
-		constexpr ByteSource(const str::Data& d) : pData{ d } {}
-
-	public:
-		constexpr str::Data load(size_t count) {
-			return pData;
-		}
-		constexpr void consume(size_t count) {
-			pData = pData.subdata(std::min<size_t>(count, pData.size()));
-		}
-		constexpr bool done() const {
-			return pData.empty();
-		}
-	};
-	template <>
-	struct ByteSource<std::vector<uint8_t>> {
-	private:
-		str::Data pData;
-
-	public:
-		constexpr ByteSource(const std::vector<uint8_t>& d) : pData{ d.data(), d.size() } {}
-
-	public:
-		constexpr str::Data load(size_t count) {
-			return pData;
-		}
-		constexpr void consume(size_t count) {
-			pData = pData.subdata(std::min<size_t>(count, pData.size()));
-		}
-		constexpr bool done() const {
-			return pData.empty();
+	template <class Type>
+	struct ByteLoader<str::Source<Type>> {
+		constexpr size_t operator()(str::Source<Type>& src, uint8_t* buffer, size_t size) const {
+			return src.read(buffer, size);
 		}
 	};
 	template <detail::IsImpl<std::istream> Type>
-	struct ByteSource<Type> {
-	private:
-		detail::IStreamWrapper<char> pStream;
-
-	public:
-		template <class CType>
-		constexpr ByteSource(CType&& s) : pStream{ std::forward<CType>(s) } {}
-
-	public:
-		constexpr str::Data load(size_t count) {
-			auto view = pStream.load(count);
-			return { reinterpret_cast<const uint8_t*>(view.data()), view.size() };
-		}
-		constexpr void consume(size_t count) {
-			pStream.consume(count);
-		}
-		constexpr bool done() const {
-			return pStream.done();
+	struct ByteLoader<Type> {
+		constexpr size_t operator()(std::istream& src, uint8_t* buffer, size_t size) const {
+			return src.read(reinterpret_cast<char*>(buffer), size).gcount();
 		}
 	};
 	template <class Type>
-	struct ByteSource<str::LimitSource<Type>> {
-	private:
-		str::Source<Type>& pSource;
-		size_t pCount = 0;
-
-	public:
-		template <class CType>
-		constexpr ByteSource(CType&& s) : pSource{ s.pSource }, pCount{ s.pCount } {}
-
-	public:
-		constexpr str::Data load(size_t count) {
-			str::Data data = pSource.load(std::min<size_t>(count, pCount));
-			return str::Data{ data.data(), std::min<size_t>(data.size(), pCount) };
+	struct ByteLoader<str::LimitSource<Type>> {
+		constexpr size_t operator()(str::LimitSource<Type>& src, uint8_t* buffer, size_t size) const {
+			return src.read(buffer, size);
 		}
-		constexpr void consume(size_t count) {
-			count = std::min<size_t>(count, pCount);
-			pCount -= count;
-			pSource.consume(count);
+	};
+	template <str::IsSource Type>
+	struct ByteLoader<std::unique_ptr<Type>> {
+		constexpr size_t operator()(std::unique_ptr<Type>& src, uint8_t* buffer, size_t size) const {
+			return str::CallByteLoader(*src, buffer, size);
 		}
-		constexpr bool done() const {
-			return (pCount == 0 || pSource.done());
+	};
+	template <str::IsSource Type>
+	struct ByteLoader<std::shared_ptr<Type>> {
+		constexpr size_t operator()(std::shared_ptr<Type>& src, uint8_t* buffer, size_t size) const {
+			return str::CallByteLoader(*src, buffer, size);
+		}
+	};
+	template <str::IsSource Type>
+	struct ByteLoader<Type*> {
+		constexpr size_t operator()(Type* src, uint8_t* buffer, size_t size) const {
+			return str::CallByteLoader(*src, buffer, size);
+		}
+	};
+	template <>
+	struct ByteLoader<str::InheritSource> {
+		constexpr size_t operator()(str::InheritSource& src, uint8_t* buffer, size_t size) const {
+			return src.read(buffer, size);
 		}
 	};
 }

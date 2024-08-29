@@ -12,6 +12,8 @@
 #include <limits>
 #include <cinttypes>
 #include <type_traits>
+#include <span>
+#include <cstring>
 
 namespace str {
 	/* codepoint to indicate invalid decoding (guaranteed to be larger than any valid unicode-codepoint) */
@@ -82,46 +84,10 @@ namespace str {
 			constexpr void next(char32_t) {}
 			constexpr void done() {}
 		};
-
-		/* check what string-type the character is */
-		template <class Type> struct StrType { using type = void; };
-		template <std::convertible_to<std::string_view> Type> struct StrType<Type> { using type = char; };
-		template <std::convertible_to<std::wstring_view> Type> struct StrType<Type> { using type = wchar_t; };
-		template <std::convertible_to<std::u8string_view> Type> struct StrType<Type> { using type = char8_t; };
-		template <std::convertible_to<std::u16string_view> Type> struct StrType<Type> { using type = char16_t; };
-		template <std::convertible_to<std::u32string_view> Type> struct StrType<Type> { using type = char32_t; };
 	}
 
 	/* constant data to be used for wires and source */
-	struct Data {
-	private:
-		const uint8_t* pPtr = 0;
-		size_t pSize = 0;
-
-	public:
-		constexpr Data() = default;
-		constexpr Data(const uint8_t* p, size_t s) : pPtr{ p }, pSize{ s } {}
-		constexpr Data(const str::Data&) = default;
-		constexpr Data(str::Data&&) = default;
-		constexpr str::Data& operator=(const str::Data&) = default;
-		constexpr str::Data& operator=(str::Data&&) = default;
-
-	public:
-		constexpr str::Data subdata(size_t count) const {
-			if (count >= pSize)
-				return str::Data{};
-			return str::Data{ pPtr + count, pSize - count };
-		}
-		constexpr const uint8_t* data() const {
-			return pPtr;
-		}
-		constexpr size_t size() const {
-			return pSize;
-		}
-		constexpr bool empty() const {
-			return (pSize == 0);
-		}
-	};
+	using Data = std::span<const uint8_t>;
 
 	/* single decoded codepoint and the number of characters consumed for it */
 	struct Decoded {
@@ -132,107 +98,6 @@ namespace str {
 	/* is type a supported character (not convertible, but exact type!) */
 	template <class Type>
 	concept IsChar = !std::is_void_v<typename detail::TestChar<Type>::type>;
-
-	/* character writable interface which requires:
-	*	operator() to take the writable object and a character and a count (can be zero)
-	*	operator() to take the writable object and a pointer and a size
-	*	ChType: the character type of the writer */
-	template <class Type>
-	struct CharWriter;
-
-	/* byte sink interface which requires:
-	*	operator() to take the wire object and a pointer and a size */
-	template <class Type>
-	struct ByteWriter;
-
-	/* specialize to make type available as character source for a stream (should not be interacted with directly, instead only use str::Stream) */
-	template <class Type>
-	struct CharStream;
-
-	/* specialize to make type available as byte source for a stream (should not be interacted with directly, instead only use str::Source) */
-	template <class Type>
-	struct ByteSource;
-
-	/* formattable interface which requires:
-	*	operator() to take a sink of any type, a value of the type, a utf32 string-view with formatting-string and a boolean return-value
-	*	if the format-string was valid (should leave the sink untouched if the format is invalid; empty format should be valid at all times) */
-	template <class Type>
-	struct Formatter;
-
-	/* type is anything convertible to a string-view */
-	template <class Type>
-	concept IsStr = !std::is_void_v<typename detail::StrType<Type>::type>;
-
-	/* type is anything convertible to a string-view of the specific type */
-	template <class Type, class ChType>
-	concept IsChStr = std::convertible_to<Type, std::basic_string_view<ChType>>;
-
-	/* type is anything that implements the str::CharWriter interface
-	*	operator(ChType, size_t) to write the character 0 to n times
-	*	operator(const std::basic_string_view<ChType>&) to write the corresponding string */
-	template <class Type>
-	concept IsSink = !std::is_const_v<std::remove_reference_t<Type>> &&
-		requires(Type & t, size_t sz) {
-		typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
-		str::CharWriter<std::remove_cvref_t<Type>>{}(t, std::declval<typename str::CharWriter<std::remove_cvref_t<Type>>::ChType>(), sz);
-		str::CharWriter<std::remove_cvref_t<Type>>{}(t, std::declval<const std::basic_string_view<typename str::CharWriter<std::remove_cvref_t<Type>>::ChType>&>());
-	};
-
-	/* type is anything that implements the str::ByteWriter interface
-	*	operator(const str::Data&) to write the corresponding data */
-	template <class Type>
-	concept IsWire = !std::is_const_v<std::remove_reference_t<Type>> &&
-		requires(Type & t, const str::Data & d) {
-		str::ByteWriter<std::remove_cvref_t<Type>>{}(t, d);
-	};
-
-	/* check if the type specializes str::CharStream accordingly and defines all necessary operations
-	*	Note: May keep a reference to the stream object
-	*	ChType: character type of the given stream
-	*	load(size_t i): load at least [i] characters, or any remaining, if [i] is larger than the stream, and return a reference to them
-	*	consume(size_t i): remove the leading [i] characters from the stream (if [i] is greater or equal to loaded size, consume everything)
-	*	done(): check if the stream contains at least one character */
-	template <class Type>
-	concept IsStream = requires(Type & t, size_t i) {
-		typename str::CharStream<std::remove_cvref_t<Type>>::ChType;
-		{ str::CharStream<std::remove_cvref_t<Type>>{ t }.load(i) } -> std::convertible_to<std::basic_string_view<typename str::CharStream<std::remove_cvref_t<Type>>::ChType>>;
-		{ str::CharStream<std::remove_cvref_t<Type>>{ t }.consume(i) } -> std::same_as<void>;
-		{ str::CharStream<std::remove_cvref_t<Type>>{ t }.done() } -> std::same_as<bool>;
-	};
-
-	/* check if the type specializes str::ByteSource accordingly and defines all necessary operations
-	*	Note: May keep a reference to the source object
-	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them
-	*	consume(size_t i): remove the leading [i] bytes from the source (if [i] is greater or equal to loaded size, consume everything)
-	*	done(): check if the source contains at least one byte */
-	template <class Type>
-	concept IsSource = requires(Type & t, size_t i) {
-		{ str::ByteSource<std::remove_cvref_t<Type>>{ t }.load(i) } -> std::convertible_to<str::Data>;
-		{ str::ByteSource<std::remove_cvref_t<Type>>{ t }.consume(i) } -> std::same_as<void>;
-		{ str::ByteSource<std::remove_cvref_t<Type>>{ t }.done() } -> std::same_as<bool>;
-	};
-
-	/* extract the character type of the type, which satisfies str::IsSink */
-	template <str::IsSink Type>
-	using SinkChar = typename str::CharWriter<std::remove_cvref_t<Type>>::ChType;
-
-	/* extract the character type of the type, which satisfies str::IsStr */
-	template <class Type>
-	using StringChar = typename detail::StrType<Type>::type;
-
-	/* extract the character type of the type, which satisfies str::IsStream */
-	template <str::IsStream Type>
-	using StreamChar = typename str::CharStream<std::remove_cvref_t<Type>>::ChType;
-
-	/* type is anything that implements thr str::Formatter interface */
-	template <class Type>
-	concept IsFormattable = requires(const Type & val, const std::u32string_view & fmt, std::string & cs, std::wstring & ws, std::u8string & u8s, std::u16string & u16s, std::u32string & u32s) {
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(cs, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(ws, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u8s, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u16s, val, fmt) } -> std::same_as<bool>;
-		{ str::Formatter<std::remove_cvref_t<Type>>{}(u32s, val, fmt) } -> std::same_as<bool>;
-	};
 
 	/* codepoint-iterator must move itself upon prev()/next() and return true or return false
 	*	(in which case it must stay) and must return the currently pointed to codepoint on get()
@@ -280,25 +145,4 @@ namespace str {
 	concept IsTester = requires(Type t, char32_t c) {
 		{ t(c) } -> std::same_as<bool>;
 	};
-
-	/* wrappers to interact with character-sinks */
-	template <str::IsSink SinkType>
-	constexpr void CallSink(SinkType&& sink, str::SinkChar<SinkType> chr, size_t count = 1) {
-		str::CharWriter<std::remove_cvref_t<SinkType>>{}(sink, chr, count);
-	}
-	template <str::IsSink SinkType>
-	constexpr void CallSink(SinkType&& sink, const std::basic_string_view<str::SinkChar<SinkType>>& str) {
-		str::CharWriter<std::remove_cvref_t<SinkType>>{}(sink, str);
-	}
-
-	/* wrapper to write to a byte-sink */
-	constexpr auto& CallWire(str::IsWire auto&& sink, const str::Data& data) {
-		str::ByteWriter<std::remove_cvref_t<decltype(sink)>>{}(sink, data);
-		return sink;
-	}
-
-	/* wrapper to interact with formatters */
-	constexpr bool CallFormat(str::IsSink auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
-		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
-	}
 }
