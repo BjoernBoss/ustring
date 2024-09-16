@@ -2,14 +2,14 @@
 ![C++](https://img.shields.io/badge/language-c%2B%2B20-blue?style=flat-square)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-brightgreen?style=flat-square)](LICENSE.txt)
 
-Header only library written in `C++20` to add support for various unicode operations and interoperability between all string types. Simply include [`str.h`](str.h) to add the entire functionality. 
+Header only library written in `C++20` to add support for various unicode operations and interoperability between all string types. Simply include [`ustring.h`](ustring.h) to add the entire functionality.
 
 It includes functions to perform various unicode testing, segmentation, transformations, and analysis functions. Further, it adds the ability to parse and print numbers from any string type, format strings to any string type, serialize and deserialize string types to bytes, escape strings, and convert string types to each other as correctly as possible.
 
 The library consideres any object to be convertible to a `string_view` of any type as a valid string.
 
 ## Using the library
-This library is a header only library. Simply clone the repository, and include `<ustring/str.h>`
+This library is a header only library. Simply clone the repository, and include `<ustring/ustring.h>`
 
     $ git clone https://github.com/BjoernBoss/ustring.git
 
@@ -29,7 +29,7 @@ In case of `char` using utf-8 encoding, the decoding/encoding will be performed 
     str::WideIsUtf16     Does the wchar_t encoding use utf-16
     str::WideIsUtf32     Does the wchar_t encoding use utf-32
 
-Disclaimer: while this should work in theory, at least in `Visual Studio 2019` using the `execution-charset: IBM01149` still resulted in `a` being mapped to `0x61`, although it should have been mapped to `0x81`, which in turn resulted in the compile time ascii-detection to fail.
+Disclaimer: while this should work in theory, at least in `Visual Studio 2022` using the `execution-charset: IBM01149` still resulted in `a` being mapped to `0x61`, although it should have been mapped to `0x81`, which in turn resulted in the compile time ascii-detection to fail.
 
 ## Concepts and Interfaces
 The library defines a set of concepts, which it frequently uses.
@@ -50,15 +50,15 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsCollector` Check if the type has a `next(char32_t)` and `done()` method to act as recipient for transformed codepoints
  - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector` when receiving a `str::IsCollector` to write its output to
  - `str::IsAnalysis` Check if the type performs a boolean analysis on a stream of codepoints
- - `str::IsTester` Check if the type performs a boolean analysis on a single codepoint 
+ - `str::IsTester` Check if the type performs a boolean analysis on a single codepoint
 
 ## Sinks, Sources, and Streams
 
-By default the library uses the concepts of sinks or wires to write to, and strings or data to read from. A sink is anything that fulfills `str::IsSink`, for which many default specializations exist. For convenience, further implementations, such as `str::NullChars`, `str::Chars`, and `str::InheritSink` exist, to allow using buffers and virtualized sinks. A sink defines its supported character type, and all operations, which write to the sink, will ensure only the proper type of characters is written out. Further, no partially encoded codepoints will be written out. They will always be written out in a single batch. 
+By default the library uses the concepts of sinks or wires to write to, and strings or data to read from. A sink is anything that fulfills `str::IsSink`, for which many default specializations exist. For convenience, further implementations, such as `str::NullChars`, `str::Chars`, and `str::InheritSink` exist, to allow using buffers and virtualized sinks. A sink defines its supported character type, and all operations, which write to the sink, will ensure only the proper type of characters is written out. Further, no partially encoded codepoints will be written out. They will always be written out in a single batch.
 
-A wire is defined in the same way as `str::IsWire`, and also offers `str::Bytes` and `str::InheritWire` as support. 
+A wire is defined in the same way as `str::IsWire`, and also offers `str::Bytes` and `str::InheritWire` as support.
 
-A source for strings is anything that is convertible to an `std::basic_string_view`. For bytes, it is any type that fulfills `str::IsData`, for which many default specializations exist. Similarly to sinks, strings also define their source character type, which also defines their encoding used. 
+A source for strings is anything that is convertible to an `std::basic_string_view`. For bytes, it is any type that fulfills `str::IsData`, for which many default specializations exist. Similarly to sinks, strings also define their source character type, which also defines their encoding used.
 
 To further support streaming of data, `str::IsStream` exists for character streams, and `str::IsSource` for byte streams. In order to use them properly, `str::Stream` or `str::Source` exist, which wrap the type, and build up internal cached states to prevent repeated fetching of data, and allowing lookaheads.
 
@@ -87,7 +87,7 @@ The number functions can parse any kind of number and produce float or integer-s
     float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
-### [str::Format, str::Build](str-format.h), [str::Fmt, str::Print](str.h)
+### [str::Format, str::Build](str-format.h), [str::Fmt, str::Print](ustring.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
@@ -195,7 +195,7 @@ Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collecto
 Similar to the casing functionalities, the transformations to convert a stream of codepoints to the normalized composed `NFC` or decomposed versions `NFD` exist, as well as to convert the stream to a case-folded and decomposed stream.
 
 ### [Graphemes, Words, Sentences, Lines](unicode/cp-segmentation.h)
-For each of the kinds of separations, there exist three implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeIterator`. 
+For each of the kinds of separations, there exist three implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeIterator`.
 
 The Break object allows to instantiate an iterator, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
 

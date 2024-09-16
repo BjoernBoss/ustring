@@ -1721,10 +1721,10 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		propertyDefValue = (decimalDefNone << propertyOffset) | propertyDefValue
 
 		# write the printable-enum to the file (https://en.wikipedia.org/wiki/Graphic_character)
-		printableFilterMap = { 
+		printableFilterMap = {
 			'Lu': 1, 'Ll': 1, 'Lt': 1, 'Lm': 1, 'Lo': 1, 'Mn': 1, 'Mc': 1, 'Me': 1, 'Nd': 1, 'Nl': 1, 'No': 1,
 			'Pc': 1, 'Pd': 1, 'Ps': 1, 'Pe': 1, 'Pi': 1, 'Pf': 1, 'Po': 1, 'Sm': 1, 'Sc': 1, 'Sk': 1, 'So': 1,
-			'Zs': 2 
+			'Zs': 2
 		}
 		printableRanges = unicodeData.values(lambda fs: printableFilterMap[fs[1]] if fs[1] in printableFilterMap else None)
 		_enum: LookupType = LookupType.enumType('PrintableType', 'none', ['none', 'printable', 'printSpace'])
@@ -2167,9 +2167,9 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		graphemeRanges = Ranges.union(graphemeRanges, emojiData.values(lambda fs: graphemeEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None))
 		graphemeEnumMap |= { 'InCBExtend': 15, 'InCBConsonant': 16, 'InCBLinker': 17, 'ExtendInCBExtend': 18, 'ExtendInCBLinker': 19, 'ZWJInCBExtend': 20 }
 		inCBMap = { 'Extend': graphemeEnumMap['InCBExtend'], 'Consonant': graphemeEnumMap['InCBConsonant'], 'Linker': graphemeEnumMap['InCBLinker'] }
-		inCBConflictMap = { 
-			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ExtendInCBExtend'], 
-			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBLinker']): graphemeEnumMap['ExtendInCBLinker'], 
+		inCBConflictMap = {
+			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ExtendInCBExtend'],
+			(graphemeEnumMap['Extend'], graphemeEnumMap['InCBLinker']): graphemeEnumMap['ExtendInCBLinker'],
 			(graphemeEnumMap['ZWJ'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ZWJInCBExtend'] }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.values(lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None, True), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
 
