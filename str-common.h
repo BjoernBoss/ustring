@@ -2,7 +2,6 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include <stdexcept>
 #include <algorithm>
 #include <cwchar>
 #include <vector>
@@ -144,5 +143,19 @@ namespace str {
 	template <class Type>
 	concept IsTester = requires(Type t, char32_t c) {
 		{ t(c) } -> std::same_as<bool>;
+	};
+
+	/* wide-string runtime-exception */
+	class RuntimeException {
+	private:
+		std::wstring pMessage;
+
+	public:
+		constexpr RuntimeException(const std::wstring& msg) : pMessage{ msg } {}
+
+	public:
+		constexpr const std::wstring& what() const {
+			return pMessage;
+		}
 	};
 }

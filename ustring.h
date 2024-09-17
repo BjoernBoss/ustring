@@ -60,4 +60,10 @@ namespace str {
 		str::BuildTo(std::wcout, args...);
 		std::wcout << L'\n';
 	}
+
+	/* convenience to build an runtime exception */
+	struct BuildException : public str::RuntimeException {
+		template <class... Args>
+		constexpr BuildException(const Args&... args) : str::RuntimeException{ str::Build<std::wstring>(args...) } {}
+	};
 }

@@ -100,8 +100,8 @@ namespace str {
 	}
 
 	/* invalid codepoint decoding/encoding exception */
-	struct CodingException : public std::runtime_error {
-		CodingException(const std::string& s) : runtime_error(s) {}
+	struct CodingException : public str::RuntimeException {
+		constexpr CodingException(const std::wstring& s) : str::RuntimeException{ s } {}
 	};
 
 	namespace detail {
@@ -167,9 +167,9 @@ namespace str {
 			if constexpr (CodeError == err::Skip || CodeError == err::Nothing)
 				return false;
 			else if constexpr (CodeError == err::Throw)
-				throw str::CodingException("Codepoint could not be encoded");
+				throw str::CodingException(L"Codepoint could not be encoded");
 			if (!detail::EncodeCodepoint<ChType>(sink, CodeError))
-				throw str::CodingException("Alternative coding-error codepoint could not be encoded");
+				throw str::CodingException(L"Alternative coding-error codepoint could not be encoded");
 			return true;
 		}
 		template <class ChType, char32_t CodeError, bool AllowIncomplete>
@@ -182,7 +182,7 @@ namespace str {
 			if constexpr (CodeError != err::Nothing && CodeError != err::Skip) {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (CodeError == err::Throw)
-						throw str::CodingException("Codepoint could not be decoded");
+						throw str::CodingException(L"Codepoint could not be decoded");
 					dec.cp = CodeError;
 				}
 			}
@@ -213,9 +213,9 @@ namespace str {
 				out.consumed = 1;
 				if constexpr (CodeError != err::Nothing && CodeError != err::Skip) {
 					if constexpr (CodeError == err::Throw)
-						throw str::CodingException("Codepoint could not be transcoded");
+						throw str::CodingException(L"Codepoint could not be transcoded");
 					if (!detail::EncodeCodepoint<DChType>(out.cp, CodeError))
-						throw str::CodingException("Alternative coding-error codepoint could not be transcoded");
+						throw str::CodingException(L"Alternative coding-error codepoint could not be transcoded");
 				}
 				return out;
 			}
@@ -316,7 +316,7 @@ namespace str {
 				if constexpr (CodeError != err::Nothing) {
 					if (pOut.cp == str::Invalid) {
 						if constexpr (CodeError == err::Throw)
-							throw str::CodingException("Invalid codepoint encountered in str::Iterator");
+							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
 						pOut.cp = CodeError;
 					}
 				}
@@ -351,7 +351,7 @@ namespace str {
 				if constexpr (CodeError != err::Nothing) {
 					if (pOut.cp == str::Invalid) {
 						if constexpr (CodeError == err::Throw)
-							throw str::CodingException("Invalid codepoint encountered in str::Iterator");
+							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
 						pOut.cp = CodeError;
 					}
 				}
@@ -400,9 +400,9 @@ namespace str {
 		if constexpr (CodeError == err::Nothing || CodeError == err::Skip)
 			return { str::Invalid, len };
 		if constexpr (CodeError == err::Throw)
-			throw str::CodingException("Codepoint is not a valid ascii codepoint");
+			throw str::CodingException(L"Codepoint is not a valid ascii codepoint");
 		if constexpr (CodeError >= detail::AsciiRange)
-			throw str::CodingException("Alternative coding-error codepoint is not a valid ascii codepoint");
+			throw str::CodingException(L"Alternative coding-error codepoint is not a valid ascii codepoint");
 		return { CodeError, len };
 	}
 
