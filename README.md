@@ -73,8 +73,8 @@ The idea of the library is to offer two functions of any kind, such as `str::Int
 The primary functionality is combined into the `str::String` or `str::View` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. They both provide the same interface, and will therefore only be referenced through `str::View` here. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. As an example:
 
 ```C++
-    std::u16string s = str::View{ L"abc-def" }.norm().to<std::u16string>();
-    bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
+std::u16string s = str::View{ L"abc-def" }.norm().to<std::u16string>();
+bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
 ```
 
 For convenience, `str::UString` is defined as `str::String<char16_t, str::err::DefChar>` and `str::UView` is defined as `str::View<char16_t, str::err::DefChar>` to be used as default string types.
@@ -83,19 +83,19 @@ For convenience, `str::UString` is defined as `str::String<char16_t, str::err::D
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:
 
 ```C++
-    std::wstring s = str::Float<std::wstring>(50.0f, str::FloatStyle::general);
-    float f = str::ParseNum<float>(u8"-1523.23e+5").value;
+std::wstring s = str::Float<std::wstring>(50.0f, str::FloatStyle::general);
+float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
 ### [str::Format, str::Build](str-format.h), [str::Fmt, str::Print](ustring.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
-    std::u16string s = str::Format<std::u16string>(u8"Test: {:.^#10x}\n", 65536);
-    std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
+std::u16string s = str::Format<std::u16string>(u8"Test: {:.^#10x}\n", 65536);
+std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
 
-    /* using an argument to modify the argument-string dynamically (will effectively use: #020x on 512) */
-    std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
+/* using an argument to modify the argument-string dynamically (will effectively use: #020x on 512) */
+std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
 ```
 
 For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ...
@@ -104,35 +104,35 @@ For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to
 To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
 
 ```C++
-    /* reading from a byte-source */
-    uint8_t someBuffer[512] = /* ... */;
-    auto x = str::FromWire{ str::WireCoding::utf8, str::BOMMode::detectAll };
-    x.read<std::string>(someBuffer, 512);
+/* reading from a byte-source */
+uint8_t someBuffer[512] = /* ... */;
+auto x = str::FromWire{ str::WireCoding::utf8, str::BOMMode::detectAll };
+x.read<std::string>(someBuffer, 512);
 
-    /* writing to a byte-source */
-    std::ofstream someFile = /* ... */;
-    auto y = str::ToWire{ str::WireCoding::utf16, true };
-    y.write(someFile, u8"Some-String");
-    y.write(someFile, U" some other string");
+/* writing to a byte-source */
+std::ofstream someFile = /* ... */;
+auto y = str::ToWire{ str::WireCoding::utf16, true };
+y.write(someFile, u8"Some-String");
+y.write(someFile, U" some other string");
 ```
 
 Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object. Similarly, `str::WireIn` exists to create a character-stream from a byte-source and immediately transcode the characters.
 
 ```C++
-    str::ofstream someFile = /* ... */;
+str::ofstream someFile = /* ... */;
 
-    str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
+str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
 ### [str::Stream](str-chars.h), [str::Source](str-bytes.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
 
 ```C++
-    str::Stream stream{ u8"Some-String" };
-    while (!stream.done()) {
-        str::PrintLn(stream.load(64));
-        stream.consume();
-    }
+str::Stream stream{ u8"Some-String" };
+while (!stream.done()) {
+    str::PrintLn(stream.load(64));
+    stream.consume();
+}
 ```
 
 The `str::U32Stream` wrapper implements a stream, which allows to create a stream, which decodes any source stream to a stream of type char32_t. The `str::LimitStream` and `str::LimitSource` wrapper implement a source or stream, which limits the number of tokens to be consumed.
@@ -143,9 +143,9 @@ Similarly, `str::InheritSource` and `str::InheritStream` exist, alongside with `
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:
 
 ```C++
-    auto it = str::View{ u"abc-def" }.it();
-    while (it.next())
-        foo(it.get());
+auto it = str::View{ u"abc-def" }.it();
+while (it.next())
+    foo(it.get());
 ```
 
 ## [Coding Error Handling](str-coding.h)
@@ -164,29 +164,29 @@ The unicode related operations lie in the namespace `cp`. All codepoints are rep
 The `cp::prop` and `cp::ascii` namespaces contain various test functions to query properties per single codepoint. Most functions are directly integrated into `str::View`. The `IsUpper` or `IsLower` functions should not be used to determine if the string is uppercased or lowercased, as they only perform checks based on the unicode properties, without respecting any surrouunding context. Examples of using the properties:
 
 ```C++
-    cp::prop::GCType gc = cp::prop::GetCategory(U'a');
-    bool s = cp::prop::IsAssigned(U'\U0010ff00');
-    size_t t = cp::ascii::GetRadix(U'9');
+cp::prop::GCType gc = cp::prop::GetCategory(U'a');
+bool s = cp::prop::IsAssigned(U'\U0010ff00');
+size_t t = cp::ascii::GetRadix(U'9');
 ```
 
 ### [cp::UpperCase, cp::LowerCase, cp::TitleCase, cp::FoldCase](unicode/cp-casing.h)
 The objects for transforming the casing of the string all adhere to the `str::IsMapper` concept. They take an optional locale as constructor argument, and can then be used to instantiate a mapper object into any sink. For each of the transformations, a corresponding tester exists, such as `cp::TestUpperCase`, which checks if the given string would not be modified by the corresponding mapper anymore. All of these functions are directly introduced to `str::View`. Example usage:
 
 ```C++
-    /* mapping a string to uppercase */
-    auto it0 = str::View{ u"abc-def" }.it();
-    auto it1 = it0;
-    std::string out;
-    auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
-    while (it0.next())
-        map.next(it0.get());
-    map.done();
+/* mapping a string to uppercase */
+auto it0 = str::View{ u"abc-def" }.it();
+auto it1 = it0;
+std::string out;
+auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
+while (it0.next())
+    map.next(it0.get());
+map.done();
 
-    /* mapping a string to lowercase */
-    auto tester = cp::TestUpperCase{ 0 };
-    while (it1.next())
-        tester.next(it1.get());
-    bool t = tester.done();
+/* mapping a string to lowercase */
+auto tester = cp::TestUpperCase{ 0 };
+while (it1.next())
+    tester.next(it1.get());
+bool t = tester.done();
 ```
 
 Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collectors to feed the output of the mappers either directly to a sink-object or to a lambda function.
@@ -200,22 +200,22 @@ For each of the kinds of separations, there exist three implementations. For gra
 The Break object allows to instantiate an iterator, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
 
 ```C++
-    std::u32string str = U"abc def";
-    std::vector<cp::Range> ranges;
+std::u32string str = U"abc def";
+std::vector<cp::Range> ranges;
 
-    auto words = cp::WordRanges{}([&](const cp::Range& r) { ranges.push_back(r); });
-    for (size_t i = 0; i < str.size(); ++i)
-        words.next(str[i], i);
-    words.done();
+auto words = cp::WordRanges{}([&](const cp::Range& r) { ranges.push_back(r); });
+for (size_t i = 0; i < str.size(); ++i)
+    words.next(str[i], i);
+words.done();
 ```
 
 The Iterator object will allow to perform arbitrary iteration starting at any point and return the crossed break-type on every step, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. For convenience, the `str::View` expose functions to directly produce the iterator objects. Example usage:
 
 ```C++
-    auto it = str::View{ "abc def" }.it(4);
+auto it = str::View{ "abc def" }.it(4);
 
-    auto words = cp::WordIterator{ it };
-    cp::BreakMode brk = words.prev();
+auto words = cp::WordIterator{ it };
+cp::BreakMode brk = words.prev();
 ```
 
 ## Unicode Data and Properties
