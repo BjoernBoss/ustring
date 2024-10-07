@@ -307,7 +307,7 @@ namespace str {
 					acc += out.consumed;
 					cur -= out.consumed;
 				}
-				pOut = { out.cp, out.consumed + acc };
+				pOut = { out.cp, uint32_t(out.consumed + acc) };
 			}
 
 			else {

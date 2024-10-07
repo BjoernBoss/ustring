@@ -107,7 +107,7 @@ namespace str {
 		requires (Capacity != 0)
 	class Local {
 		using ThisType = str::Local<ChType, Capacity>;
-		static constexpr size_t ActCapacity = static_cast<size_t>(Capacity < 0 ? -Capacity : Capacity);
+		static constexpr size_t ActCapacity = size_t(Capacity < 0 ? -Capacity : Capacity);
 		static constexpr bool SilentErrors = (Capacity < 0);
 
 	private:
@@ -217,7 +217,7 @@ namespace str {
 			fAppend(c, 1);
 		}
 		constexpr size_t size() const {
-			return static_cast<size_t>(pSize);
+			return size_t(pSize);
 		}
 		constexpr size_t max_size() const {
 			return ActCapacity;

@@ -15,7 +15,7 @@ namespace str {
 		/* expect: begin != end; consumed always greater than zero */
 		template <class ChType, bool AllowIncomplete>
 		inline constexpr str::Decoded NextUtf16(const ChType* cur, const ChType* end) {
-			uint32_t first = static_cast<uint16_t>(*cur);
+			uint32_t first = uint16_t(*cur);
 
 			/* check if its a valid single-token codepoint (valid at all times) */
 			if (first < detail::SurrogateFirst || first > detail::SurrogateLast)
@@ -31,7 +31,7 @@ namespace str {
 			}
 
 			/* extract and validate the second token */
-			uint32_t second = static_cast<uint16_t>(cur[1]);
+			uint32_t second = uint16_t(cur[1]);
 			if (second < detail::SurrogateUpper || second > detail::SurrogateLast)
 				return { str::Invalid, 1 };
 
@@ -41,7 +41,7 @@ namespace str {
 		template <class ChType>
 		inline constexpr str::Decoded PrevUtf16(const ChType* begin, const ChType* cur) {
 			/* check if its a single codepoint */
-			uint32_t second = static_cast<uint16_t>(cur[-1]);
+			uint32_t second = uint16_t(cur[-1]);
 			if (second < detail::SurrogateFirst || second > detail::SurrogateLast)
 				return { second, 1 };
 
@@ -50,7 +50,7 @@ namespace str {
 				return { str::Invalid, 1 };
 
 			/* extract and validate the first token */
-			uint32_t first = static_cast<uint16_t>(cur[-2]);
+			uint32_t first = uint16_t(cur[-2]);
 			if (first < detail::SurrogateFirst || first >= detail::SurrogateUpper)
 				return { str::Invalid, 1 };
 

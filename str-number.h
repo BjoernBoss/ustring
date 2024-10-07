@@ -945,7 +945,7 @@ namespace str {
 			/* check if this is a hex-float, in which case the exponent only needs to be corrected by the mantissa-shift
 			*	(exponent is guaranteed to fit into an integer) and otherwise use the large-integers to produce the bits */
 			if (hexFloat) {
-				flExponent = static_cast<int>(exponent + manShift);
+				flExponent = int(exponent + manShift);
 				flMantissa = mantissa;
 
 				/* setup the rounding information */
@@ -1174,7 +1174,7 @@ namespace str {
 				flExponent = -flExponent;
 
 			/* write the exponent to the sink */
-			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), 10, 1, false, upperCase);
+			detail::PrintInteger<uint32_t>(sink, uint32_t(flExponent), 10, 1, false, upperCase);
 		}
 
 		template <class Type, size_t Units>
@@ -1360,7 +1360,7 @@ namespace str {
 			flExponent = (flExponent < 0 ? -flExponent : flExponent);
 
 			/* write the exponent to the sink */
-			detail::PrintInteger<uint32_t>(sink, static_cast<uint32_t>(flExponent), radix, 2, false, upperCase);
+			detail::PrintInteger<uint32_t>(sink, uint32_t(flExponent), radix, 2, false, upperCase);
 		}
 
 		template <class Type>

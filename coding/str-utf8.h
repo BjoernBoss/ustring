@@ -25,7 +25,7 @@ namespace str {
 		/* expect: begin != end; consumed always greater than zero */
 		template <class ChType, bool AllowIncomplete>
 		inline constexpr str::Decoded NextUtf8(const ChType* cur, const ChType* end) {
-			uint8_t c8 = static_cast<uint8_t>(*cur);
+			uint8_t c8 = uint8_t(*cur);
 
 			/* lookup the length of the character (with 0 invalid encoding) and extract the initial codepoint bits */
 			uint32_t len = detail::InitCharLength[c8 >> 3];
@@ -42,7 +42,7 @@ namespace str {
 
 			/* validate the contiunation-bytes and construct the final codepoint */
 			for (uint32_t j = 1; j < len; ++j) {
-				uint8_t n8 = static_cast<uint8_t>(cur[j]);
+				uint8_t n8 = uint8_t(cur[j]);
 				if ((n8 & 0xc0) != 0x80)
 					return { str::Invalid, 1 };
 				cp = ((cp << 6) | (n8 & 0x3f));
@@ -62,7 +62,7 @@ namespace str {
 			uint8_t c8 = 0;
 			while (true) {
 				c = cur - int32_t(len);
-				c8 = static_cast<uint8_t>(*c);
+				c8 = uint8_t(*c);
 
 				/* check if this is not a continuation-byte (i.e. the start of a codepoint) */
 				if ((c8 & 0xc0) != 0x80)
