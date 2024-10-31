@@ -151,7 +151,7 @@ namespace str {
 		std::wstring pMessage;
 
 	public:
-		constexpr RuntimeException(const std::wstring& msg) : pMessage{ msg } {}
+		RuntimeException(const std::wstring& msg) : pMessage{ msg } {}
 
 	public:
 		constexpr const std::wstring& what() const {

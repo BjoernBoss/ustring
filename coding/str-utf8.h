@@ -122,7 +122,7 @@ namespace str {
 			}
 
 			/* write the string to the sink */
-			str::CallSink(sink, std::basic_string_view<ChType>{ out, out + len });
+			str::CallSink(sink, std::basic_string_view<ChType>{ out, len });
 			return true;
 		}
 		template <class ChType>

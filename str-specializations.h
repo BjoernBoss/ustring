@@ -160,7 +160,7 @@ namespace str {
 	};
 	template <class Type>
 	struct CharLoader<str::LimitStream<Type>> {
-		using ChType = str::LimitStream<Type>::ChType;
+		using ChType = typename str::LimitStream<Type>::ChType;
 		constexpr size_t operator()(str::LimitStream<Type>& src, ChType* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}

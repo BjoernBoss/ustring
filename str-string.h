@@ -153,7 +153,7 @@ namespace str {
 			template <class CollType, class... Transforms>
 			struct TransTypeRec;
 			template <class CollType, class Transform, class... Transforms>
-			struct TransTypeRec<CollType, Transform, Transforms...> { using type = Transform::template Type<typename TransTypeRec<CollType, Transforms...>::type>; };
+			struct TransTypeRec<CollType, Transform, Transforms...> { using type = typename Transform::template Type<typename TransTypeRec<CollType, Transforms...>::type>; };
 			template <class CollType>
 			struct TransTypeRec<CollType> { using type = CollType; };
 

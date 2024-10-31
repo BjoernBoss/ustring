@@ -98,7 +98,7 @@ namespace str {
 
 	/* local string-buffer overflow/underflow exception */
 	struct LocalException : public str::RuntimeException {
-		constexpr LocalException(const std::wstring& s) : str::RuntimeException{ s } {}
+		LocalException(const std::wstring& s) : str::RuntimeException{ s } {}
 	};
 
 	/* [str::IsStr/str::IsSink] local stack-buffered string null-terminated string, to be appended to, for intermediate/temporary value building
@@ -176,15 +176,15 @@ namespace str {
 			return pBuffer[index];
 		}
 		constexpr operator std::basic_string_view<ChType>() const {
-			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
+			return std::basic_string_view<ChType>{ pBuffer, pSize };
 		}
 
 	public:
 		constexpr std::basic_string_view<ChType> view() const {
-			return std::basic_string_view<ChType>{ pBuffer, pBuffer + pSize };
+			return std::basic_string_view<ChType>{ pBuffer, pSize };
 		}
 		constexpr std::basic_string<ChType> str() const {
-			return std::basic_string<ChType>{ pBuffer, pBuffer + pSize };
+			return std::basic_string<ChType>{ pBuffer, pSize };
 		}
 		constexpr ThisType& assign(const std::basic_string_view<ChType>& s) {
 			pSize = 0;

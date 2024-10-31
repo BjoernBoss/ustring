@@ -101,7 +101,7 @@ namespace str {
 
 	/* invalid codepoint decoding/encoding exception */
 	struct CodingException : public str::RuntimeException {
-		constexpr CodingException(const std::wstring& s) : str::RuntimeException{ s } {}
+		CodingException(const std::wstring& s) : str::RuntimeException{ s } {}
 	};
 
 	namespace detail {

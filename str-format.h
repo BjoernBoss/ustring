@@ -126,7 +126,7 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	constexpr auto& FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
+	auto& FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StringChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgValid : uint8_t {
@@ -497,7 +497,7 @@ namespace str {
 		}
 
 		template <class Type>
-		constexpr bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
+		bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
 			/* parse the padding format */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
@@ -555,7 +555,7 @@ namespace str {
 	*		[0]: Optional (if no alignment specified, to indicate null-padding)
 	*	[bBqQoOdDxX]: radix and casing */
 	template <str::IsInteger Type> struct Formatter<Type> {
-		constexpr bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -644,7 +644,7 @@ namespace str {
 	*		=> gG: FloatStyle::general
 	*		=> fF: FloatStyle::fixed */
 	template <str::IsFloat Type> struct Formatter<Type> {
-		constexpr bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -747,7 +747,7 @@ namespace str {
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <str::IsStr Type> struct Formatter<Type> {
-		constexpr bool operator()(str::IsSink auto& sink, const Type& t, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, const Type& t, const std::u32string_view& fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the string-formatting */
