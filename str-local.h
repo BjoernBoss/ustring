@@ -241,16 +241,6 @@ namespace str {
 			return pBuffer;
 		}
 	};
-	template <intptr_t Capacity>
-	using LocalCh = str::Local<char, Capacity>;
-	template <intptr_t Capacity>
-	using LocalWd = str::Local<wchar_t, Capacity>;
-	template <intptr_t Capacity>
-	using LocalU8 = str::Local<char8_t, Capacity>;
-	template <intptr_t Capacity>
-	using LocalU16 = str::Local<char16_t, Capacity>;
-	template <intptr_t Capacity>
-	using LocalU32 = str::Local<char32_t, Capacity>;
 
 	/* specializations for str::Local to be used as sink */
 	template <class Type, intptr_t Capacity>

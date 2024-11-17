@@ -7,7 +7,7 @@
 #include "str-number.h"
 #include "str-escape.h"
 
-#include <iostream>
+#include <filesystem>
 
 /*
 *	Coding-Rules:
@@ -526,7 +526,7 @@ namespace str {
 				return true;
 
 			/* create the temporary buffer containing the single codepoint */
-			str::LocalU32<str::MaxEscapeSize> buffer;
+			str::Local<char32_t, str::MaxEscapeSize> buffer;
 			if (escape && (ascii || !cp::prop::IsPrint(cp)))
 				str::EscapeTo(buffer, cp, true);
 			else
@@ -588,7 +588,7 @@ namespace str {
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::LocalU32<4> prefix;
+				str::Local<char32_t, 4> prefix;
 				detail::NumPreambleInto<Type>(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
@@ -700,7 +700,7 @@ namespace str {
 
 			/* check if the number is to be null-padded */
 			if (useNullPadding) {
-				str::LocalU32<4> prefix;
+				str::Local<char32_t, 4> prefix;
 				detail::NumPreambleInto(prefix, val, signChar, radix, upperCase, addPrefix);
 
 				/* write the preamble to the sink */
@@ -812,7 +812,7 @@ namespace str {
 				return false;
 
 			/* construct the output-string */
-			str::LocalU32<sizeof(void*) * 2> buffer;
+			str::Local<char32_t, sizeof(void*) * 2> buffer;
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
 			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
@@ -848,6 +848,61 @@ namespace str {
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, str, padding);
+			return true;
+		}
+	};
+
+	/*	Normal padding
+	*	[f]: format to use forward slashes
+	*	[b]: format to use backward slashes */
+	template <> struct Formatter<std::filesystem::path> {
+		constexpr bool operator()(str::IsSink auto& sink, const std::filesystem::path& val, const std::u32string_view& fmt) const {
+			auto [padding, rest] = fmt::ParsePadding(fmt);
+
+			/* parse the final arguments and validate them */
+			char32_t rep = 0;
+			if (!rest.empty()) {
+				if (rest[0] == U'f') {
+					rep = U'/';
+					rest = rest.substr(1);
+				}
+				else if (rest[0] == U'b') {
+					rep = U'\\';
+					rest = rest.substr(1);
+				}
+			}
+
+			/* check if the entire string has been processed */
+			if (!rest.empty())
+				return false;
+
+			/* check if the string can just be appended */
+			if (padding.minimum <= 1 && padding.maximum == 0 && rep == 0) {
+				str::TranscodeAllTo<err::DefChar>(sink, val.native());
+				return true;
+			}
+
+			/* write the string to an intermediate buffer */
+			std::u32string buffer;
+			using ChType = str::StringChar<std::filesystem::path::string_type>;
+			std::basic_string_view<ChType> view{ val.native() };
+
+			/* extract all separate characters */
+			while (!view.empty()) {
+				auto [cp, consumed] = str::GetCodepoint<err::DefChar>(view);
+				view = view.substr(consumed);
+
+				/* change the slash type accordingly */
+				if (cp == str::Invalid)
+					continue;
+				if (rep == 0 || (cp != U'/' && cp != U'\\'))
+					buffer.push_back(cp);
+				else
+					buffer.push_back(rep);
+			}
+
+			/* write the padded string to the sink */
+			fmt::WritePadded(sink, buffer, padding);
 			return true;
 		}
 	};

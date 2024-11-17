@@ -61,6 +61,38 @@ namespace str {
 		std::wcout << L'\n';
 	}
 
+	namespace detail {
+		template <class ChType>
+		struct Convenience {
+
+			template <intptr_t Capacity>
+			using Local = str::Local<ChType, Capacity>;
+
+			static constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
+				return str::Build<std::basic_string<ChType>>(args...);
+			}
+			static constexpr std::basic_string<ChType> Format(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
+				return str::Format<std::basic_string<ChType>>(fmt, args...);
+			}
+			static constexpr std::basic_string<ChType> To(const str::IsStr auto& source) {
+				return str::TranscodeAll<std::basic_string<ChType>>(source);
+			}
+			static constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::Int<std::basic_string<ChType>>(num, radix, numStyle);
+			}
+			static constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::Float<std::basic_string<ChType>>(num, style, precision, radix, numStyle);
+			}
+		};
+	}
+
+	/* convenience for bound types */
+	using ch = detail::Convenience<char>;
+	using wd = detail::Convenience<wchar_t>;
+	using u8 = detail::Convenience<char8_t>;
+	using u16 = detail::Convenience<char16_t>;
+	using u32 = detail::Convenience<char32_t>;
+
 	/* convenience to build an runtime exception */
 	struct BuildException : public str::RuntimeException {
 		template <class... Args>

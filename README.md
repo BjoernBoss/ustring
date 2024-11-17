@@ -65,7 +65,9 @@ To further support streaming of data, `str::IsStream` exists for character strea
 ## Standard Functionality
 The standard string functionality lies in the namespace `str` for all string-related operations.
 
-To allow local strings from being used, `str::Local<class CharType, ssize_t Capacity>` is provided, which allows to create a string on the stack of the given character type and the given capacity. For convenience, `str::LocalCh` / `str::LocalWd` / ... has been defined for each corresponding character type.
+To allow local strings from being used, `str::Local<class CharType, ssize_t Capacity>` is provided, which allows to create a string on the stack of the given character type and the given capacity. 
+
+For convenience, `str::ch` / `str::wd` / ... have been provided, which add common functionality but defaulted to either the corresponding char-type (i.e. `str::u8::Local<Capacity>` => `str::Local<char8_t, Capacity>`) or the corresponding string type (i.e. `str::u16::Build` => `str::Build<std::u16string>`)
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
