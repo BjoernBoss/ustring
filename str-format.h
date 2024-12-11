@@ -255,6 +255,17 @@ namespace str {
 		return sink;
 	}
 
+	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (own formatting is ignored) */
+	template <str::IsStr FmtType, str::IsFormattable Type>
+	struct As {
+	public:
+		std::basic_string_view<str::StringChar<FmtType>> format;
+		const Type& value;
+
+	public:
+		constexpr As(const FmtType& fmt, const Type& value) : format{ fmt }, value{ value } {}
+	};
+
 	/*	Normal padding: in Order; all optional
 	*	[char?[<^>]]: padding character and side
 	*		=> [char]: char to be used for padding (default: ' ')
@@ -311,7 +322,7 @@ namespace str {
 			else if (fmt.size() > 0 && (fmt[0] == U'<' || fmt[0] == U'^' || fmt[0] == U'>'))
 				padModeChar = fmt[consumed++];
 			if (padModeChar != 0)
-				out.align = (padModeChar == U'>' ? fmt::Alignment::trailing : (padModeChar == U'^' ? fmt::Alignment::center : fmt::Alignment::trailing));
+				out.align = (padModeChar == U'>' ? fmt::Alignment::trailing : (padModeChar == U'^' ? fmt::Alignment::center : fmt::Alignment::leading));
 			return consumed;
 		}
 		inline constexpr size_t ParsePaddingMinimum(const std::u32string_view& fmt, fmt::Padding& out) {
@@ -934,6 +945,27 @@ namespace str {
 	template <> struct Formatter<char32_t> {
 		constexpr bool operator()(str::IsSink auto& sink, char32_t val, const std::u32string_view& fmt) const {
 			return detail::FormatChar<char32_t>(sink, val, fmt);
+		}
+	};
+
+	/* No formatting rules will be respected, as the internally stored rules will be applied to the argument */
+	template <class FmtType, class Type> struct Formatter<str::As<FmtType, Type>> {
+		constexpr bool operator()(str::IsSink auto& sink, const str::As<FmtType, Type>& val, const std::u32string_view& fmt) const {
+			/* ensure that the formatting string is empty */
+			if (!fmt.empty())
+				return false;
+
+			/* check if the formatter can be used directly */
+			if constexpr (str::EffSame<FmtType, char32_t>)
+				str::CallFormat(sink, val.value, val.format);
+
+			/* convert the formatting and write the value out */
+			else {
+				std::u32string buffer;
+				str::TranscodeAllTo<err::DefChar>(buffer, val.format);
+				str::CallFormat(sink, val.value, buffer);
+			}
+			return true;
 		}
 	};
 }

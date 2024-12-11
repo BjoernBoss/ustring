@@ -100,7 +100,11 @@ std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
 std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
 ```
 
-For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ...
+For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ... Further, `str::As` exists, to allow a format to be specified and bound to an argument. This allows `str::Build` to be used, while simultaneously formatting a parameter:
+
+```C++
+std::u16string s = str::Build<std::u16string>(1, true, str::As{ "#010x", 50 }, u8"Def");
+```
 
 ### [str::ToWire, str::FromWire](str-wire.h)
 To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
