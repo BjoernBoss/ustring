@@ -68,7 +68,7 @@ namespace str {
 		constexpr void operator()(str::InheritSink& sink, char32_t chr, size_t count) const {
 			sink.write(chr, count);
 		}
-		constexpr void operator()(str::InheritSink& sink, const std::u32string_view& s) const {
+		constexpr void operator()(str::InheritSink& sink, std::u32string_view s) const {
 			sink.write(s);
 		}
 	};
@@ -79,7 +79,7 @@ namespace str {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::WireOut<Type, CodeError>& sink, const std::u32string_view& s) const {
+		constexpr void operator()(str::WireOut<Type, CodeError>& sink, std::u32string_view s) const {
 			sink.write(s);
 		}
 	};

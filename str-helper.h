@@ -262,7 +262,7 @@ namespace str {
 		constexpr WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
 
 	public:
-		constexpr void write(const std::u32string_view& s) {
+		constexpr void write(std::u32string_view s) {
 			pWire.write(pSink, s);
 		}
 		constexpr void put(char32_t c) {
@@ -378,7 +378,7 @@ namespace str {
 		virtual ~InheritSink() = default;
 
 	public:
-		virtual void write(const std::u32string_view& s) = 0;
+		virtual void write(std::u32string_view s) = 0;
 		virtual void write(char32_t chr, size_t count) = 0;
 	};
 
@@ -398,7 +398,7 @@ namespace str {
 		void write(char32_t chr, size_t count) override {
 			str::CodepointTo<str::err::DefChar>(pSink, chr, count);
 		}
-		void write(const std::u32string_view& s) override {
+		void write(std::u32string_view s) override {
 			str::TranscodeAllTo<str::err::DefChar>(pSink, s);
 		}
 	};

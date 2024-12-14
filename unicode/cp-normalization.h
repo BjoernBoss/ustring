@@ -265,7 +265,7 @@ namespace cp {
 			detail::DecompMapper<CollType, false> pDecompose;
 
 		public:
-			constexpr NormFoldMapper(CollType&& collector, const std::wstring_view& locale) : pCaseFold{ cp::FoldCase{ locale }(Lambda{ *this }) }, pDecompose{ std::forward<CollType>(collector) } {}
+			constexpr NormFoldMapper(CollType&& collector, std::wstring_view locale) : pCaseFold{ cp::FoldCase{ locale }(Lambda{ *this }) }, pDecompose{ std::forward<CollType>(collector) } {}
 
 		public:
 			constexpr void next(char32_t cp) {
@@ -362,7 +362,7 @@ namespace cp {
 		std::wstring_view pLocale = {};
 
 	public:
-		constexpr NormFold(const std::wstring_view& locale = {}) : pLocale{ locale } {}
+		constexpr NormFold(std::wstring_view locale = {}) : pLocale{ locale } {}
 
 	public:
 		template <str::IsCollector CollType>
@@ -384,8 +384,8 @@ namespace cp {
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is casefolded and decomposed-normalized (NFD) (i.e. cp::NormFold(...) would result in the same codepoints) */
-	class TestNormFold : public detail::TestNormalization<detail::NormFoldMapper, const std::wstring_view&> {
+	class TestNormFold : public detail::TestNormalization<detail::NormFoldMapper, std::wstring_view> {
 	public:
-		constexpr TestNormFold(const std::wstring_view& locale = {}) : detail::TestNormalization<detail::NormFoldMapper, const std::wstring_view&>{ locale } {}
+		constexpr TestNormFold(std::wstring_view locale = {}) : detail::TestNormalization<detail::NormFoldMapper, std::wstring_view>{ locale } {}
 	};
 }

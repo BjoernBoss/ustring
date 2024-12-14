@@ -34,18 +34,18 @@ namespace str {
 	};
 
 	/* wrapper to interact with formatters */
-	constexpr bool CallFormat(str::IsSink auto&& sink, const str::IsFormattable auto& val, const std::u32string_view& fmt = U"") {
+	constexpr bool CallFormat(str::IsSink auto&& sink, const str::IsFormattable auto& val, std::u32string_view fmt = {}) {
 		return str::Formatter<std::remove_cvref_t<decltype(val)>>{}(sink, val, fmt);
 	}
 
 	namespace detail {
 		template <class ChType>
-		constexpr int8_t FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt) {
+		constexpr int8_t FormatIndex(auto& sink, size_t index, std::u32string_view fmt) {
 			return -1;
 		}
 
 		template <class ChType, class Arg, class... Args>
-		constexpr int8_t FormatIndex(auto& sink, size_t index, const std::u32string_view& fmt, const Arg& arg, const Args&... args) {
+		constexpr int8_t FormatIndex(auto& sink, size_t index, std::u32string_view fmt, const Arg& arg, const Args&... args) {
 			if (index > 0)
 				return detail::FormatIndex<ChType, Args...>(sink, index - 1, fmt, args...);
 			else
@@ -277,7 +277,7 @@ namespace str {
 			size_t number = 0;
 			size_t consumed = 0;
 		};
-		inline constexpr fmt::FmtNumber ParseIndicatedNumber(const std::u32string_view& fmt, char32_t indicator, size_t def) {
+		inline constexpr fmt::FmtNumber ParseIndicatedNumber(std::u32string_view fmt, char32_t indicator, size_t def) {
 			fmt::FmtNumber out{};
 			out.number = def;
 
@@ -310,7 +310,7 @@ namespace str {
 			fmt::Alignment align = fmt::Alignment::standard;
 			bool ellipsisClipping = false;
 		};
-		inline constexpr size_t ParsePaddingAlignment(const std::u32string_view& fmt, fmt::Padding& out) {
+		inline constexpr size_t ParsePaddingAlignment(std::u32string_view fmt, fmt::Padding& out) {
 			size_t consumed = 0;
 
 			/* check if the format-string defines a padding mode */
@@ -325,7 +325,7 @@ namespace str {
 				out.align = (padModeChar == U'>' ? fmt::Alignment::trailing : (padModeChar == U'^' ? fmt::Alignment::center : fmt::Alignment::leading));
 			return consumed;
 		}
-		inline constexpr size_t ParsePaddingMinimum(const std::u32string_view& fmt, fmt::Padding& out) {
+		inline constexpr size_t ParsePaddingMinimum(std::u32string_view fmt, fmt::Padding& out) {
 			/* parse the minimum length (range-error will automatically result in the largest possible value) */
 			auto [value, consumed, result] = str::ParseNum<size_t>(fmt, 10, str::PrefixMode::none);
 			if (result != str::NumResult::valid && result != str::NumResult::range)
@@ -333,7 +333,7 @@ namespace str {
 			out.minimum = std::max<size_t>(1, value);
 			return consumed;
 		}
-		inline constexpr size_t ParsePaddingMaximum(const std::u32string_view& fmt, fmt::Padding& out) {
+		inline constexpr size_t ParsePaddingMaximum(std::u32string_view fmt, fmt::Padding& out) {
 			bool ellipsis = false;
 
 			/* parse the number and check if ellipsis should be added */
@@ -353,7 +353,7 @@ namespace str {
 			fmt::Padding padding;
 			std::u32string_view rest;
 		};
-		inline constexpr fmt::PadFormat ParsePadding(const std::u32string_view& fmt) {
+		inline constexpr fmt::PadFormat ParsePadding(std::u32string_view fmt) {
 			fmt::PadFormat out{};
 			size_t consumed = 0;
 
@@ -367,7 +367,7 @@ namespace str {
 		}
 
 		/* write the padded string out and apply the corresponding padding */
-		constexpr void WritePadded(str::IsSink auto&& sink, const std::u32string_view& str, const fmt::Padding& padding) {
+		constexpr void WritePadded(str::IsSink auto&& sink, std::u32string_view str, const fmt::Padding& padding) {
 			/* check if the string is smaller than the minimum and add the padding */
 			if (str.size() < padding.minimum) {
 				size_t diff = (padding.minimum - str.size());
@@ -410,7 +410,7 @@ namespace str {
 			bool prefix = false;
 			bool nullPadding = false;
 		};
-		inline constexpr detail::NumPreamble ParseNumPreamble(const std::u32string_view& fmt, bool canNullPad) {
+		inline constexpr detail::NumPreamble ParseNumPreamble(std::u32string_view fmt, bool canNullPad) {
 			detail::NumPreamble out;
 
 			/* validate the intermediate characters and parse them */
@@ -438,7 +438,7 @@ namespace str {
 			bool upperCase = false;
 			bool found = false;
 		};
-		inline constexpr detail::NumRadix ParseNumRadix(const std::u32string_view& fmt, bool allowHexFloat) {
+		inline constexpr detail::NumRadix ParseNumRadix(std::u32string_view fmt, bool allowHexFloat) {
 			if (fmt.empty())
 				return detail::NumRadix();
 			detail::NumRadix out;
@@ -496,7 +496,7 @@ namespace str {
 			bool ascii = false;
 			bool escape = false;
 		};
-		constexpr detail::StrFormatting ParseStrFormatting(const std::u32string_view& fmt) {
+		constexpr detail::StrFormatting ParseStrFormatting(std::u32string_view fmt) {
 			detail::StrFormatting out{};
 
 			/* check if the string contains the aA or eE characters */
@@ -508,7 +508,7 @@ namespace str {
 		}
 
 		template <class Type>
-		bool FormatChar(auto& sink, Type val, const std::u32string_view& fmt) {
+		bool FormatChar(auto& sink, Type val, std::u32string_view fmt) {
 			/* parse the padding format */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
@@ -566,7 +566,7 @@ namespace str {
 	*		[0]: Optional (if no alignment specified, to indicate null-padding)
 	*	[bBqQoOdDxX]: radix and casing */
 	template <str::IsInteger Type> struct Formatter<Type> {
-		bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, Type val, std::u32string_view fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -655,7 +655,7 @@ namespace str {
 	*		=> gG: FloatStyle::general
 	*		=> fF: FloatStyle::fixed */
 	template <str::IsFloat Type> struct Formatter<Type> {
-		bool operator()(str::IsSink auto& sink, Type val, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, Type val, std::u32string_view fmt) const {
 			fmt::Padding padding{};
 			size_t consumed = 0;
 
@@ -758,7 +758,7 @@ namespace str {
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <str::IsStr Type> struct Formatter<Type> {
-		bool operator()(str::IsSink auto& sink, const Type& t, const std::u32string_view& fmt) const {
+		bool operator()(str::IsSink auto& sink, const Type& t, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the string-formatting */
@@ -808,7 +808,7 @@ namespace str {
 	/*	Normal padding
 	*	[uU]: uppercase */
 	template <> struct Formatter<void*> {
-		constexpr bool operator()(str::IsSink auto& sink, void* val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, void* val, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -837,7 +837,7 @@ namespace str {
 	/*	Normal padding
 	*	[sS]: as string (true/false vs True/False) */
 	template <> struct Formatter<bool> {
-		constexpr bool operator()(str::IsSink auto& sink, bool val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, bool val, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -867,7 +867,7 @@ namespace str {
 	*	[f]: format to use forward slashes
 	*	[b]: format to use backward slashes */
 	template <> struct Formatter<std::filesystem::path> {
-		constexpr bool operator()(str::IsSink auto& sink, const std::filesystem::path& val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, const std::filesystem::path& val, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -923,34 +923,34 @@ namespace str {
 	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
 	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <> struct Formatter<char> {
-		constexpr bool operator()(str::IsSink auto& sink, char val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char val, std::u32string_view fmt) const {
 			return detail::FormatChar<char>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<wchar_t> {
-		constexpr bool operator()(str::IsSink auto& sink, wchar_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, wchar_t val, std::u32string_view fmt) const {
 			return detail::FormatChar<wchar_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char8_t> {
-		constexpr bool operator()(str::IsSink auto& sink, char8_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char8_t val, std::u32string_view fmt) const {
 			return detail::FormatChar<char8_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char16_t> {
-		constexpr bool operator()(str::IsSink auto& sink, char16_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char16_t val, std::u32string_view fmt) const {
 			return detail::FormatChar<char16_t>(sink, val, fmt);
 		}
 	};
 	template <> struct Formatter<char32_t> {
-		constexpr bool operator()(str::IsSink auto& sink, char32_t val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, char32_t val, std::u32string_view fmt) const {
 			return detail::FormatChar<char32_t>(sink, val, fmt);
 		}
 	};
 
 	/* No formatting rules will be respected, as the internally stored rules will be applied to the argument */
 	template <class FmtType, class Type> struct Formatter<str::As<FmtType, Type>> {
-		constexpr bool operator()(str::IsSink auto& sink, const str::As<FmtType, Type>& val, const std::u32string_view& fmt) const {
+		constexpr bool operator()(str::IsSink auto& sink, const str::As<FmtType, Type>& val, std::u32string_view fmt) const {
 			/* ensure that the formatting string is empty */
 			if (!fmt.empty())
 				return false;
