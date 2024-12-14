@@ -63,8 +63,7 @@ namespace str {
 
 	namespace detail {
 		template <class ChType>
-		struct Convenience {
-
+		struct StrConvenience {
 			template <intptr_t Capacity>
 			using Local = str::Local<ChType, Capacity>;
 
@@ -84,14 +83,45 @@ namespace str {
 				return str::Float<std::basic_string<ChType>>(num, style, precision, radix, numStyle);
 			}
 		};
+
+		template <class ChType, intptr_t Capacity>
+		struct LocConvenience {
+			using Local = str::Local<ChType, Capacity>;
+
+			static constexpr str::Local<ChType, Capacity> Build(const str::IsFormattable auto&... args) {
+				return str::Build<str::Local<ChType, Capacity>>(args...);
+			}
+			static constexpr str::Local<ChType, Capacity> Format(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
+				return str::Format<str::Local<ChType, Capacity>>(fmt, args...);
+			}
+			static constexpr str::Local<ChType, Capacity> To(const str::IsStr auto& source) {
+				return str::TranscodeAll<str::Local<ChType, Capacity>>(source);
+			}
+			static constexpr str::Local<ChType, Capacity> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::Int<str::Local<ChType, Capacity>>(num, radix, numStyle);
+			}
+			static constexpr str::Local<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::Float<str::Local<ChType, Capacity>>(num, style, precision, radix, numStyle);
+			}
+		};
 	}
 
 	/* convenience for bound types */
-	using ch = detail::Convenience<char>;
-	using wd = detail::Convenience<wchar_t>;
-	using u8 = detail::Convenience<char8_t>;
-	using u16 = detail::Convenience<char16_t>;
-	using u32 = detail::Convenience<char32_t>;
+	using ch = detail::StrConvenience<char>;
+	using wd = detail::StrConvenience<wchar_t>;
+	using u8 = detail::StrConvenience<char8_t>;
+	using u16 = detail::StrConvenience<char16_t>;
+	using u32 = detail::StrConvenience<char32_t>;
+	template <intptr_t Capacity>
+	using lch = detail::LocConvenience<char, Capacity>;
+	template <intptr_t Capacity>
+	using lwd = detail::LocConvenience<wchar_t, Capacity>;
+	template <intptr_t Capacity>
+	using lu8 = detail::LocConvenience<char8_t, Capacity>;
+	template <intptr_t Capacity>
+	using lu16 = detail::LocConvenience<char16_t, Capacity>;
+	template <intptr_t Capacity>
+	using lu32 = detail::LocConvenience<char32_t, Capacity>;
 
 	/* convenience to build an runtime exception */
 	struct BuildException : public str::RuntimeException {
