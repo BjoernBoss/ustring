@@ -237,7 +237,7 @@ namespace str {
 						if (buffer.size() == 0)
 							state = 0;
 					}
-					}), std::forward<Transforms>(transforms)...);
+					}), transforms...);
 				auto bTrans = fTransform(str::ForEach([&](char32_t cp) {
 					if (state <= 0) {
 						buffer.push(cp);
@@ -250,7 +250,7 @@ namespace str {
 						if (buffer.size() == 0)
 							state = 0;
 					}
-					}), std::forward<Transforms>(transforms)...);
+					}), transforms...);
 
 				/* iterate over the codepoints and feed them to the transformation and compare the outputs */
 				while (aIt.next()) {
