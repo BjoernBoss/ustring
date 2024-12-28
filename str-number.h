@@ -686,8 +686,10 @@ namespace str {
 			using UType = std::make_unsigned_t<Type>;
 			UType valueLimit = std::numeric_limits<Type>::max();
 			if constexpr (std::is_signed_v<Type>) {
+				/* ensure that the largest absolute negative value is larger by one than its positive largest value */
+				static_assert(-std::numeric_limits<Type>::max() == std::numeric_limits<Type>::min() + 1, "Signed type is expected to use the two's complement");
 				if (negative)
-					valueLimit = UType(-std::numeric_limits<Type>::min());
+					++valueLimit;
 			}
 			UType valueLastDigit = valueLimit % radix;
 			valueLimit /= radix;

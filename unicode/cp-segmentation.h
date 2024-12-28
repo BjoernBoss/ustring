@@ -765,6 +765,10 @@ namespace cp {
 					if (right == Host::Type::numeric)
 						return Continue::combineIncludingRight;
 					return Continue::breakBeforeCached;
+
+				case State::none:
+					/* to silence warning */
+					break;
 				}
 				return Continue::combineExcludingRight;
 			}

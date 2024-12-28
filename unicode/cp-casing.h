@@ -196,6 +196,10 @@ namespace cp {
 					if (pLocale == detail::CaseLocale::az)
 						return Condition::incomplete;
 					break;
+
+				case Cond::_last:
+					/* to silence warning */
+					break;
 				}
 				return Condition::failed;
 			}
