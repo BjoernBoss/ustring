@@ -807,8 +807,8 @@ namespace str {
 
 	/*	Normal padding
 	*	[uU]: uppercase */
-	template <> struct Formatter<void*> {
-		constexpr bool operator()(str::IsSink auto& sink, void* val, std::u32string_view fmt) const {
+	template <> struct Formatter<const void*> {
+		constexpr bool operator()(str::IsSink auto& sink, const void* val, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
 
 			/* parse the final arguments and validate them */
@@ -831,6 +831,11 @@ namespace str {
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
 			return true;
+		}
+	};
+	template <> struct Formatter<void*> {
+		constexpr bool operator()(str::IsSink auto& sink, void* val, std::u32string_view fmt) const {
+			return str::Formatter<const void*>{}(sink, val, fmt);
 		}
 	};
 
