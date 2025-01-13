@@ -805,11 +805,18 @@ namespace str {
 		}
 	};
 
-	/*	Normal padding
+	/*	Normal padding but:
+	*	[#]: add prefix
 	*	[uU]: uppercase */
 	template <> struct Formatter<const void*> {
 		constexpr bool operator()(str::IsSink auto& sink, const void* val, std::u32string_view fmt) const {
+			/* parse the remainder of the padding rules */
 			auto [padding, rest] = fmt::ParsePadding(fmt);
+
+			/* check if a prefix should be added */
+			bool prefix = (!rest.empty() && rest[0] == U'#');
+			if (prefix)
+				rest = rest.substr(1);
 
 			/* parse the final arguments and validate them */
 			bool upperCase = false;
@@ -823,7 +830,9 @@ namespace str {
 				return false;
 
 			/* construct the output-string */
-			str::Local<char32_t, sizeof(void*) * 2> buffer;
+			str::Local<char32_t, sizeof(void*) * 2 + 2> buffer;
+			if (prefix)
+				buffer.append(str::MakePrefix<char32_t>(16, upperCase));
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
 			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
