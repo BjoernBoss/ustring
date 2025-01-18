@@ -692,7 +692,7 @@ namespace str {
 					++valueLimit;
 			}
 			UType valueLastDigit = valueLimit % radix;
-			valueLimit /= radix;
+			valueLimit /= UType(radix);
 
 			/* iterate over the digits and parse them */
 			UType value = 0;
@@ -704,7 +704,7 @@ namespace str {
 
 				/* update the value and check for an overflow */
 				if (value < valueLimit || (value == valueLimit && digit <= valueLastDigit))
-					value = value * radix + digit;
+					value = value * UType(radix) + UType(digit);
 				else
 					overflow = true;
 
@@ -1568,6 +1568,23 @@ namespace str {
 		Type num = 0;
 		auto [consumed, result] = str::ParseNumTo<Type>(source, num, radix, prefix);
 		return str::ParsedNumValue<Type>{ num, consumed, result };
+	}
+
+	/* parse the entire string as integer/float using str::ParseNumTo and return the value, if the
+	*	string was fully consumed and fit into the type, and otherwise return the [otherwise] value */
+	template <str::IsNumber Type>
+	constexpr Type ParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+		using ChType = str::StringChar<decltype(source)>;
+		std::basic_string_view<ChType> view{ source };
+
+		/* parse the number as far as possible */
+		Type num = 0;
+		auto [consumed, result] = str::ParseNumTo<Type>(view, num, radix, prefix);
+
+		/* check if no error occurred and the entire string has been consumed */
+		if (result == str::NumResult::valid && consumed == view.size())
+			return num;
+		return otherwise;
 	}
 
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)
