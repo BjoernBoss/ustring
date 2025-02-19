@@ -9,7 +9,7 @@
 namespace cp {
 	namespace detail {
 		class EmojiAnalysis {
-			static_assert(size_t(detail::gen::EmojiType::_last) == 10, "Only types 0-9 are known by the state-machine");
+			static_assert(size_t(detail::gen::EmojiType::_end) == 10, "Only types 0-9 are known by the state-machine");
 		public:
 			using Type = detail::gen::EmojiType;
 		private:
@@ -35,7 +35,7 @@ namespace cp {
 			};
 
 		private:
-			Type pLast = Type::_last;
+			Type pLast = Type::_end;
 			State pState = State::uninit;
 			bool pGraphical = false;
 			bool pText = false;

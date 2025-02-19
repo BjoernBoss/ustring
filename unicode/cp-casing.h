@@ -75,7 +75,7 @@ namespace cp {
 		class CaseMapper {
 		private:
 			using Cond = detail::gen::CaseCond;
-			static_assert(size_t(Cond::_last) == 12, "Only conditions 0-11 are known by the state-machine");
+			static_assert(size_t(Cond::_end) == 12, "Only conditions 0-11 are known by the state-machine");
 
 		private:
 			enum class Condition : uint8_t {
@@ -197,7 +197,7 @@ namespace cp {
 						return Condition::incomplete;
 					break;
 
-				case Cond::_last:
+				case Cond::_end:
 					/* to silence warning */
 					break;
 				}

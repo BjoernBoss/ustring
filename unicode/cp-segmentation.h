@@ -183,7 +183,7 @@ namespace cp {
 		};
 
 		struct GraphemeBreak {
-			static_assert(size_t(detail::gen::GraphemeType::_last) == 21, "Only types 0-20 are known by the state-machine");
+			static_assert(size_t(detail::gen::GraphemeType::_end) == 21, "Only types 0-20 are known by the state-machine");
 		public:
 			using Type = detail::gen::GraphemeType;
 			enum class Break : uint8_t {
@@ -425,7 +425,7 @@ namespace cp {
 		};
 
 		struct WordBreak {
-			static_assert(size_t(detail::gen::WordType::_last) == 21, "Only types 0-20 are known by the state-machine");
+			static_assert(size_t(detail::gen::WordType::_end) == 21, "Only types 0-20 are known by the state-machine");
 		public:
 			using Type = detail::gen::WordType;
 			enum class Break : uint8_t {
@@ -844,7 +844,7 @@ namespace cp {
 		};
 
 		struct SentenceBreak {
-			static_assert(size_t(detail::gen::SentenceType::_last) == 15, "Only types 0-14 are known by the state-machine");
+			static_assert(size_t(detail::gen::SentenceType::_end) == 15, "Only types 0-14 are known by the state-machine");
 		public:
 			using Type = detail::gen::SentenceType;
 			enum class Break : uint8_t {
@@ -1166,7 +1166,7 @@ namespace cp {
 		};
 
 		struct LineBreak {
-			static_assert(size_t(detail::gen::LineType::_last) == 50, "Only types 0-49 are known by the state-machine");
+			static_assert(size_t(detail::gen::LineType::_end) == 50, "Only types 0-49 are known by the state-machine");
 		public:
 			using Type = detail::gen::LineType;
 			enum class Break : uint8_t {
@@ -1544,7 +1544,7 @@ namespace cp {
 					if (type != Host::Type::cm && type != Host::Type::zwj)
 						return type;
 				}
-				return Host::Type::_last;
+				return Host::Type::_end;
 			}
 
 		private:
@@ -1564,7 +1564,7 @@ namespace cp {
 				if (type == Host::Type::sp || type == Host::Type::gl || type == Host::Type::wj || type == Host::Type::cl || type == Host::Type::quDef ||
 					type == Host::Type::quPf || type == Host::Type::quPi || type == Host::Type::cpDef || type == Host::Type::cpNoFWH || type == Host::Type::ex ||
 					type == Host::Type::is || type == Host::Type::sy || type == Host::Type::bk || type == Host::Type::cr || type == Host::Type::lf ||
-					type == Host::Type::nl || type == Host::Type::zw || type == Host::Type::_last)
+					type == Host::Type::nl || type == Host::Type::zw || type == Host::Type::_end)
 					return Host::Break::combine;
 				return Host::Break::optional;
 			}
@@ -1640,8 +1640,8 @@ namespace cp {
 			str::detail::LocalBuffer<Cache> pCache;
 			RecvType pRecv;
 			PayloadType pUncertainPayload{};
-			Host::Type pLast = Host::Type::_last;
-			Host::Type pActual = Host::Type::_last;
+			Host::Type pLast = Host::Type::_end;
+			Host::Type pActual = Host::Type::_end;
 			Chain pChain = Chain::none;
 			State pState = State::none;
 			bool pRICountOdd = false;

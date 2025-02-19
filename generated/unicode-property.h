@@ -184,7 +184,7 @@ namespace cp::detail::gen {
 		keyCapEnd,
 		zwj,
 		tagEnd,
-		_last
+		_end
 	};
 
 
@@ -229,7 +229,7 @@ namespace cp::detail::gen {
 		rli,
 		fsi,
 		pdi,
-		_last
+		_end
 	};
 
 

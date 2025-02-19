@@ -36,7 +36,7 @@ namespace cp::detail::gen {
 		wSegSpace,
 		extendedPictographic,
 		aLetterExtendedPictographic,
-		_last
+		_end
 	};
 
 
@@ -64,7 +64,7 @@ namespace cp::detail::gen {
 		extendInCBExtend,
 		extendInCBLinker,
 		zwjInCBExtend,
-		_last
+		_end
 	};
 
 
@@ -86,7 +86,7 @@ namespace cp::detail::gen {
 		sContinue,
 		sTerm,
 		close,
-		_last
+		_end
 	};
 
 
@@ -143,7 +143,7 @@ namespace cp::detail::gen {
 		cpNoFWH,
 		defCnPict,
 		idCnPict,
-		_last
+		_end
 	};
 
 

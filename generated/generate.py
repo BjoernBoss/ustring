@@ -1772,7 +1772,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		propertyDefValue = (_enum.defValue() << propertyOffset) | propertyDefValue
 
 		# write the emoji-state to the file (https://www.unicode.org/reports/tr51)
-		emojiType = { 'modBase': 0, 'mod': 1, 'keyCapStart': 2, 'regInd': 3, 'tagSpec': 4, 'textPres': 5, 'emojiPres': 6, 'keyCapEnd': 7, 'zwj': 8, 'tagEnd': 9, '_last': 10 }
+		emojiType = { 'modBase': 0, 'mod': 1, 'keyCapStart': 2, 'regInd': 3, 'tagSpec': 4, 'textPres': 5, 'emojiPres': 6, 'keyCapEnd': 7, 'zwj': 8, 'tagEnd': 9, '_end': 10 }
 		emojiRanges = emojiData.values(lambda fs: emojiType['modBase'] if fs[0] == 'Emoji_Modifier_Base' else None)
 		emojiRanges = Ranges.union(emojiRanges, emojiData.values(lambda fs: emojiType['mod'] if fs[0] == 'Emoji_Modifier' else None))
 		emojiRanges = Ranges.union(emojiRanges, Ranges.fromRawList([Range(ord(c), ord(c), emojiType['keyCapStart']) for c in '0123456789#*']))
@@ -1826,7 +1826,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		bidiRanges, bidiRangesDef = derivedBidi.multiMissing(lambda fs: bidiMap[fs[0]])
 		if bidiRangesDef != (bidiMap['Left_To_Right'],):
 			raise RuntimeError('BiDi default value is expected to be Left_To_Right')
-		_enum: LookupType = LookupType.enumType('BidiType', 'l', ['l', 'r', 'al', 'en', 'es', 'et', 'an', 'cs', 'nsm', 'bn', 'b', 's', 'ws', 'on', 'lre', 'lro', 'rle', 'rlo', 'pdf', 'lri', 'rli', 'fsi', 'pdi', '_last'])
+		_enum: LookupType = LookupType.enumType('BidiType', 'l', ['l', 'r', 'al', 'en', 'es', 'et', 'an', 'cs', 'nsm', 'bn', 'b', 's', 'ws', 'on', 'lre', 'lro', 'rle', 'rlo', 'pdf', 'lri', 'rli', 'fsi', 'pdi', '_end'])
 		_gen: CodeGen = file.next('BidiClass', 'Automatically generated from: Bidi_Class (Currently unused)')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
 		if len(_enum.enumValues()) > 2**propertyBits:
@@ -2042,7 +2042,7 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 
 		# sanitize and cleanup the special ranges, as all none-conditions must lie in the end, as conditions are more relevant, if they match
 		specialRanges = Ranges.translate(specialRanges, lambda c, v: _TranslateSpecialCaseMap(c, v, caseConditions['none'], flagIsNegative, valueMask))
-		caseConditions['_last'] = len(caseConditions)
+		caseConditions['_end'] = len(caseConditions)
 		if len(caseConditions) > valueMask:
 			raise RuntimeError('Conditions overflow values')
 
@@ -2080,7 +2080,7 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 		tempConditions, caseConditions = caseConditions, {}
 		for k in tempConditions:
 			n, i = '', 0
-			if k == '_last':
+			if k == '_end':
 				n = k
 			else:
 				while i < len(k):
@@ -2148,7 +2148,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		wordRanges = Ranges.merge(wordRanges, emojiData.values(lambda fs: wordEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None), lambda a, b: _SegmentationMergeConflicts(a, b, wordConflictMap, 'word ranges and emoji properties'))
 
 		# write the word-ranges to the file
-		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_last'])
+		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_end'])
 		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty')
 		segmentationOffset = 0
 		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
@@ -2174,7 +2174,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.values(lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None, True), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
 
 		# write the grapheme-ranges to the file
-		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_last'])
+		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_end'])
 		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
 		segmentationOffset += segmentationBits
 		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
@@ -2191,7 +2191,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			raise RuntimeError('Default break-value is expected to be [other]')
 
 		# write the sentence-ranges to the file
-		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_last'])
+		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_end'])
 		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
 		segmentationOffset += segmentationBits
 		_gen.addConstInt(_type8, 'SentenceSegmentationOff', segmentationOffset)
@@ -2249,7 +2249,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		lineRanges = Ranges.merge(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)), lambda a, _: _CnPictographicMerge(a, len(lineEnumList) + 1, lineEnumMap['ID']))
 		lineEnumList.append('defCnPict')
 		lineEnumList.append('idCnPict')
-		lineEnumList.append('_last')
+		lineEnumList.append('_end')
 
 		# write the line-ranges to the file
 		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
