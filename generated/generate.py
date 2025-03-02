@@ -1429,26 +1429,30 @@ class ParsedFile:
 		return Ranges.fromConflictingRawList(ranges, conflictHandler)
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
-def DownloadUCDFiles(refreshFiles: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
+def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
+	if not includeMain and not includeTest:
+		return
+
 	files = {
-		'ReadMe': 'ReadMe.txt',
-		'UnicodeData': 'ucd/UnicodeData.txt',
-		'PropList': 'ucd/PropList.txt',
-		'DerivedCoreProperties': 'ucd/DerivedCoreProperties.txt',
-		'SpecialCasing': 'ucd/SpecialCasing.txt',
-		'WordBreakProperty': 'ucd/auxiliary/WordBreakProperty.txt',
-		'EmojiData': 'ucd/emoji/emoji-data.txt',
-		'EastAsianWidth': 'ucd/EastAsianWidth.txt',
-		'GraphemeBreakProperty': 'ucd/auxiliary/GraphemeBreakProperty.txt',
-		'SentenceBreakProperty': 'ucd/auxiliary/SentenceBreakProperty.txt',
-		'LineBreak': 'ucd/LineBreak.txt',
-		'CaseFolding': 'ucd/CaseFolding.txt',
-		'DerivedNormalizationProps': 'ucd/DerivedNormalizationProps.txt',
-		'NormalizationCorrections': 'ucd/NormalizationCorrections.txt',
-		'DerivedBidiClass': 'ucd/extracted/DerivedBidiClass.txt'
+		'ReadMe': 'ReadMe.txt'
 	}
 	dirPath = './ucd'
 	testPath = './tests'
+	if includeMain:
+		files['UnicodeData'] = 'ucd/UnicodeData.txt'
+		files['PropList'] = 'ucd/PropList.txt'
+		files['DerivedCoreProperties'] = 'ucd/DerivedCoreProperties.txt'
+		files['SpecialCasing'] = 'ucd/SpecialCasing.txt'
+		files['WordBreakProperty'] = 'ucd/auxiliary/WordBreakProperty.txt'
+		files['EmojiData'] = 'ucd/emoji/emoji-data.txt'
+		files['EastAsianWidth'] = 'ucd/EastAsianWidth.txt'
+		files['GraphemeBreakProperty'] = 'ucd/auxiliary/GraphemeBreakProperty.txt'
+		files['SentenceBreakProperty'] = 'ucd/auxiliary/SentenceBreakProperty.txt'
+		files['LineBreak'] = 'ucd/LineBreak.txt'
+		files['CaseFolding'] = 'ucd/CaseFolding.txt'
+		files['DerivedNormalizationProps'] = 'ucd/DerivedNormalizationProps.txt'
+		files['NormalizationCorrections'] = 'ucd/NormalizationCorrections.txt'
+		files['DerivedBidiClass'] = 'ucd/extracted/DerivedBidiClass.txt'
 	if includeTest:
 		files['WordBreakTest'] = 'ucd/auxiliary/WordBreakTest.txt'
 		files['SentenceBreakTest'] = 'ucd/auxiliary/SentenceBreakTest.txt'
@@ -2404,16 +2408,16 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 os.chdir(os.path.split(os.path.abspath(__file__))[0])
 doTests: bool = ('--tests' in sys.argv)
 doRefresh: bool = ('--refresh' in sys.argv)
-doProperty: bool = not ('--noproperty' in sys.argv)
-doCase: bool = not ('--nocase' in sys.argv)
-doSegment: bool = not ('--nosegment' in sys.argv)
-doNormalization: bool = not ('--nonormal' in sys.argv)
+doProperty: bool = ('--property' in sys.argv)
+doCase: bool = ('--case' in sys.argv)
+doSegment: bool = ('--segment' in sys.argv)
+doNormalization: bool = ('--normal' in sys.argv)
 if not doRefresh:
 	print('Hint: use --refresh to download already cached files again')
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
-generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, doTests, generatedURLOrigin)
+generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, (doProperty or doCase or doSegment or doSegment), doTests, generatedURLOrigin)
 generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
 systemConfig = SystemConfig(generatedURLOrigin, generatedVersion, generatedDateTime, generatedMapping, ['cinttypes', 'utility', 'algorithm'])
 
