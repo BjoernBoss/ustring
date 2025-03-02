@@ -181,8 +181,8 @@ namespace str {
 				ItType it{ fBase() };
 
 				/* pass all codepoints into the transformation */
-				while (it.next())
-					transform.next(it.get());
+				while (it.valid())
+					transform.next(it.next());
 				transform.done();
 			}
 
@@ -194,8 +194,8 @@ namespace str {
 				ItType it{ fBase() };
 
 				/* pass all codepoints into the analysis */
-				while (it.next())
-					analysis.next(it.get());
+				while (it.valid())
+					analysis.next(it.next());
 				return analysis.done();
 			}
 
@@ -207,8 +207,8 @@ namespace str {
 				ItType it{ fBase() };
 
 				/* pass all codepoints to the tester */
-				while (it.next()) {
-					if (!tester(it.get()))
+				while (it.valid()) {
+					if (!tester(it.next()))
 						return false;
 				}
 				return true;
@@ -253,17 +253,17 @@ namespace str {
 					}), transforms...);
 
 				/* iterate over the codepoints and feed them to the transformation and compare the outputs */
-				while (aIt.next()) {
-					if (!bIt.next())
+				while (aIt.valid()) {
+					if (!bIt.valid())
 						return false;
-					aTrans.next(aIt.get());
-					bTrans.next(bIt.get());
+					aTrans.next(aIt.next());
+					bTrans.next(bIt.next());
 					if (!valid)
 						return false;
 				}
 
 				/* ensure that the other iterator has also reached its end and flush the transformations */
-				if (bIt.next())
+				if (bIt.valid())
 					return false;
 				aTrans.done();
 				bTrans.done();
@@ -377,10 +377,11 @@ namespace str {
 				ItType it{ fBase() };
 
 				/* iterate over the codepoints and either transform all decimal digits or simply forward the codepoints */
-				while (it.next()) {
-					size_t digit = cp::prop::GetDecimal(it.get());
+				while (it.valid()) {
+					char32_t cp = it.next();
+					size_t digit = cp::prop::GetDecimal(cp);
 					if (digit == cp::prop::ErrDecimal)
-						str::CodepointTo<CodeError>(out, it.get());
+						str::CodepointTo<CodeError>(out, cp);
 					else
 						str::CodepointTo<CodeError>(out, cp::ascii::GetRadixLower(digit));
 				}
@@ -437,11 +438,18 @@ namespace str {
 			/* test if every codepoint in the string can be decoded and is considered valid (can be empty) */
 			constexpr bool isValid() const {
 				str::Iterator<ChType, err::Nothing> it{ fBase() };
-				while (it.next()) {
-					if (it.get() == str::Invalid)
+				while (it.valid()) {
+					if (it.next() == str::Invalid)
 						return false;
 				}
 				return true;
+			}
+
+			/* test if the given index is an aligned codepoint edge (start of a valid codepoint) */
+			constexpr bool isAligned(size_t index) const {
+				if (index >= fBase().size())
+					return false;
+				return str::IsCodepoint(std::basic_string_view<ChType>{ fBase() }.substr(index));
 			}
 
 			/* test if the string is non-empty and every codepoint in the string is ascii using prop::IsAscii */
@@ -544,7 +552,7 @@ namespace str {
 			constexpr bool analyze(str::IsAnalysis auto&& analysis, const str::IsMapper auto&... mapper) {
 				if (fBase().empty())
 					return false;
-				fApply(str::ForEach([&](char32_t cp) { analysis.next(); }), mapper...);
+				fApply(str::ForEach([&](char32_t cp) { analysis.next(cp); }), mapper...);
 				return analysis.done();
 			}
 
@@ -553,7 +561,7 @@ namespace str {
 				if (fBase().empty())
 					return false;
 				bool valid = true;
-				fApply(str::ForEach([&](char32_t cp) { valid = valid && tester(cp); }), mapper...);
+				fApply(str::ForEach([&](char32_t cp) { valid && (valid = tester(cp)); }), mapper...);
 				return valid;
 			}
 
@@ -567,28 +575,24 @@ namespace str {
 			/* setup a grapheme-iterator on the codepoint beneath the index */
 			constexpr cp::GraphemeIterator<ItType> graphemes(size_t index = 0) const {
 				ItType it{ fBase(), index };
-				it.next();
 				return cp::GraphemeIterator<ItType>{ it };
 			}
 
 			/* setup a word-iterator on the codepoint beneath the index */
 			constexpr cp::WordIterator<ItType> words(size_t index = 0) const {
 				ItType it{ fBase(), index };
-				it.next();
 				return cp::WordIterator<ItType>{ it };
 			}
 
 			/* setup a sentence-iterator on the codepoint beneath the index */
 			constexpr cp::SentenceIterator<ItType> sentences(size_t index = 0) const {
 				ItType it{ fBase(), index };
-				it.next();
 				return cp::SentenceIterator<ItType>{ it };
 			}
 
 			/* setup a line-iterator on the codepoint beneath the index */
 			constexpr cp::LineIterator<ItType> lines(bool emergencyBreak = true, bool graphemeAware = true, size_t index = 0) const {
 				ItType it{ fBase(), index };
-				it.next();
 				return cp::LineIterator<ItType>{ it, emergencyBreak, graphemeAware };
 			}
 		};

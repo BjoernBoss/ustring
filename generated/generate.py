@@ -1430,9 +1430,6 @@ class ParsedFile:
 
 # download all relevant files from the latest release of the ucd and extract the version (unicode character database: https://www.unicode.org/Public/UCD/latest)
 def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, baseUrl: str) -> tuple[str, dict[str, str], str]:
-	if not includeMain and not includeTest:
-		return
-
 	files = {
 		'ReadMe': 'ReadMe.txt'
 	}
@@ -2412,8 +2409,12 @@ doProperty: bool = ('--property' in sys.argv)
 doCase: bool = ('--case' in sys.argv)
 doSegment: bool = ('--segment' in sys.argv)
 doNormalization: bool = ('--normal' in sys.argv)
-if not doRefresh:
-	print('Hint: use --refresh to download already cached files again')
+print('Hint: use --refresh to download already cached files again')
+print('Hint: use --tests to generate test-source-code')
+print('Hint: use --property to generate property-code')
+print('Hint: use --case to generate case-code')
+print('Hint: use --segment to generate segmentation-code')
+print('Hint: use --normal to generate normalization-code')
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
@@ -2429,19 +2430,13 @@ if doTests:
 	CreateSeparatorTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest'], 'Line')
 	CreateNormalizationTestFile(testPath + 'test-normalization.h', systemConfig.mapping['NormalizationTest'])
 	CreateEmojiTestFile(testPath + 'test-emoji.h', systemConfig.mapping['emoji-test'])
-else:
-	print('Hint: use --tests to generate test-source-code')
 
 # generate the actual files
 if doProperty:
-	print('Hint: use --noproperty to prevent property-code from being generated again')
 	MakePropertyLookup('unicode-property.h', systemConfig)
 if doCase:
-	print('Hint: use --nocase to prevent case-code from being generated again')
 	MakeCasingLookup('unicode-casing.h', systemConfig)
 if doSegment:
-	print('Hint: use --nosegment to prevent segmentation-code from being generated again')
 	MakeSegmentationLookup('unicode-segmentation.h', systemConfig)
 if doNormalization:
-	print('Hint: use --nonormal to prevent normalization-code from being generated again')
 	MakeNormalizationLookup('unicode-normalization.h', systemConfig)

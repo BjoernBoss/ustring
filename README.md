@@ -150,9 +150,10 @@ The `str::Iterator` provides a codepoint iterator, which allows iteration both f
 
 ```C++
 auto it = str::View{ u"abc-def" }.it();
-while (it.next())
-    foo(it.get());
+while (it.valid())
+    foo(it.next());
 ```
+Note: To ensure the iterator starts at an codepoint aligned index, use `str::IsCodepoint` or `str::View::isAligned`.
 
 ## [Coding Error Handling](str-coding.h)
 Any encoding or decoding errors will be handled according to the `CodeError` template parameter. Most corresponding functions in the `str` namespace will have the `CodeError` parameter, which is defaulted to `str::err::DefChar`. The following values are defined:
@@ -184,14 +185,14 @@ auto it0 = str::View{ u"abc-def" }.it();
 auto it1 = it0;
 std::string out;
 auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
-while (it0.next())
-    map.next(it0.get());
+while (it0.valid())
+    map.next(it0.next());
 map.done();
 
 /* mapping a string to lowercase */
 auto tester = cp::TestUpperCase{ 0 };
-while (it1.next())
-    tester.next(it1.get());
+while (it1.valid())
+    tester.next(it1.next());
 bool t = tester.done();
 ```
 

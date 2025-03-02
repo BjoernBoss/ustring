@@ -98,14 +98,17 @@ namespace str {
 	template <class Type>
 	concept IsChar = !std::is_void_v<typename detail::TestChar<Type>::type>;
 
-	/* codepoint-iterator must move itself upon prev()/next() and return true or return false
-	*	(in which case it must stay) and must return the currently pointed to codepoint on get()
-	*	iterator may first be initialized upon the first call to prev()/next() and should otherwise return str::Invalid */
+	/* codepoint-iterator can be invalid (valid() return false) in which case no other operation may be performed anymore
+	*	and otherwise next()/prev() move the iterator itself, and return the codepoint of the itertor before moving it
+	*	and advance()/reverse() move the iterator itself, and return if the iterator has become invalid through the move */
 	template <class Type>
 	concept IsIterator = std::copyable<Type> && requires(Type t, const Type ct) {
-		{ t.prev() } -> std::same_as<bool>;
-		{ t.next() } -> std::same_as<bool>;
+		{ ct.valid() } -> std::same_as<bool>;
 		{ ct.get() } -> std::same_as<char32_t>;
+		{ t.next() } -> std::same_as<char32_t>;
+		{ t.prev() } -> std::same_as<char32_t>;
+		{ t.advance() } -> std::same_as<bool>;
+		{ t.reverse() } -> std::same_as<bool>;
 	};
 
 	/* receivers receive arbitrary many values of the given value-list */

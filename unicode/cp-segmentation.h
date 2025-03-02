@@ -130,7 +130,7 @@ namespace cp {
 
 		public:
 			constexpr BreakIterator(const ItType& it, std::conditional_t<HasState, State, uint8_t> state) : pNextIt{ it }, pPrevIt{ it } {
-				pPrevRaw = detail::gen::GetSegmentation(it.get());
+				pPrevRaw = detail::gen::GetSegmentation(it.valid() ? it.get() : str::Invalid);
 				pNextRaw = pPrevRaw;
 				if constexpr (HasState)
 					pState = state;
@@ -148,7 +148,7 @@ namespace cp {
 			constexpr cp::BreakMode next() {
 				/* check if the iterator can be advanced */
 				ItType it = pNextIt;
-				if (!it.next()) {
+				if (!it.valid() || !it.advance()) {
 					pPrevIsResult = false;
 					return cp::BreakMode::edge;
 				}
@@ -164,7 +164,7 @@ namespace cp {
 			constexpr cp::BreakMode prev() {
 				/* check if the iterator can be reverted */
 				ItType it = pPrevIt;
-				if (!it.prev()) {
+				if (!it.valid() || !it.reverse()) {
 					pPrevIsResult = true;
 					return cp::BreakMode::edge;
 				}
@@ -302,12 +302,12 @@ namespace cp {
 						return linkerFound;
 					else if (type != Host::Type::inCBExtend && type != Host::Type::extendInCBExtend && type != Host::Type::zwjInCBExtend)
 						return false;
-				} while (t.prev());
+				} while (t.reverse());
 				return false;
 			}
 			constexpr bool fGB11HasExtPicto() const {
 				ItType t = pLeft;
-				while (t.prev()) {
+				while (t.reverse()) {
 					Host::Type type = Host::GetCP(t.get());
 					if (type == Host::Type::extendedPictographic)
 						return true;
@@ -319,7 +319,7 @@ namespace cp {
 			constexpr bool fIsRIChainEven() const {
 				ItType t = pLeft;
 				size_t count = 0;
-				while (t.prev() && Host::GetCP(t.get()) == Host::Type::regionalIndicator)
+				while (t.reverse() && Host::GetCP(t.get()) == Host::Type::regionalIndicator)
 					++count;
 				return ((count & 0x01) == 0);
 			}
@@ -596,12 +596,12 @@ namespace cp {
 					if (firstReached)
 						return type;
 					firstReached = true;
-				} while (t.prev());
+				} while (t.reverse());
 				return Host::Type::other;
 			}
 			Host::Type fGetNext() const {
 				ItType t = pRight;
-				while (t.next()) {
+				while (t.advance()) {
 					Host::Type type = Host::GetCP(t.get());
 					if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
 						return type;
@@ -612,7 +612,7 @@ namespace cp {
 		private:
 			constexpr Host::Type fSkipWB4(Host::Type l) const {
 				ItType t = pLeft;
-				while ((l == Host::Type::extend || l == Host::Type::format || l == Host::Type::zwj) && t.prev())
+				while ((l == Host::Type::extend || l == Host::Type::format || l == Host::Type::zwj) && t.reverse())
 					l = Host::GetCP(t.get());
 				return l;
 			}
@@ -660,7 +660,7 @@ namespace cp {
 						++count;
 					else if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
 						break;
-				} while (t.prev());
+				} while (t.reverse());
 				return ((count & 0x01) != 0);
 			}
 
@@ -1003,13 +1003,13 @@ namespace cp {
 					default:
 						return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
 					}
-				} while (t.prev());
+				} while (t.reverse());
 				return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
 			}
 			constexpr Host::Break fSB8Check() const {
 				ItType t = pRight;
 
-				while (t.next()) {
+				while (t.advance()) {
 					Host::Type type = Host::GetCP(t.get());
 					if (type == Host::Type::lower)
 						return Host::Break::combine;
@@ -1512,7 +1512,7 @@ namespace cp {
 
 				while (true) {
 					if (type == Host::Type::sp && skipSpaces) {
-						if (!t.prev())
+						if (!t.reverse())
 							break;
 						type = Host::GetCP(t.get());
 					}
@@ -1520,7 +1520,7 @@ namespace cp {
 						break;
 					else {
 						ItType tIt = t;
-						if (!tIt.prev())
+						if (!tIt.reverse())
 							break;
 						Host::Type temp = Host::GetCP(tIt.get());
 						if (temp == Host::Type::bk || temp == Host::Type::cr || temp == Host::Type::lf || temp == Host::Type::nl || temp == Host::Type::sp || temp == Host::Type::zw)
@@ -1533,13 +1533,13 @@ namespace cp {
 			}
 			constexpr std::pair<Host::Type, bool> fGetPrev() const {
 				auto [it, type] = fSkipIntermediate(pLeft, Host::GetCP(pLeft.get()), true);
-				if (!it.prev())
+				if (!it.reverse())
 					return { type, false };
 				return { fSkipIntermediate(it, Host::GetCP(it.get()), false).second, true };
 			}
 			constexpr Host::Type fGetNext() const {
 				ItType t = pRight;
-				while (t.next()) {
+				while (t.advance()) {
 					Host::Type type = Host::GetCP(t.get());
 					if (type != Host::Type::cm && type != Host::Type::zwj)
 						return type;
@@ -1597,7 +1597,7 @@ namespace cp {
 						++count;
 					else if (type != Host::Type::cm && type != Host::Type::zwj)
 						break;
-				} while (t.prev());
+				} while (t.reverse());
 				return ((count & 0x01) != 0);
 			}
 
@@ -1882,7 +1882,7 @@ namespace cp {
 				/* find the start of the left grapheme cluster */
 				while (true) {
 					ItType it = lIt;
-					if (!it.prev())
+					if (!it.reverse())
 						break;
 					uint32_t raw = detail::gen::GetSegmentation(it.get());
 					if (detail::GraphemeRandom<ItType>::Resolve(it, raw, lIt, lRaw) != cp::BreakMode::none)
@@ -1928,7 +1928,8 @@ namespace cp {
 
 		public:
 			constexpr LineForward(RecvType&& recv, bool emergencyBreak, bool graphemeAware) : pGrapheme{ GrLambda{ *this } },
-				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ recv }, pGraphemes{ graphemeAware } {}
+				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ recv }, pGraphemes{ graphemeAware } {
+			}
 
 		public:
 			constexpr void first(uint32_t raw) {
@@ -1983,9 +1984,9 @@ namespace cp {
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding grapheme breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Iterator must already be initialized
 	*	Less efficient than cp::GraphemeBreak/cp::GraphemeRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
+	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
+	*	For invalid iterators, BreakMode::edge will be returned at all times */
 	template <str::IsIterator ItType>
 	class GraphemeIterator : public detail::BreakIterator<ItType, detail::GraphemeRandom> {
 	public:
@@ -2026,9 +2027,9 @@ namespace cp {
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding word breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Iterator must already be initialized
 	*	Less efficient than cp::WordBreak/cp::WordRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
+	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
+	*	For invalid iterators, BreakMode::edge will be returned at all times */
 	template <str::IsIterator ItType>
 	class WordIterator : public detail::BreakIterator<ItType, detail::WordRandom> {
 	public:
@@ -2069,9 +2070,9 @@ namespace cp {
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding sentence breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Iterator must already be initialized
 	*	Less efficient than cp::SentenceBreak/cp::SentenceRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none) */
+	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
+	*	For invalid iterators, BreakMode::edge will be returned at all times */
 	template <str::IsIterator ItType>
 	class SentenceIterator : public detail::BreakIterator<ItType, detail::SentenceRandom> {
 	public:
@@ -2126,10 +2127,10 @@ namespace cp {
 	};
 
 	/* iterator which allows iteration over codepoints and finding the corresponding line breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Iterator must already be initialized
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
 	*	Less efficient than cp::LineBreak/cp::LineRanges; Specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries and perform default line-breaking
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in all values) */
+	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in all values)
+	*	For invalid iterators, BreakMode::edge will be returned at all times */
 	template <str::IsIterator ItType>
 	class LineIterator : public detail::BreakIterator<ItType, detail::LineRandom> {
 	public:

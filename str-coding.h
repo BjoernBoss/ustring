@@ -267,8 +267,9 @@ namespace str {
 		}
 	}
 
-	/* [str::IsIterator] Initialized to str::Invalid; call prev()/next() to initialize the state
-	*	Will only produce valid unicode codepoints or str::Invalid */
+	/* [str::IsIterator] Initialized to the next upcoming codepoint; Once invalidated, does not become valid anymore
+	*	Will only produce valid unicode codepoints or values based on CodeError
+	*	Note: depending on CodeError, starting within a codepoint may result in inconsistent forward and backward codepoint iteration */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
 	struct Iterator {
 	private:
@@ -278,92 +279,96 @@ namespace str {
 		str::Decoded pOut{};
 
 	public:
-		constexpr Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0) {
-			pBegin = s.data();
-			pEnd = pBegin + s.size();
+		constexpr Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0) : pBegin{ s.data() }, pEnd{ s.data() + s.size() } {
 			pCurrent = std::min(pBegin + off, pEnd);
-			pOut = { str::Invalid, 0 };
+
+			/* initialize the first codepoint */
+			fNext();
+		}
+
+	private:
+		bool fPrev() {
+			while (true) {
+				/* check if the end has been reached */
+				if (pCurrent <= pBegin) {
+					pCurrent = 0;
+					return false;
+				}
+
+				/* decode the previous codepoint and update the current iterator */
+				pOut = detail::DecodePrev<ChType>(pBegin, pCurrent);
+				pCurrent -= pOut.consumed;
+
+				/* check if the codepoint is invalid and needs to be corrected */
+				if constexpr (CodeError != err::Nothing) {
+					if (pOut.cp == str::Invalid) {
+						if constexpr (CodeError == err::Skip)
+							continue;
+						if constexpr (CodeError == err::Throw)
+							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
+						pOut.cp = CodeError;
+					}
+				}
+				return true;
+			}
+		}
+		bool fNext() {
+			while (true) {
+				/* advance the current position and check if the end has been reached */
+				pCurrent += pOut.consumed;
+				if (pCurrent >= pEnd) {
+					pCurrent = 0;
+					return false;
+				}
+
+				/* decode the next codepoint */
+				pOut = detail::DecodeNext<ChType, false>(pCurrent, pEnd);
+
+				/* check if the codepoint is invalid and needs to be corrected */
+				if constexpr (CodeError != err::Nothing) {
+					if (pOut.cp == str::Invalid) {
+						if constexpr (CodeError == err::Skip)
+							continue;
+						else if constexpr (CodeError == err::Throw)
+							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
+						pOut.cp = CodeError;
+					}
+				}
+				return true;
+			}
 		}
 
 	public:
-		constexpr bool prev() {
-			if (pCurrent <= pBegin)
-				return false;
-
-			/* skip all codepoints until the first valid codepoint is encountered */
-			if constexpr (CodeError == err::Skip) {
-				const ChType* cur = pCurrent;
-				size_t acc = 0;
-				str::Decoded out{};
-
-				while (true) {
-					out = detail::DecodePrev<ChType>(pBegin, cur);
-					if (out.cp != str::Invalid)
-						break;
-
-					/* accumulate the current invalid codepoint */
-					if (cur <= pBegin)
-						return false;
-					acc += out.consumed;
-					cur -= out.consumed;
-				}
-				pOut = { out.cp, uint32_t(out.consumed + acc) };
-			}
-
-			else {
-				/* decode the previous codepoint and check if it needs to be corrected */
-				pOut = detail::DecodePrev<ChType>(pBegin, pCurrent);
-				if constexpr (CodeError != err::Nothing) {
-					if (pOut.cp == str::Invalid) {
-						if constexpr (CodeError == err::Throw)
-							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
-						pOut.cp = CodeError;
-					}
-				}
-			}
-			pCurrent -= pOut.consumed;
-			return true;
-		}
-		constexpr bool next() {
-			const ChType* cur = pCurrent + pOut.consumed;
-			if (cur >= pEnd)
-				return false;
-
-			/* skip all codepoints until the first valid codepoint is encountered */
-			if constexpr (CodeError == err::Skip) {
-				str::Decoded out;
-				while (true) {
-					out = detail::DecodeNext<ChType, false>(cur, pEnd);
-					if (out.cp != str::Invalid)
-						break;
-					cur += out.consumed;
-					if (cur >= pEnd)
-						return false;
-				}
-				pCurrent = cur;
-				pOut = out;
-			}
-
-			else {
-				/* decode the next codepoint and check if it needs to be corrected */
-				pCurrent = cur;
-				pOut = detail::DecodeNext<ChType, false>(pCurrent, pEnd);
-				if constexpr (CodeError != err::Nothing) {
-					if (pOut.cp == str::Invalid) {
-						if constexpr (CodeError == err::Throw)
-							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
-						pOut.cp = CodeError;
-					}
-				}
-			}
-			return true;
+		constexpr bool valid() const {
+			return (pCurrent != 0);
 		}
 		constexpr char32_t get() const {
 			return pOut.cp;
 		}
+		constexpr char32_t next() {
+			char32_t cp = pOut.cp;
+			fNext();
+			return cp;
+		}
+		constexpr char32_t prev() {
+			char32_t cp = pOut.cp;
+			fPrev();
+			return cp;
+		}
+		constexpr bool advance() {
+			return fNext();
+		}
+		constexpr bool reverse() {
+			return fPrev();
+		}
+
+	public:
+		/* return the index into the current string (not valid anymore after iterator has been invalidated) */
 		constexpr size_t base() const {
 			return pCurrent - pBegin;
 		}
+
+		/* return the base string (also valid if iterator itself has been invalidated) */
 		constexpr std::basic_string_view<ChType> string() const {
 			return std::basic_string_view<ChType>{ pBegin, pEnd };
 		}
@@ -431,6 +436,13 @@ namespace str {
 		return detail::DecodeSingle<ChType, CodeError, false>(view);
 	}
 
+	/* determine if the source starts with a valid codepoint (i.e. is aligned with the start of a valid codepoint) */
+	constexpr bool IsCodepoint(const str::IsStr auto& source) {
+		using ChType = str::StringChar<decltype(source)>;
+		std::basic_string_view<ChType> view{ source };
+		return (detail::DecodeSingle<ChType, err::Nothing, false>(view) != str::Invalid);
+	}
+
 	/* decode a single codepoint from the source and return it (return consumed null if the source is empty or
 	*	the next codepoint is incomplete and otherwise consume at all times at least one character and return
 	*	str::Invalid on errors, if CodeError does not define alternative behavior; will not return incomplete
@@ -487,15 +499,15 @@ namespace str {
 		/* check if the destination does not need to be encoded */
 		if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
 			str::Iterator<SChType, CodeError> it{ view };
-			while (it.next())
-				str::CallSink(sink, DChType(it.get()), 1);
+			while (it.valid())
+				str::CallSink(sink, DChType(it.next()), 1);
 			return sink;
 		}
 
 		/* iterate over the source-codepoints and transcode them */
 		str::Iterator<SChType, CodeError> it{ view };
-		while (it.next())
-			str::CodepointTo<CodeError>(sink, it.get(), 1);
+		while (it.valid())
+			str::CodepointTo<CodeError>(sink, it.next(), 1);
 		return sink;
 	}
 

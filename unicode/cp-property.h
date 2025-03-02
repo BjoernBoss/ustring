@@ -265,7 +265,7 @@ namespace cp {
 			return ((prop >> detail::gen::PropertyNumericOff) & detail::gen::PropertyNumericMask) != 0;
 		}
 
-		/* check if the codepoint is a decimal character and return its value [0-9] or 0xff if not a decimal codepoint [Unicode Numeric_Type::Decimal] */
+		/* check if the codepoint is a decimal character and return its value [0-9] or str::ErrDecimal if not a decimal codepoint [Unicode Numeric_Type::Decimal] */
 		static constexpr size_t ErrDecimal = 0xff;
 		inline constexpr size_t GetDecimal(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
