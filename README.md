@@ -230,8 +230,17 @@ cp::BreakMode brk = words.prev();
 ```
 
 ## Unicode Data and Properties
-The properties per codepoint are fetched from the `Unicode Character Base`. All required files will be downloaded to `generated/ucd` or `generated/tests`. To fetch the latest release, run:
+All unicode properties are fetched from `Unicode Character Base`. All required files will be downloaded to `generated/ucd`. To fetch the latest release, run:
 
-    $ py generated/generate.py
+    $ py generated/generate.py --case --property --segment --normal
 
 This will download all relevant files, parse them, and generate all corresponding files to `generated/unicode-*`. Both the generation script and all functions using the generated functions will perform static checks of the current state, to ensure as best as possible that the used algorithms are still valid.
+
+To run the tests provided by the `Unicode Character Base`, as well as the number parsing and creating, checkout the `test` branch. Afterwards, generate the relevant test files and compile and run the test application.
+
+    $ git checkout test
+    $ py generated/generate.py --tests
+    $ g++ -std=c++20 ./main.cpp -O3 -o main
+    $ ./main
+
+Should errors occur, please create an issue for the github repository at `https://github.com/BjoernBoss/ustring`.
