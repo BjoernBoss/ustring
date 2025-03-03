@@ -1234,15 +1234,16 @@ class SystemConfig:
 		self.mapping = mapping
 
 class GeneratedFile:
-	def __init__(self, path: str, config: SystemConfig) -> None:
+	def __init__(self, path: str, config: SystemConfig, test: bool) -> None:
 		self._path = path
 		self._config = config
 		self._file = None
 		self._hadFirstBlock = False
 		self._atStartOfLine = False
 		self._indented = False
+		self._test = test
 	def __enter__(self) -> 'GeneratedFile':
-		self._file = open(self._path, mode='w', encoding='ascii')
+		self._file = open(self._path, mode='w', encoding='utf-8')
 		self._atStartOfLine = True
 
 		# add the copy-right header
@@ -1260,7 +1261,7 @@ class GeneratedFile:
 				  + f'Source URL: {self._config.url}\n'
 				  + f'Generated on: {self._config.date}\n'
 				  + f'Generated from version: {self._config.version}', False)
-		self.writeln('namespace cp::detail::gen {')
+		self.writeln(f'namespace cp::detail::gen{"::test" if self._test else ""} {{')
 		self._indented = True
 		return self
 	def __exit__(self, *args) -> None:
@@ -1494,7 +1495,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, b
 	return (version[0][0], mapping, f'{testPath}/')
 
 # parse test-file for separators/normalization and create source-code test file
-def CreateSeparatorTestFile(outPath: str, inPath: str, name: str) -> None:
+def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: SystemConfig) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [{name}]...')
 	tests: list[tuple[str, list[tuple[int, int]]]] = []
 
@@ -1520,44 +1521,37 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str) -> None:
 			tests.append((string, ranges))
 
 	# open the file to contain the testing code and write it to the file
-	with open(outPath, 'w', encoding='utf-8') as file:
-		file.write('#pragma once\n')
-		file.write('\n')
-		file.write('#include <vector>\n')
-		file.write('#include <utility>\n')
-		file.write('\n')
-		file.write('namespace test {\n')
-		file.write(f'\tstatic constexpr size_t {name}Count = {len(tests)};\n')
-		file.write('\n')
+	with GeneratedFile(outPath, config, True) as file:
+		file.writeln(f'static constexpr size_t {name}Count = {len(tests)};')
+		file.writeln('')
 
 		# write all strings to the file
-		file.write(f'\tstatic const char32_t* {name}Words[test::{name}Count] = {{')
+		file.write(f'static constexpr const char32_t* {name}Words[test::{name}Count] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'U\"{tests[i][0]}\"')
-		file.write('\n\t};\n')
-		file.write('\n')
+		file.writeln('\n};')
+		file.writeln('')
 
 		# write all range offsets to the file
-		file.write(f'\tstatic std::pair<size_t, size_t> {name}RangesIndex[test::{name}Count] = {{')
+		file.write(f'static constexpr std::pair<size_t, size_t> {name}RangesIndex[test::{name}Count] = {{')
 		offset = 0
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'{{ {offset}, {len(tests[i][1])} }}')
 			offset += len(tests[i][1]) * 2
-		file.write('\n\t};\n')
-		file.write('\n')
+		file.writeln('\n};')
+		file.writeln('')
 
 		# write the range blob to the file
-		file.write(f'\tstatic size_t {name}RangesBlob[{offset}] = {{')
+		file.write(f'static constexpr size_t {name}RangesBlob[{offset}] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			for j in range(len(tests[i][1])):
 				file.write('' if j == 0 else ', ')
 				file.write(f'{tests[i][1][j][0]}, {tests[i][1][j][1]}')
-		file.write('\n\t};\n')
-		file.write('}\n')
-def CreateNormalizationTestFile(outPath: str, inPath: str) -> None:
+		file.writeln('\n};')
+def CreateNormalizationTestFile(outPath: str, inPath: str, config: SystemConfig) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [normalization]...')
 	tests: list[tuple[str, str, str]] = []
 
@@ -1577,39 +1571,33 @@ def CreateNormalizationTestFile(outPath: str, inPath: str) -> None:
 			tests.append((words[0], words[1], words[2]))
 
 	# open the file to contain the testing code and write it to the file
-	with open(outPath, 'w', encoding='utf-8') as file:
-		file.write('#pragma once\n')
-		file.write('\n')
-		file.write('#include <cinttypes>\n')
-		file.write('\n')
-		file.write('namespace test {\n')
-		file.write(f'\tstatic constexpr size_t NormalizationCount = {len(tests)};\n')
-		file.write('\n')
+	with GeneratedFile(outPath, config, True) as file:
+		file.writeln(f'static constexpr size_t NormalizationCount = {len(tests)};')
+		file.writeln('')
 
 		# write all source-strings to the file
-		file.write(f'\tstatic const char32_t* NormalizationSource[test::NormalizationCount] = {{')
+		file.write(f'static constexpr const char32_t* NormalizationSource[test::NormalizationCount] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'U\"{tests[i][0]}\"')
-		file.write('\n\t};\n')
-		file.write('\n')
+		file.writeln('\n};')
+		file.writeln('')
 
 		# write all nfc-strings to the file
-		file.write(f'\tstatic const char32_t* NormalizationComposed[test::NormalizationCount] = {{')
+		file.write(f'static constexpr const char32_t* NormalizationComposed[test::NormalizationCount] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'U\"{tests[i][1]}\"')
-		file.write('\n\t};\n')
-		file.write('\n')
+		file.writeln('\n};')
+		file.writeln('')
 
 		# write all nfd-strings to the file
-		file.write(f'\tstatic const char32_t* NormalizationDecomposed[test::NormalizationCount] = {{')
+		file.write(f'static constexpr const char32_t* NormalizationDecomposed[test::NormalizationCount] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'U\"{tests[i][2]}\"')
-		file.write('\n\t};\n')
-		file.write('}\n')
-def CreateEmojiTestFile(outPath: str, inPath: str) -> None:
+		file.writeln('\n};')
+def CreateEmojiTestFile(outPath: str, inPath: str, config: SystemConfig) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [emoji]...')
 	tests: list[str] = []
 
@@ -1629,22 +1617,16 @@ def CreateEmojiTestFile(outPath: str, inPath: str) -> None:
 			tests.append(chars)
 
 	# open the file to contain the testing code and write it to the file
-	with open(outPath, 'w', encoding='utf-8') as file:
-		file.write('#pragma once\n')
-		file.write('\n')
-		file.write('#include <cinttypes>\n')
-		file.write('\n')
-		file.write('namespace test {\n')
-		file.write(f'\tstatic constexpr size_t EmojiCount = {len(tests)};\n')
-		file.write('\n')
+	with GeneratedFile(outPath, config, True) as file:
+		file.writeln(f'static constexpr size_t EmojiCount = {len(tests)};')
+		file.writeln('')
 
 		# write all emoji-strings to the file
-		file.write(f'\tstatic const char32_t* EmojiStrings[test::EmojiCount] = {{')
+		file.write(f'static constexpr const char32_t* EmojiStrings[test::EmojiCount] = {{')
 		for i in range(len(tests)):
-			file.write('\n\t\t' if i == 0 else ',\n\t\t')
+			file.write('\n\t' if i == 0 else ',\n\t')
 			file.write(f'U\"{tests[i]}\"')
-		file.write('\n\t};\n')
-		file.write('}\n')
+		file.writeln('\n};')
 
 # TestUnicode, TestAscii, TestAsciiAlphabetic, TestAsciiNumeric, GetAsciiRadix, TestWhiteSpace, TestControl, GetProperty (encodes: assigned/alphabetic/numeric/decimal/printable/case/category/emoji/bidi)
 def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
@@ -1657,7 +1639,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 	emojiData = ParsedFile(config.mapping['EmojiData'], False)
 
 	# write all lookup functions to the file
-	with GeneratedFile(outPath, config) as file:
+	with GeneratedFile(outPath, config, False) as file:
 		_type: LookupType = LookupType.intType(0, 'uint32_t')
 		propertyDefValue: int = 0
 
@@ -2010,7 +1992,7 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 	caseFolding = ParsedFile(config.mapping['CaseFolding'], False)
 
 	# write all map functions to the file
-	with GeneratedFile(outPath, config) as file:
+	with GeneratedFile(outPath, config, False) as file:
 		# encoding:
 		#	uint20_t valueOrCondition
 		#	uint1_t valueIsFoldingMapping
@@ -2151,7 +2133,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 	unicodeData = ParsedFile(config.mapping['UnicodeData'], True)
 
 	# write all maps functions to the file
-	with GeneratedFile(outPath, config) as file:
+	with GeneratedFile(outPath, config, False) as file:
 		segmentationRanges, segmentationDefValue, segmentationBits, segmentationOffset = [], 0, 6, 0
 		_type8: LookupType = LookupType.intType(0, 'uint8_t')
 
@@ -2346,7 +2328,7 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 	normCorrections = ParsedFile(config.mapping['NormalizationCorrections'], False)
 
 	# write all maps functions to the file
-	with GeneratedFile(outPath, config) as file:
+	with GeneratedFile(outPath, config, False) as file:
 		# encoding:
 		#	uint8_t: ccc-value
 		#	uint8_t: len-decomposition (0 => no decomposition; directly following first value)
@@ -2456,12 +2438,12 @@ systemConfig = SystemConfig(generatedURLOrigin, generatedVersion, generatedDateT
 
 # generate the test files
 if doTests:
-	CreateSeparatorTestFile(testPath + 'test-words.h', systemConfig.mapping['WordBreakTest'], 'Word')
-	CreateSeparatorTestFile(testPath + 'test-graphemes.h', systemConfig.mapping['GraphemeBreakTest'], 'Grapheme')
-	CreateSeparatorTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest'], 'Sentence')
-	CreateSeparatorTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest'], 'Line')
-	CreateNormalizationTestFile(testPath + 'test-normalization.h', systemConfig.mapping['NormalizationTest'])
-	CreateEmojiTestFile(testPath + 'test-emoji.h', systemConfig.mapping['emoji-test'])
+	CreateSeparatorTestFile(testPath + 'test-words.h', systemConfig.mapping['WordBreakTest'], 'Word', systemConfig)
+	CreateSeparatorTestFile(testPath + 'test-graphemes.h', systemConfig.mapping['GraphemeBreakTest'], 'Grapheme', systemConfig)
+	CreateSeparatorTestFile(testPath + 'test-sentences.h', systemConfig.mapping['SentenceBreakTest'], 'Sentence', systemConfig)
+	CreateSeparatorTestFile(testPath + 'test-lines.h', systemConfig.mapping['LineBreakTest'], 'Line', systemConfig)
+	CreateNormalizationTestFile(testPath + 'test-normalization.h', systemConfig.mapping['NormalizationTest'], systemConfig)
+	CreateEmojiTestFile(testPath + 'test-emoji.h', systemConfig.mapping['emoji-test'], systemConfig)
 
 # generate the actual files
 if doProperty:
