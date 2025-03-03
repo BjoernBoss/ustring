@@ -6,6 +6,12 @@ import sys
 import datetime
 import re
 
+# added to all generated files
+copyrightLines = [
+	'/* SPDX-License-Identifier: BSD-3-Clause */',
+	f'/* Copyright (c) {datetime.datetime.now().year} Bjoern Boss Henrichsen */'
+]
+
 # ranges are lists of range-objects, which must be sorted and must not overlap/neighbor each other if same type
 #	=> use Ranges.fromRawList to sort and merge an arbitrary list of Range objects
 # ranges map [first-last] to a non-empty list of integers
@@ -1239,6 +1245,10 @@ class GeneratedFile:
 		self._file = open(self._path, mode='w', encoding='ascii')
 		self._atStartOfLine = True
 
+		# add the copy-right header
+		for line in copyrightLines:
+			self.writeln(line)
+
 		# write the file header
 		self.writeln('#pragma once')
 		self.writeln('')
@@ -1528,15 +1538,23 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str) -> None:
 		file.write('\n\t};\n')
 		file.write('\n')
 
-		# write all ranges to the file
-		file.write(f'\tstatic std::vector<std::pair<size_t, size_t>> {name}Ranges[test::{name}Count] = {{')
+		# write all range offsets to the file
+		file.write(f'\tstatic std::pair<size_t, size_t> {name}RangesIndex[test::{name}Count] = {{')
+		offset = 0
 		for i in range(len(tests)):
 			file.write('\n\t\t' if i == 0 else ',\n\t\t')
-			file.write('{ ')
+			file.write(f'{{ {offset}, {len(tests[i][1])} }}')
+			offset += len(tests[i][1]) * 2
+		file.write('\n\t};\n')
+		file.write('\n')
+
+		# write the range blob to the file
+		file.write(f'\tstatic size_t {name}RangesBlob[{offset}] = {{')
+		for i in range(len(tests)):
+			file.write('\n\t\t' if i == 0 else ',\n\t\t')
 			for j in range(len(tests[i][1])):
 				file.write('' if j == 0 else ', ')
-				file.write(f'{{ {tests[i][1][j][0]}, {tests[i][1][j][1]} }}')
-			file.write(' }')
+				file.write(f'{tests[i][1][j][0]}, {tests[i][1][j][1]}')
 		file.write('\n\t};\n')
 		file.write('}\n')
 def CreateNormalizationTestFile(outPath: str, inPath: str) -> None:
@@ -2134,7 +2152,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 
 	# write all maps functions to the file
 	with GeneratedFile(outPath, config) as file:
-		segmentationRanges, segmentationDefValue, segmentationBits = [], 0, 8
+		segmentationRanges, segmentationDefValue, segmentationBits, segmentationOffset = [], 0, 6, 0
 		_type8: LookupType = LookupType.intType(0, 'uint8_t')
 
 		# setup the word-break boundary ranges (https://unicode.org/reports/tr29/#Word_Boundaries)
@@ -2150,12 +2168,14 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 
 		# write the word-ranges to the file
 		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_end'])
-		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty')
-		segmentationOffset = 0
+		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
 		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (wordRangesDef[0] << segmentationOffset) | segmentationDefValue
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
+		segmentationOffset += segmentationBits
 
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
 		graphemeEnumMap = {
@@ -2177,11 +2197,13 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		# write the grapheme-ranges to the file
 		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_end'])
 		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
-		segmentationOffset += segmentationBits
 		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (graphemeRangesDef[0] << segmentationOffset) | segmentationDefValue
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
+		segmentationOffset += segmentationBits
 
 		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
 		sentenceEnumMap = {
@@ -2194,11 +2216,13 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		# write the sentence-ranges to the file
 		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_end'])
 		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
-		segmentationOffset += segmentationBits
 		_gen.addConstInt(_type8, 'SentenceSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (sentenceRangesDef[0] << segmentationOffset) | segmentationDefValue
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
+		segmentationOffset += segmentationBits
 
 		# setup the line-break boundary ranges and list of the enum (https://www.unicode.org/reports/tr14/#Algorithm)
 		lineEnumMap = {
@@ -2214,9 +2238,8 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		for k in lineEnumMap:
 			lineEnumList[lineEnumMap[k]] = k.lower()
 		lineEnumList[lineEnumMap['AL']] = 'alDef'
-		lineEnumList[lineEnumMap['QU']] = 'quDef'
-		lineEnumList[lineEnumMap['OP']] = 'opDef'
-		lineEnumList[lineEnumMap['CP']] = 'cpDef'
+		lineEnumList[lineEnumMap['BA']] = 'baDef'
+		lineEnumList[lineEnumMap['QU']] = 'quNoPiPf'
 		lineEnumList[lineEnumMap['ID']] = 'idDef'
 
 		# setup the intermediate helper-ranges
@@ -2239,14 +2262,14 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			raise RuntimeError('Dotted-Circle is assumed to be part of the [AL] break-type')
 		lineRanges = Ranges.merge(lineRanges, [Range(0x25cc, 0x25cc, 1)], lambda a, b: len(lineEnumList))
 		lineEnumList.append('alDotCircle')
+		if Ranges.lookup(lineRanges, 0x2010) != (lineEnumMap['BA'],):
+			raise RuntimeError('Hypen is assumed to be part of the [BA] break-type')
+		lineRanges = Ranges.merge(lineRanges, [Range(0x2010, 0x2010, 1)], lambda a, b: len(lineEnumList))
+		lineEnumList.append('baHyphen')
 		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pi' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPi')
 		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pf' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPf')
-		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['OP'] else a)
-		lineEnumList.append('opNoFWH')
-		lineRanges = Ranges.modify(lineRanges, Ranges.complement(fwhAsianRanges), lambda a, _: len(lineEnumList) if a[0] == lineEnumMap['CP'] else a)
-		lineEnumList.append('cpNoFWH')
 		lineRanges = Ranges.merge(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)), lambda a, _: _CnPictographicMerge(a, len(lineEnumList) + 1, lineEnumMap['ID']))
 		lineEnumList.append('defCnPict')
 		lineEnumList.append('idCnPict')
@@ -2255,16 +2278,25 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		# write the line-ranges to the file
 		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
 		_gen: CodeGen = file.next('Line', 'Automatically generated from: Unicode LineBreak, General_Category, East-Asian-Width, EmojiData')
-		segmentationOffset += segmentationBits
 		_gen.addConstInt(_type8, 'LineSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
 		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(lineRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
 		segmentationDefValue = (lineRangesDef << segmentationOffset) | segmentationDefValue
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
+		segmentationOffset += segmentationBits
+
+		# write the east asian width out
+		_gen.addConstInt(_type8, 'LineFWHAsianWidthTest', segmentationOffset)
+		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(fwhAsianRanges, lambda c, v: (1 << segmentationOffset)), lambda a, b: (a[0] | b[0],))
+		segmentationOffset += 1
 
 		# create the merged function to encode all four segmentation-lookups into a single buffer-function (requires less memory than four separate lookups)
+		if segmentationOffset > 32:
+			raise RuntimeError(f'Segmentation does not fit into {32} bits (is {segmentationOffset})')
 		_type32: LookupType = LookupType.intType(segmentationDefValue, 'uint32_t')
-		_gen: CodeGen = file.next('Segmentation', 'Lookup segmentation types (Word, Grapheme, Sentence, Line)')
-		_gen.addConstInt(_type8, 'SegmentationMask', 0xff)
+		_gen: CodeGen = file.next('Segmentation', 'Lookup segmentation types (Word, Grapheme, Sentence, Line, EastAsianWidthFWH)')
+		_gen.addConstInt(_type8, 'SegmentationMask', (1 << segmentationBits) - 1)
 		_gen.intFunction('GetSegmentation', _type32, segmentationRanges, CodeGenConfig(CodeGenIndirect(), CodeGenDensityIfElse()))
 
 # GetNormalization (encodes ccc/decomposition/composition states)

@@ -1166,7 +1166,7 @@ namespace cp {
 		};
 
 		struct LineBreak {
-			static_assert(size_t(detail::gen::LineType::_end) == 50, "Only types 0-49 are known by the state-machine");
+			static_assert(size_t(detail::gen::LineType::_end) == 49, "Only types 0-48 are known by the state-machine");
 		public:
 			using Type = detail::gen::LineType;
 			enum class Break : uint8_t {
@@ -1177,14 +1177,16 @@ namespace cp {
 			};
 
 		public:
-			static constexpr Type GetRaw(uint32_t raw) {
-				return static_cast<Type>((raw >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
+			static constexpr std::pair<Type, bool> GetRaw(uint32_t raw) {
+				Type type = static_cast<Type>((raw >> detail::gen::LineSegmentationOff) & detail::gen::SegmentationMask);
+				bool fwh = ((raw & (1 << detail::gen::LineFWHAsianWidthTest)) != 0);
+				return { type, fwh };
 			}
-			static constexpr Type GetCP(char32_t cp) {
+			static constexpr std::pair<Type, bool> GetCP(char32_t cp) {
 				return GetRaw(detail::gen::GetSegmentation(cp));
 			}
 			template <class SelfType>
-			static constexpr Break Test(Type l, Type r, SelfType&& self) {
+			static constexpr Break Test(Type l, bool lFWH, Type r, bool rFWH, SelfType&& self) {
 				/* LB4/LB5 */
 				if (l == Type::cr)
 					return (r == Type::lf ? Break::combine : Break::mandatory);
@@ -1200,18 +1202,24 @@ namespace cp {
 					/* LB7 */
 					if (r == Type::sp || r == Type::zw)
 						return Break::combine;
-					l = self.fSkipSpaceAndLB9(l);
+
+					std::pair<Type, bool> _l = self.fSkipSpaceAndLB9(l, lFWH);
+					l = _l.first; lFWH = _l.second;
 
 					/* LB8 */
 					if (l == Type::zw)
 						return Break::optional;
 
+					/* LB15c/LB15d */
+					if (r == Type::is)
+						return self.fLB15cCheck();
+
 					/* LB11/LB13/LB14 */
-					if (r == Type::wj || r == Type::cl || r == Type::cpDef || r == Type::cpNoFWH || r == Type::ex || r == Type::is || r == Type::sy)
+					if (r == Type::wj || r == Type::cl || r == Type::cp || r == Type::ex || r == Type::sy)
 						return Break::combine;
 
 					/* LB14 */
-					if (l == Type::opDef || l == Type::opNoFWH)
+					if (l == Type::op)
 						return Break::combine;
 
 					/* LB15a */
@@ -1223,7 +1231,7 @@ namespace cp {
 						return self.fLB15bCheck();
 
 					/* LB16 */
-					if (r == Type::ns && (l == Type::cl || l == Type::cpDef || l == Type::cpNoFWH))
+					if (r == Type::ns && (l == Type::cl || l == Type::cp))
 						return Break::combine;
 
 					/* LB17 */
@@ -1242,7 +1250,8 @@ namespace cp {
 				if (l == Type::zwj)
 					return Break::combine;
 
-				l = self.fSkipSpaceAndLB9(l);
+				std::pair<Type, bool> _l = self.fSkipSpaceAndLB9(l, lFWH);
+				l = _l.first; lFWH = _l.second;
 				switch (r) {
 				case Type::cm:
 				case Type::zwj:
@@ -1253,12 +1262,11 @@ namespace cp {
 					return Break::combine;
 				case Type::gl:
 					/* LB12a */
-					if (l != Type::ba && l != Type::hy)
+					if (l != Type::baDef && l != Type::baHyphen && l != Type::hy)
 						return Break::combine;
 					break;
 				case Type::cl:
-				case Type::cpDef:
-				case Type::cpNoFWH:
+				case Type::cp:
 				case Type::ex:
 				case Type::is:
 				case Type::sy:
@@ -1269,30 +1277,49 @@ namespace cp {
 					if (l == Type::b2)
 						return Break::combine;
 					break;
-				case Type::quDef:
+				case Type::nu:
+					/* LB25 */
+					if (l == Type::po || l == Type::pr || l == Type::hy || l == Type::is)
+						return Break::combine;
+					break;
+				case Type::quNoPiPf:
 				case Type::quPf:
-				case Type::quPi:
 					/* LB19 */
 					return Break::combine;
+				case Type::quPi:
+					/* LB19a */
+					if (!lFWH)
+						return Break::combine;
+					return self.fLB19aCheckRight();
 				case Type::cb:
 					/* LB11/LB12/LB14 */
-					if (l == Type::wj || l == Type::gl || l == Type::opDef || l == Type::opNoFWH)
+					if (l == Type::wj || l == Type::gl || l == Type::op)
 						return Break::combine;
 
-					/* LB19/LB20 */
-					if (l == Type::quDef || l == Type::quPf || l == Type::quPi)
+					/* LB19 */
+					if (l == Type::quNoPiPf || l == Type::quPi)
 						return Break::combine;
+
+					/* LB19a */
+					if (l == Type::quPf) {
+						if (!rFWH)
+							return Break::combine;
+						return self.fLB19aCheckLeft();
+					}
+
+					/* LB20 */
 					return Break::optional;
 				case Type::ns:
 					/* LB16 */
-					if (l == Type::cl || l == Type::cpDef || l == Type::cpNoFWH)
+					if (l == Type::cl || l == Type::cp)
 						return Break::combine;
 					[[fallthrough]];
-				case Type::ba:
+				case Type::baDef:
+				case Type::baHyphen:
 				case Type::hy:
 				case Type::in:
 					/* LB11/LB12/LB14 */
-					if (l == Type::wj || l == Type::gl || l == Type::opDef || l == Type::opNoFWH)
+					if (l == Type::wj || l == Type::gl || l == Type::op)
 						return Break::combine;
 
 					/* LB20 */
@@ -1301,6 +1328,12 @@ namespace cp {
 
 					/* LB21/LB22 */
 					return Break::combine;
+				case Type::alDef:
+				case Type::alDotCircle:
+					/* LB20a/LB21a */
+					if (l == Type::hy || l == Type::baHyphen || (l == Type::baDef && !lFWH))
+						return self.fLB20a21aCheck((l == Type::hy || l == Type::baHyphen), !lFWH);
+					break;
 				default:
 					break;
 				}
@@ -1312,15 +1345,18 @@ namespace cp {
 				case Type::gl:
 					/* LB12 */
 					return Break::combine;
-				case Type::opDef:
-				case Type::opNoFWH:
+				case Type::op:
 					/* LB14 */
 					return Break::combine;
-				case Type::quDef:
-				case Type::quPf:
+				case Type::quNoPiPf:
 				case Type::quPi:
 					/* LB19 */
 					return Break::combine;
+				case Type::quPf:
+					/* LB19a */
+					if (!rFWH)
+						return Break::combine;
+					return self.fLB19aCheckLeft();
 				case Type::cb:
 					/* LB20 */
 					return Break::optional;
@@ -1332,9 +1368,12 @@ namespace cp {
 					if (r == Type::nu)
 						return Break::combine;
 					[[fallthrough]];
-				case Type::ba:
+				case Type::baDef:
+				case Type::baHyphen:
 					/* LB21a */
-					return self.fLB21aCheck();
+					if ((l == Type::hy || !lFWH) && r != Type::hl)
+						return self.fLB21aCheck();
+					break;
 				case Type::is:
 					/* LB29 */
 					if (r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
@@ -1375,7 +1414,7 @@ namespace cp {
 						return Break::combine;
 
 					/* LB30 */
-					if (r == Type::opNoFWH)
+					if (r == Type::op && !rFWH)
 						return Break::combine;
 					break;
 				case Type::nu:
@@ -1388,7 +1427,7 @@ namespace cp {
 						return Break::combine;
 
 					/* LB30 */
-					if (r == Type::opNoFWH)
+					if (r == Type::op && !rFWH)
 						return Break::combine;
 					break;
 				case Type::pr:
@@ -1408,7 +1447,7 @@ namespace cp {
 					/* LB25 */
 					if (r == Type::nu)
 						return Break::combine;
-					if (r == Type::opDef || r == Type::opNoFWH || r == Type::hy)
+					if (r == Type::op || r == Type::hy)
 						return self.fLB25CheckRight();
 					break;
 				case Type::jl:
@@ -1468,13 +1507,12 @@ namespace cp {
 					if (r == Type::ak || r == Type::alDotCircle)
 						return self.fLB28a2Check();
 					break;
-				case Type::cpNoFWH:
+				case Type::cp:
 					/* LB30 */
-					if (r == Type::nu || r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
+					if (!lFWH && (r == Type::nu || r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl))
 						return Break::combine;
 					[[fallthrough]];
 				case Type::cl:
-				case Type::cpDef:
 					/* LB25 */
 					if (r == Type::pr || r == Type::po)
 						return self.fLB25CheckLeft();
@@ -1507,23 +1545,23 @@ namespace cp {
 			constexpr PrimitiveLineRandom(const ItType& l, const ItType& r) : pLeft{ l }, pRight{ r } {}
 
 		private:
-			constexpr std::pair<ItType, Host::Type> fSkipIntermediate(const ItType& it, Host::Type type, bool skipSpaces) const {
+			constexpr std::pair<ItType, std::pair<Host::Type, bool>> fSkipIntermediate(const ItType& it, std::pair<Host::Type, bool> type, bool skipSpaces) const {
 				ItType t = it;
 
 				while (true) {
-					if (type == Host::Type::sp && skipSpaces) {
+					if (type.first == Host::Type::sp && skipSpaces) {
 						if (!t.reverse())
 							break;
 						type = Host::GetCP(t.get());
 					}
-					else if (type != Host::Type::cm && type != Host::Type::zwj)
+					else if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
 						break;
 					else {
 						ItType tIt = t;
 						if (!tIt.reverse())
 							break;
-						Host::Type temp = Host::GetCP(tIt.get());
-						if (temp == Host::Type::bk || temp == Host::Type::cr || temp == Host::Type::lf || temp == Host::Type::nl || temp == Host::Type::sp || temp == Host::Type::zw)
+						std::pair<Host::Type, bool> temp = Host::GetCP(tIt.get());
+						if (temp.first == Host::Type::bk || temp.first == Host::Type::cr || temp.first == Host::Type::lf || temp.first == Host::Type::nl || temp.first == Host::Type::sp || temp.first == Host::Type::zw)
 							break;
 						type = temp;
 						t = tIt;
@@ -1531,71 +1569,94 @@ namespace cp {
 				}
 				return { t, type };
 			}
-			constexpr std::pair<Host::Type, bool> fGetPrev() const {
+			constexpr std::pair<std::pair<Host::Type, bool>, bool> fGetPrev() const {
 				auto [it, type] = fSkipIntermediate(pLeft, Host::GetCP(pLeft.get()), true);
 				if (!it.reverse())
 					return { type, false };
 				return { fSkipIntermediate(it, Host::GetCP(it.get()), false).second, true };
 			}
-			constexpr Host::Type fGetNext() const {
+			constexpr std::pair<std::pair<Host::Type, bool>, bool> fGetNext() const {
 				ItType t = pRight;
 				while (t.advance()) {
-					Host::Type type = Host::GetCP(t.get());
-					if (type != Host::Type::cm && type != Host::Type::zwj)
-						return type;
+					std::pair<Host::Type, bool> type = Host::GetCP(t.get());
+					if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
+						return { type, true };
 				}
-				return Host::Type::_end;
+				return { { Host::Type::_end, false }, false };
 			}
 
 		private:
-			constexpr Host::Type fSkipSpaceAndLB9(Host::Type l) const {
-				return fSkipIntermediate(pLeft, l, true).second;
+			constexpr std::pair<Host::Type, bool> fSkipSpaceAndLB9(Host::Type l, bool lFWH) const {
+				return fSkipIntermediate(pLeft, { l, lFWH }, true).second;
 			}
 			constexpr Host::Break fLB15aCheck() const {
 				auto [type, exists] = fGetPrev();
-				if (!exists || type == Host::Type::bk || type == Host::Type::cr || type == Host::Type::lf || type == Host::Type::nl ||
-					type == Host::Type::opDef || type == Host::Type::opNoFWH || type == Host::Type::quDef || type == Host::Type::quPf ||
-					type == Host::Type::quPi || type == Host::Type::gl || type == Host::Type::sp || type == Host::Type::zw)
+				if (!exists || type.first == Host::Type::bk || type.first == Host::Type::cr || type.first == Host::Type::lf || type.first == Host::Type::nl ||
+					type.first == Host::Type::op || type.first == Host::Type::quNoPiPf || type.first == Host::Type::quPf ||
+					type.first == Host::Type::quPi || type.first == Host::Type::gl || type.first == Host::Type::sp || type.first == Host::Type::zw)
 					return Host::Break::combine;
 				return Host::Break::optional;
 			}
 			constexpr Host::Break fLB15bCheck() const {
-				Host::Type type = fGetNext();
-				if (type == Host::Type::sp || type == Host::Type::gl || type == Host::Type::wj || type == Host::Type::cl || type == Host::Type::quDef ||
-					type == Host::Type::quPf || type == Host::Type::quPi || type == Host::Type::cpDef || type == Host::Type::cpNoFWH || type == Host::Type::ex ||
-					type == Host::Type::is || type == Host::Type::sy || type == Host::Type::bk || type == Host::Type::cr || type == Host::Type::lf ||
-					type == Host::Type::nl || type == Host::Type::zw || type == Host::Type::_end)
+				auto [type, exists] = fGetNext();
+				if (type.first == Host::Type::sp || type.first == Host::Type::gl || type.first == Host::Type::wj || type.first == Host::Type::cl || type.first == Host::Type::quNoPiPf ||
+					type.first == Host::Type::quPf || type.first == Host::Type::quPi || type.first == Host::Type::cp || type.first == Host::Type::ex ||
+					type.first == Host::Type::is || type.first == Host::Type::sy || type.first == Host::Type::bk || type.first == Host::Type::cr || type.first == Host::Type::lf ||
+					type.first == Host::Type::nl || type.first == Host::Type::zw || !exists)
+					return Host::Break::combine;
+				return Host::Break::optional;
+			}
+			constexpr Host::Break fLB15cCheck() const {
+				auto [type, exists] = fGetNext();
+				return ((exists && type.first == Host::Type::nu) ? Host::Break::optional : Host::Break::combine);
+			}
+			constexpr Host::Break fLB19aCheckLeft() const {
+				auto [type, exists] = fGetPrev();
+				return ((exists && type.second) ? Host::Break::optional : Host::Break::combine);
+			}
+			constexpr Host::Break fLB19aCheckRight() const {
+				auto [type, exists] = fGetNext();
+				return ((!exists || !type.second) ? Host::Break::combine : Host::Break::optional);
+			}
+			constexpr Host::Break fLB20a21aCheck(bool lb20a, bool lb21a) const {
+				auto [type, exists] = fGetPrev();
+				if (lb20a) {
+					if (!exists || type.first == Host::Type::bk || type.first == Host::Type::cr || type.first == Host::Type::lf || type.first == Host::Type::nl ||
+						type.first == Host::Type::sp || type.first == Host::Type::zw || type.first == Host::Type::cb || type.first == Host::Type::gl)
+						return Host::Break::combine;
+				}
+				if (lb21a && type.first == Host::Type::hl)
 					return Host::Break::combine;
 				return Host::Break::optional;
 			}
 			constexpr Host::Break fLB21aCheck() const {
 				auto [type, exists] = fGetPrev();
-				return ((exists && type == Host::Type::hl) ? Host::Break::combine : Host::Break::optional);
+				return ((exists && type.first == Host::Type::hl) ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr Host::Break fLB25CheckLeft() const {
 				auto [type, exists] = fGetPrev();
-				return ((exists && type == Host::Type::nu) ? Host::Break::combine : Host::Break::optional);
+				return ((exists && type.first == Host::Type::nu) ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr Host::Break fLB25CheckRight() const {
-				return (fGetNext() == Host::Type::nu ? Host::Break::combine : Host::Break::optional);
+				return (fGetNext().first.first == Host::Type::nu ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr Host::Break fLB28a2Check() const {
 				auto [type, exists] = fGetPrev();
-				if (exists && (type == Host::Type::ak || type == Host::Type::alDotCircle || type == Host::Type::as))
+				if (exists && (type.first == Host::Type::ak || type.first == Host::Type::alDotCircle || type.first == Host::Type::as))
 					return Host::Break::combine;
 				return Host::Break::optional;
 			}
 			constexpr Host::Break fLB28a3Check() const {
-				return (fGetNext() == Host::Type::vf ? Host::Break::combine : Host::Break::optional);
+				return (fGetNext().first.first == Host::Type::vf ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr bool fIsLeftRIOdd() const {
 				ItType t = pLeft;
 				size_t count = 0;
 				do {
-					Host::Type type = Host::GetCP(t.get());
-					if (type == Host::Type::ri)
+					std::pair<Host::Type, bool> type = Host::GetCP(t.get());
+					if (type.first == Host::Type::ri)
 						++count;
-					else if (type != Host::Type::cm && type != Host::Type::zwj)
+					else if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
 						break;
 				} while (t.reverse());
 				return ((count & 0x01) != 0);
@@ -1603,8 +1664,8 @@ namespace cp {
 
 		public:
 			static constexpr cp::BreakMode Resolve(const ItType& lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw) {
-				Host::Type lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
-				Host::Break _break = Host::Test(lType, rType, detail::PrimitiveLineRandom<ItType>{ lIt, rIt });
+				std::pair<Host::Type, bool> lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
+				Host::Break _break = Host::Test(lType.first, lType.second, rType.first, rType.second, detail::PrimitiveLineRandom<ItType>{ lIt, rIt });
 				if (_break == Host::Break::combine)
 					return cp::BreakMode::none;
 				else if (_break == Host::Break::mandatory)
@@ -1620,12 +1681,15 @@ namespace cp {
 			enum class State : uint8_t {
 				none,
 				lb15b,
+				lb15c,
+				lb19a,
 				lb25,
 				lb28a3
 			};
 			enum class Chain : uint8_t {
 				none,
 				lb15aMatch,
+				lb20aMatch,
 				lb21aMatch,
 				lb25Nu,
 				lb25PrPo,
@@ -1640,11 +1704,12 @@ namespace cp {
 			str::detail::LocalBuffer<Cache> pCache;
 			RecvType pRecv;
 			PayloadType pUncertainPayload{};
-			Host::Type pLast = Host::Type::_end;
-			Host::Type pActual = Host::Type::_end;
+			std::pair<Host::Type, bool> pLast = { Host::Type::_end, false };
+			std::pair<Host::Type, bool> pActual = { Host::Type::_end, false };
 			Chain pChain = Chain::none;
 			State pState = State::none;
 			bool pRICountOdd = false;
+			bool pNotFWH = false;
 			cp::BreakMode pCombineValue = cp::BreakMode::none;
 
 		public:
@@ -1654,7 +1719,7 @@ namespace cp {
 			}
 
 		private:
-			constexpr Host::Type fSkipSpaceAndLB9(Host::Type) const {
+			constexpr std::pair<Host::Type, bool> fSkipSpaceAndLB9(Host::Type, bool) const {
 				return pLast;
 			}
 			constexpr Host::Break fLB15aCheck() const {
@@ -1663,6 +1728,24 @@ namespace cp {
 			constexpr Host::Break fLB15bCheck() {
 				pState = State::lb15b;
 				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fLB15cCheck() {
+				pState = State::lb15c;
+				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fLB19aCheckLeft() const {
+				return (pNotFWH ? Host::Break::combine : Host::Break::optional);
+			}
+			constexpr Host::Break fLB19aCheckRight() {
+				pState = State::lb19a;
+				return Host::Break::uncertain;
+			}
+			constexpr Host::Break fLB20a21aCheck(bool lb20a, bool lb21a) const {
+				if (pChain == Chain::lb20aMatch && lb20a)
+					return Host::Break::combine;
+				if (pChain == Chain::lb21aMatch && lb21a)
+					return Host::Break::combine;
+				return Host::Break::optional;
 			}
 			constexpr Host::Break fLB21aCheck() const {
 				return (pChain == Chain::lb21aMatch ? Host::Break::combine : Host::Break::optional);
@@ -1686,13 +1769,13 @@ namespace cp {
 			}
 
 		private:
-			constexpr void fUpdateLeft(Host::Type r) {
+			constexpr void fUpdateLeft(std::pair<Host::Type, bool> r) {
 				/* update the chain state-machine */
-				switch (r) {
+				switch (r.first) {
 				case Host::Type::quPi:
-					if (pLast == Host::Type::bk || pLast == Host::Type::cr || pLast == Host::Type::lf || pLast == Host::Type::nl ||
-						pLast == Host::Type::opDef || pLast == Host::Type::opNoFWH || pLast == Host::Type::quDef || pLast == Host::Type::quPf ||
-						pLast == Host::Type::quPi || pLast == Host::Type::gl || pLast == Host::Type::zw || pActual == Host::Type::sp)
+					if (pLast.first == Host::Type::bk || pLast.first == Host::Type::cr || pLast.first == Host::Type::lf || pLast.first == Host::Type::nl ||
+						pLast.first == Host::Type::op || pLast.first == Host::Type::quNoPiPf || pLast.first == Host::Type::quPf ||
+						pLast.first == Host::Type::quPi || pLast.first == Host::Type::gl || pLast.first == Host::Type::zw || pActual.first == Host::Type::sp)
 						pChain = Chain::lb15aMatch;
 					else
 						pChain = Chain::none;
@@ -1706,16 +1789,22 @@ namespace cp {
 						pChain = Chain::none;
 					break;
 				case Host::Type::cl:
-				case Host::Type::cpDef:
-				case Host::Type::cpNoFWH:
+				case Host::Type::cp:
 					pChain = (pChain == Chain::lb25Nu ? Chain::lb25PrPo : Chain::none);
 					break;
 				case Host::Type::hy:
-				case Host::Type::ba:
-					pChain = (pLast == Host::Type::hl ? Chain::lb21aMatch : Chain::none);
+				case Host::Type::baDef:
+				case Host::Type::baHyphen:
+					if (r.first != Host::Type::baDef && (pLast.first == Host::Type::bk || pLast.first == Host::Type::cr || pLast.first == Host::Type::lf || pLast.first == Host::Type::nl ||
+						pLast.first == Host::Type::zw || pLast.first == Host::Type::cb || pLast.first == Host::Type::gl || pActual.first == Host::Type::sp))
+						pChain = Chain::lb20aMatch;
+					else if ((r.first == Host::Type::hy || !r.second) && pLast.first == Host::Type::hl)
+						pChain = Chain::lb21aMatch;
+					else
+						pChain = Chain::none;
 					break;
 				case Host::Type::vi:
-					if (pLast == Host::Type::ak || pLast == Host::Type::alDotCircle || pLast == Host::Type::as)
+					if (pLast.first == Host::Type::ak || pLast.first == Host::Type::alDotCircle || pLast.first == Host::Type::as)
 						pChain = Chain::lb28a2Match;
 					else
 						pChain = Chain::none;
@@ -1734,41 +1823,58 @@ namespace cp {
 
 				/* check if the value before the last space can be updated */
 				pActual = r;
-				if (r == Host::Type::sp) {
+				if (r.first == Host::Type::sp) {
 					pRICountOdd = false;
 					return;
 				}
 
+				/* update the LB19a fwh-state */
+				pNotFWH = !pLast.second;
+
 				/* skip the invisible types and update the last value and ri-parity */
-				if ((r == Host::Type::cm || r == Host::Type::zwj) && pLast != Host::Type::bk && pLast != Host::Type::cr &&
-					pLast != Host::Type::lf && pLast != Host::Type::nl && pLast != Host::Type::sp && pLast != Host::Type::zw)
+				if ((r.first == Host::Type::cm || r.first == Host::Type::zwj) && pLast.first != Host::Type::bk && pLast.first != Host::Type::cr &&
+					pLast.first != Host::Type::lf && pLast.first != Host::Type::nl && pLast.first != Host::Type::sp && pLast.first != Host::Type::zw)
 					return;
-				pRICountOdd = (r == Host::Type::ri ? !pRICountOdd : false);
+				pRICountOdd = (r.first == Host::Type::ri ? !pRICountOdd : false);
 				pLast = r;
 			}
-			constexpr Host::Break fCheckState(Host::Type r) const {
+			constexpr Host::Break fCheckState(std::pair<Host::Type, bool> r) const {
 				/* check if the character does not close the state */
-				if (r == Host::Type::cm || r == Host::Type::zwj)
+				if (r.first == Host::Type::cm || r.first == Host::Type::zwj)
 					return Host::Break::uncertain;
 
 				/* LB15b with certainty that it was followed by space, and would therefore otherwise be an optional break */
 				if (pState == State::lb15b) {
-					if (r == Host::Type::sp || r == Host::Type::gl || r == Host::Type::wj || r == Host::Type::cl || r == Host::Type::quDef || r == Host::Type::quPf ||
-						r == Host::Type::quPi || r == Host::Type::cpDef || r == Host::Type::cpNoFWH || r == Host::Type::ex || r == Host::Type::is ||
-						r == Host::Type::sy || r == Host::Type::bk || r == Host::Type::cr || r == Host::Type::lf || r == Host::Type::nl || r == Host::Type::zw)
+					if (r.first == Host::Type::sp || r.first == Host::Type::gl || r.first == Host::Type::wj || r.first == Host::Type::cl || r.first == Host::Type::quNoPiPf ||
+						r.first == Host::Type::quPf || r.first == Host::Type::quPi || r.first == Host::Type::cp || r.first == Host::Type::ex || r.first == Host::Type::is ||
+						r.first == Host::Type::sy || r.first == Host::Type::bk || r.first == Host::Type::cr || r.first == Host::Type::lf || r.first == Host::Type::nl || r.first == Host::Type::zw)
+						return Host::Break::combine;
+					return Host::Break::optional;
+				}
+
+				/* LB15c */
+				if (pState == State::lb15c) {
+					if (r.first == Host::Type::nu)
+						return Host::Break::optional;
+					return Host::Break::combine;
+				}
+
+				/* LB19a */
+				if (pState == State::lb19a) {
+					if (!r.second)
 						return Host::Break::combine;
 					return Host::Break::optional;
 				}
 
 				/* LB25 */
 				if (pState == State::lb25) {
-					if (r == Host::Type::nu)
+					if (r.first == Host::Type::nu)
 						return Host::Break::combine;
 					return Host::Break::optional;
 				}
 
 				/* LB28a */
-				if (r == Host::Type::vf)
+				if (r.first == Host::Type::vf)
 					return Host::Break::combine;
 				return Host::Break::optional;
 			}
@@ -1785,18 +1891,21 @@ namespace cp {
 
 		public:
 			constexpr void first(uint32_t raw) {
-				Host::Type right = Host::GetRaw(raw);
+				std::pair<Host::Type, bool> right = Host::GetRaw(raw);
 
 				/* LB2: initialize the state */
 				pLast = (pActual = right);
-				pRICountOdd = (right == Host::Type::ri);
-				if (right == Host::Type::nu)
+				pRICountOdd = (right.first == Host::Type::ri);
+				if (right.first == Host::Type::nu)
 					pChain = Chain::lb25Nu;
-				else if (right == Host::Type::quPi)
+				else if (right.first == Host::Type::quPi)
 					pChain = Chain::lb15aMatch;
+				else if (right.first == Host::Type::baHyphen || right.first == Host::Type::hy)
+					pChain = Chain::lb20aMatch;
+				pNotFWH = true;
 			}
 			constexpr void next(uint32_t raw, const PayloadType& payload, bool withinGrapheme) {
-				Host::Type right = Host::GetRaw(raw);
+				std::pair<Host::Type, bool> right = Host::GetRaw(raw);
 
 				/* check if this lies within a grapheme and is therefore a true combine-value and either
 				*	write it out directly, or cache it to be processed once the cache is popped */
@@ -1823,7 +1932,7 @@ namespace cp {
 				}
 
 				/* check the current values and update the state */
-				switch (Host::Test(pActual, right, *this)) {
+				switch (Host::Test(pActual.first, pActual.second, right.first, right.second, *this)) {
 				case Host::Break::combine:
 					pRecv(payload, pCombineValue);
 					break;
@@ -1842,7 +1951,7 @@ namespace cp {
 			constexpr void done() {
 				/* LB3: cleanup the final cached state */
 				if (pState != State::none)
-					fPopQueue(pState == State::lb15b);
+					fPopQueue(pState == State::lb15b || pState == State::lb15c || pState == State::lb19a);
 			}
 		};
 		template <class ItType>
@@ -1851,11 +1960,21 @@ namespace cp {
 			struct Iterator {
 				detail::BreakIterator<ItType, detail::GraphemeRandom> iterator;
 				constexpr Iterator(const ItType& it) : iterator{ it, 0 } {}
-				constexpr bool prev() {
-					return (iterator.prev() != cp::BreakMode::edge);
+				constexpr char32_t next() {
+					char32_t cp = iterator.get().get();
+					iterator.next();
+					return cp;
 				}
-				constexpr bool next() {
+				constexpr char32_t prev() {
+					char32_t cp = iterator.get().get();
+					iterator.prev();
+					return cp;
+				}
+				constexpr bool advance() {
 					return (iterator.next() != cp::BreakMode::edge);
+				}
+				constexpr bool reverse() {
+					return (iterator.prev() != cp::BreakMode::edge);
 				}
 				constexpr char32_t get() const {
 					return iterator.get().get();
