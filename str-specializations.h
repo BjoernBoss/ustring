@@ -227,6 +227,12 @@ namespace str {
 			return { data.data(), data.size() };
 		}
 	};
+	template <size_t Size>
+	struct ByteReader<uint8_t[Size]> {
+		constexpr str::Data operator()(const uint8_t(&data)[Size]) {
+			return { data, Size };
+		}
+	};
 
 	/* specializations for byte-writers */
 	template <>

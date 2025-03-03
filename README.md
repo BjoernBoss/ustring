@@ -113,11 +113,11 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
 /* reading from a byte-source */
 uint8_t someBuffer[512] = /* ... */;
 auto x = str::FromWire{ str::WireCoding::utf8, str::BOMMode::detectAll };
-x.read<std::string>(someBuffer, 512);
+x.read<std::string>(someBuffer);
 
 /* writing to a byte-source */
 std::ofstream someFile = /* ... */;
-auto y = str::ToWire{ str::WireCoding::utf16, true };
+auto y = str::ToWire{ str::WireCoding::utf16le, true };
 y.write(someFile, u8"Some-String");
 y.write(someFile, U" some other string");
 ```
@@ -125,7 +125,7 @@ y.write(someFile, U" some other string");
 Note: For convenience, `str::WireOut` exists as valid sink to feed the string output directly to a corresponding wire object. Similarly, `str::WireIn` exists to create a character-stream from a byte-source and immediately transcode the characters.
 
 ```C++
-str::ofstream someFile = /* ... */;
+std::ofstream someFile = /* ... */;
 
 str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
@@ -189,11 +189,15 @@ while (it0.valid())
     map.next(it0.next());
 map.done();
 
-/* mapping a string to lowercase */
+/* testing a string to be uppercase */
 auto tester = cp::TestUpperCase{ 0 };
 while (it1.valid())
     tester.next(it1.next());
 bool t = tester.done();
+
+/* usage through a view */
+auto s0 = str::View{ u"abc-def" }.upper();
+auto t0 = str::View{ u"abc-def" }.isLower();
 ```
 
 Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collectors to feed the output of the mappers either directly to a sink-object or to a lambda function.
