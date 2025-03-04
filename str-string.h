@@ -292,6 +292,12 @@ namespace str {
 				return str::TranscodeAll<SinkType, CodeError>(fBase());
 			}
 
+			/* convert the string to a string of the corresponding character type */
+			template <str::IsChar OChType, char32_t OCodeError = CodeError>
+			constexpr str::String<OChType, OCodeError> str() const {
+				return str::TranscodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
+			}
+
 			/* convert the string to a string of the corresponding char-type or return a view, if this string and the destination type are effectively using the same encoding [such as char and char8_t] */
 			template <str::IsChar OChType, char32_t OCodeError = CodeError>
 			constexpr std::conditional_t<str::EffSame<ChType, OChType>, str::View<OChType, OCodeError>, str::String<OChType, OCodeError>> as() const {
