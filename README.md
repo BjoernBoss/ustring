@@ -243,4 +243,4 @@ To run the tests provided by the `Unicode Character Base`, as well as the number
     $ g++ -std=c++20 ./main.cpp -O3 -o main
     $ ./main
 
-Should errors occur, please create an issue for the github repository at `https://github.com/BjoernBoss/ustring`.
+Should errors occur, please create an issue for the github repository at [`https://github.com/BjoernBoss/ustring`](https://github.com/BjoernBoss/ustring).
