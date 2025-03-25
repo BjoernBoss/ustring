@@ -458,4 +458,106 @@ namespace str {
 			return str::CallCharLoader(pStream, buffer, size);
 		}
 	};
+
+	/* [str::IsSink] struct to buffer the data before writing them out to the sink
+	*	Note: Must not outlive the stream as it stores a reference to it */
+	template <str::IsSink Type>
+	struct BufferSink {
+	public:
+		using ChType = str::SinkChar<Type>;
+
+	private:
+		std::basic_string<ChType> pBuffer;
+		Type& pSink;
+		size_t pContent = 0;
+
+	public:
+		constexpr BufferSink(Type& sink, size_t bufferSize) : pSink{ sink } {
+			pBuffer.resize(bufferSize);
+		}
+		constexpr BufferSink(Type&& sink, size_t bufferSize) : pSink{ sink } {
+			pBuffer.resize(bufferSize);
+		}
+		~BufferSink() {
+			if (pContent > 0)
+				fFlush();
+		}
+
+	private:
+		void fFlush() {
+			str::CallSink(pSink, std::basic_string_view<ChType>{ pBuffer }.substr(0, pContent));
+			pContent = 0;
+		}
+
+	public:
+		constexpr void append(size_t count, ChType chr) {
+			while (count > 0) {
+				/* write the data to the buffer */
+				size_t _count = std::min<size_t>(count, pBuffer.size() - pContent);
+				std::fill_n(pBuffer.begin() + pContent, _count, chr);
+				pContent += _count;
+				count -= _count;
+
+				/* check if the buffer needs to be flushed */
+				if (pContent >= pBuffer.size())
+					fFlush();
+			}
+		}
+		constexpr void append(std::basic_string_view<ChType> s) {
+			while (!s.empty()) {
+				/* write the data to the buffer */
+				size_t _count = std::min<size_t>(s.size(), pBuffer.size() - pContent);
+				std::copy(s.begin(), s.begin() + _count, pBuffer.begin() + pContent);
+				pContent += _count;
+				s = s.substr(_count);
+
+				/* check if the buffer needs to be flushed */
+				if (pContent >= pBuffer.size())
+					fFlush();
+			}
+		}
+	};
+
+	/* [str::IsWire] struct to buffer the data before writing them out to the wire
+	*	Note: Must not outlive the stream as it stores a reference to it */
+	template <str::IsWire Type>
+	struct BufferWire {
+	private:
+		std::vector<uint8_t> pBuffer;
+		Type& pWire;
+		size_t pContent = 0;
+
+	public:
+		constexpr BufferWire(Type& wire, size_t bufferSize) : pWire{ wire } {
+			pBuffer.resize(bufferSize);
+		}
+		constexpr BufferWire(Type&& wire, size_t bufferSize) : pWire{ wire } {
+			pBuffer.resize(bufferSize);
+		}
+		~BufferWire() {
+			if (pContent > 0)
+				fFlush();
+		}
+
+	private:
+		void fFlush() {
+			str::CallWire(pWire, str::Data{ pBuffer }.subspan(0, pContent));
+			pContent = 0;
+		}
+
+	public:
+		constexpr void write(str::Data d) {
+			while (!d.empty()) {
+				/* write the data to the buffer */
+				size_t _count = std::min<size_t>(d.size(), pBuffer.size() - pContent);
+				std::copy(d.begin(), d.begin() + _count, pBuffer.begin() + pContent);
+				pContent += _count;
+				d = d.subspan(_count);
+
+				/* check if the buffer needs to be flushed */
+				if (pContent >= pBuffer.size())
+					fFlush();
+			}
+		}
+	};
 }

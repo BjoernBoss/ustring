@@ -135,6 +135,16 @@ namespace str {
 			str::CallSink(*sink, s);
 		}
 	};
+	template <str::IsSink Type>
+	struct CharWriter<str::BufferSink<Type>> {
+		using ChType = str::SinkChar<Type>;
+		constexpr void operator()(str::BufferSink<Type>& sink, ChType chr, size_t count) const {
+			sink.append(count, chr);
+		}
+		constexpr void operator()(str::BufferSink<Type>& sink, const std::basic_string_view<ChType>& s) const {
+			sink.append(s);
+		}
+	};
 
 	/* specializations for character streams */
 	template <class Type>
@@ -275,6 +285,12 @@ namespace str {
 	struct ByteWriter<Type*> {
 		constexpr void operator()(Type* sink, const str::Data& d) const {
 			str::CallWire(*sink, d);
+		}
+	};
+	template <str::IsWire Type>
+	struct ByteWriter<str::BufferWire<Type>> {
+		constexpr void operator()(str::BufferWire<Type>& sink, const str::Data& d) const {
+			sink.write(d);
 		}
 	};
 
