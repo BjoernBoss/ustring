@@ -54,7 +54,8 @@ namespace str {
 
 		template <class ChType, class Arg, class... Args>
 		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
-			str::CallFormat(sink, arg, U"");
+			if (!str::CallFormat(sink, arg, U""))
+				str::TranscodeAllTo<err::DefChar>(sink, U"#fmt");
 			if constexpr (sizeof...(args) > 0)
 				detail::Append<ChType, Args...>(sink, args...);
 		}
@@ -438,7 +439,7 @@ namespace str {
 			bool upperCase = false;
 			bool found = false;
 		};
-		inline constexpr detail::NumRadix ParseNumRadix(std::u32string_view fmt, bool allowHexFloat) {
+		inline constexpr detail::NumRadix ParseNumRadix(std::u32string_view fmt, bool allowHexFloat, bool allowSigned, bool allowUnsigned) {
 			if (fmt.empty())
 				return detail::NumRadix();
 			detail::NumRadix out;
@@ -463,6 +464,14 @@ namespace str {
 			else if (fmt[0] == U'x' || fmt[0] == U'X') {
 				out.upperCase = (fmt[0] == U'X');
 				out.radix = 16;
+			}
+			else if (allowSigned && (fmt[0] == U's' || fmt[0] == U'S')) {
+				out.upperCase = (fmt[0] == U'S');
+				out.radix = 10;
+			}
+			else if (allowUnsigned && (fmt[0] == U'u' || fmt[0] == U'U')) {
+				out.upperCase = (fmt[0] == U'U');
+				out.radix = 10;
 			}
 			else if (allowHexFloat && (fmt[0] == U'a' || fmt[0] == U'A')) {
 				out.upperCase = (fmt[0] == U'A');
@@ -564,7 +573,7 @@ namespace str {
 	*		[-+ ]: character for sign-place
 	*		[#]: add prefix
 	*		[0]: Optional (if no alignment specified, to indicate null-padding)
-	*	[bBqQoOdDxX]: radix and casing */
+	*	[bBqQoOdDxXsSuU]: radix and casing */
 	template <str::IsInteger Type> struct Formatter<Type> {
 		bool operator()(str::IsSink auto& sink, Type val, std::u32string_view fmt) const {
 			fmt::Padding padding{};
@@ -582,7 +591,7 @@ namespace str {
 			consumed += fmt::ParsePaddingMaximum(fmt.substr(consumed), padding);
 
 			/* parse the num-radix */
-			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(consumed), false);
+			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(consumed), false, std::is_signed_v<Type>, !std::is_signed_v<Type>);
 			if (_radixFound)
 				++consumed;
 
@@ -677,7 +686,7 @@ namespace str {
 			consumed += fmt::ParsePaddingMaximum(fmt.substr(consumed), padding);
 
 			/* parse the num-radix */
-			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(consumed), false);
+			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(consumed), true, false, false);
 			if (_radixFound)
 				++consumed;
 
@@ -970,16 +979,15 @@ namespace str {
 				return false;
 
 			/* check if the formatter can be used directly */
-			if constexpr (str::EffSame<FmtType, char32_t>)
-				str::CallFormat(sink, val.value, val.format);
+			if constexpr (str::EffSame<str::StringChar<FmtType>, char32_t>)
+				return str::CallFormat(sink, val.value, val.format);
 
 			/* convert the formatting and write the value out */
 			else {
 				std::u32string buffer;
 				str::TranscodeAllTo<err::DefChar>(buffer, val.format);
-				str::CallFormat(sink, val.value, buffer);
+				return str::CallFormat(sink, val.value, buffer);
 			}
-			return true;
 		}
 	};
 }
