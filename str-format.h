@@ -256,7 +256,7 @@ namespace str {
 		return sink;
 	}
 
-	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (own formatting is ignored) */
+	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting) */
 	template <str::IsStr FmtType, str::IsFormattable Type>
 	struct As {
 	public:
@@ -266,6 +266,33 @@ namespace str {
 	public:
 		constexpr As(const FmtType& fmt, const Type& value) : format{ fmt }, value{ value } {}
 	};
+
+	/* type is anything that implements an forward iterator on formattable types */
+	template <class Type>
+	concept IsFmtRangeIt = std::forward_iterator<Type> && str::IsFormattable<typename std::iterator_traits<Type>::value_type>;
+
+	/* type is anything that implements a begin() and end() and const_iterator type, which implements str::IsFmtRangeIt */
+	template <class Type>
+	concept IsFmtRange = requires(const Type & val) {
+		typename Type::const_iterator;
+		{ val.begin() } -> std::same_as<typename Type::const_iterator>;
+		{ val.end() } -> std::same_as<typename Type::const_iterator>;
+		str::IsFmtRangeIt<typename Type::const_iterator>;
+	};
+
+	/* format a range of values defined by iterators */
+	template <str::IsFmtRangeIt ItType>
+	struct Range {
+	public:
+		ItType begin;
+		ItType end;
+
+	public:
+		constexpr Range(ItType begin, ItType end) : begin{ begin }, end{ end } {}
+		constexpr Range(const str::IsFmtRange auto& val) : begin{ val.begin() }, end{ val.end() } {}
+	};
+	template <class Type>
+	Range(const Type&) -> str::Range<typename Type::const_iterator>;
 
 	/*	Normal padding: in Order; all optional
 	*	[char?[<^>]]: padding character and side
@@ -988,6 +1015,71 @@ namespace str {
 				str::TranscodeAllTo<err::DefChar>(buffer, val.format);
 				return str::CallFormat(sink, val.value, buffer);
 			}
+		}
+	};
+
+	/*	Normal padding
+	*	[%any%]: separator to be used (escape @ using @@ within this part; default: '')
+	*	[@%any%]: formatter to be used for the elements */
+	template <class ItType> struct Formatter<str::Range<ItType>> {
+		constexpr bool operator()(str::IsSink auto& sink, const str::Range<ItType>& val, std::u32string_view fmt) const {
+			auto [padding, rest] = fmt::ParsePadding(fmt);
+
+			/* split off the separator and element formatter */
+			std::u32string_view separator = rest, format;
+			bool escapedSeparator = false, separate = false;
+			for (size_t i = 0; i < separator.size(); ++i) {
+				if (separator[i] != U'@')
+					continue;
+				if (++i >= separator.size() || separator[i] != U'@') {
+					format = separator.substr(i);
+					separator = separator.substr(0, i - 1);
+				}
+				else
+					escapedSeparator = true;
+			}
+
+			/* check if the separator contains formatting and sanitize it */
+			std::u32string _separator;
+			if (escapedSeparator) {
+				for (size_t i = 0; i < separator.size(); ++i) {
+					_separator.push_back(separator[i]);
+					if (separator[i] == U'@')
+						++i;
+				}
+				separator = _separator;
+			}
+
+			/* check if the string can just be appended */
+			if (padding.minimum <= 1 && padding.maximum == 0) {
+				/* iterate over the elements and write them out */
+				for (ItType it = val.begin; it != val.end; ++it) {
+					if (separate)
+						str::TranscodeAllTo<err::DefChar>(sink, separator);
+					separate = true;
+
+					/* format the value itself */
+					if (!str::CallFormat(sink, *it, format))
+						return false;
+				}
+				return true;
+			}
+
+			/* write the string to an intermediate buffer */
+			std::u32string buffer;
+			for (ItType it = val.begin; it != val.end; ++it) {
+				if (separate)
+					str::TranscodeAllTo<err::DefChar>(buffer, separator);
+				separate = true;
+
+				/* format the value itself */
+				if (!str::CallFormat(buffer, *it, format))
+					return false;
+			}
+
+			/* write the padded string to the sink */
+			fmt::WritePadded(sink, buffer, padding);
+			return true;
 		}
 	};
 }
