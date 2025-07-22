@@ -13,7 +13,7 @@
 /*
 *	Coding-Rules:
 *	 - decoding using str::GetAscii<err::Nothing>, any invalid decodings will simply abort the parsing up to that point
-*	 - encoding using str::CodepointTo<err::Nothing>/str::TranscodeAllTo<err::Nothing>
+*	 - encoding using str::CodepointTo<err::Nothing>/str::FastcodeAllTo<err::Nothing>
 *		(character set is so small and essential that every codepage should support it)
 */
 namespace str {
@@ -1396,9 +1396,9 @@ namespace str {
 				if (radix > detail::MaxRadixBeforeSpecialChar)
 					str::CodepointTo<err::Nothing>(sink, U'#', 1);
 				if (std::isinf(num))
-					str::TranscodeAllTo<err::Nothing>(sink, upperCase ? U"INF" : U"inf");
+					str::FastcodeAllTo<err::Nothing>(sink, upperCase ? U"INF" : U"inf");
 				else
-					str::TranscodeAllTo<err::Nothing>(sink, upperCase ? U"NAN" : U"nan");
+					str::FastcodeAllTo<err::Nothing>(sink, upperCase ? U"NAN" : U"nan");
 				return;
 			}
 

@@ -399,7 +399,7 @@ namespace str {
 			str::CodepointTo<str::err::DefChar>(pSink, chr, count);
 		}
 		void write(std::u32string_view s) override {
-			str::TranscodeAllTo<str::err::DefChar>(pSink, s);
+			str::FastcodeAllTo<str::err::DefChar>(pSink, s);
 		}
 	};
 

@@ -193,7 +193,7 @@ namespace str {
 				if (escaped[1] == U'\0')
 					str::CodepointTo<CodeError>(sink, escaped[0], count);
 				else for (size_t i = 0; i < count; ++i)
-					str::TranscodeAllTo<CodeError>(sink, escaped);
+					str::FastcodeAllTo<CodeError>(sink, escaped);
 			}
 
 			/* check if the character can be added as-is */
@@ -204,7 +204,7 @@ namespace str {
 			else if (cp <= 0xff) {
 				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(cp >> 4), cp::ascii::GetRadixLower(cp & 0x0f) };
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeAllTo<CodeError>(sink, std::u32string_view{ buf, 4 });
+					str::FastcodeAllTo<CodeError>(sink, std::u32string_view{ buf, 4 });
 			}
 
 			/* add the codepoint as the unicode-codepoint (must be greater than 0xff, hence non-zero) */
@@ -222,7 +222,7 @@ namespace str {
 				buf[len++] = U'}';
 
 				for (size_t i = 0; i < count; ++i)
-					str::TranscodeAllTo<CodeError>(sink, std::u32string_view{ buf, len });
+					str::FastcodeAllTo<CodeError>(sink, std::u32string_view{ buf, len });
 			}
 		}
 

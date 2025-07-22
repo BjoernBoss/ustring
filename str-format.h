@@ -292,7 +292,7 @@ namespace str {
 		constexpr Range(const str::IsFmtRange auto& val) : begin{ val.begin() }, end{ val.end() } {}
 	};
 	template <class Type>
-	Range(const Type&) -> str::Range<typename Type::const_iterator>;
+	Range(const Type&) -> Range<typename Type::const_iterator>;
 
 	/*	Normal padding: in Order; all optional
 	*	[char?[<^>]]: padding character and side

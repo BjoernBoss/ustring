@@ -74,6 +74,9 @@ namespace str {
 				return str::Format<std::basic_string<ChType>>(fmt, args...);
 			}
 			static constexpr std::basic_string<ChType> To(const str::IsStr auto& source) {
+				return str::FastcodeAll<std::basic_string<ChType>>(source);
+			}
+			static constexpr std::basic_string<ChType> Make(const str::IsStr auto& source) {
 				return str::TranscodeAll<std::basic_string<ChType>>(source);
 			}
 			static constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
@@ -95,6 +98,9 @@ namespace str {
 				return str::Format<str::Local<ChType, Capacity>>(fmt, args...);
 			}
 			static constexpr str::Local<ChType, Capacity> To(const str::IsStr auto& source) {
+				return str::FastcodeAll<str::Local<ChType, Capacity>>(source);
+			}
+			static constexpr str::Local<ChType, Capacity> Make(const str::IsStr auto& source) {
 				return str::TranscodeAll<str::Local<ChType, Capacity>>(source);
 			}
 			static constexpr str::Local<ChType, Capacity> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {

@@ -478,48 +478,70 @@ namespace str {
 		return detail::TranscodeSingle<ChType, SChType, CodeError, true>(view);
 	}
 
-	/* transcode the entire source-string as efficient as possible to the sink and return it (does
-	*	not guarantee valid encoding, if both source and destination are of the same type) */
-	template <char32_t CodeError = err::DefChar>
-	constexpr auto& TranscodeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
-		using SChType = str::StringChar<decltype(source)>;
-		using DChType = str::SinkChar<decltype(sink)>;
-		std::basic_string_view<SChType> view{ source };
+	namespace detail {
+		template <char32_t CodeError, bool FastMode, class SinkType, class SourceType>
+		constexpr SinkType& ConvertCodesTo(SinkType&& sink, SourceType& source) {
+			using SChType = str::StringChar<decltype(source)>;
+			using DChType = str::SinkChar<decltype(sink)>;
+			std::basic_string_view<SChType> view{ source };
 
-		/* check if the string can just be appended */
-		if constexpr (str::EffSame<SChType, DChType>) {
-			str::CallSink(sink, std::basic_string_view<DChType>{ reinterpret_cast<const DChType*>(view.data()), view.size() });
-			return sink;
-		}
+			/* check if the string can just be appended */
+			if constexpr (str::EffSame<SChType, DChType> && FastMode) {
+				str::CallSink(sink, std::basic_string_view<DChType>{ reinterpret_cast<const DChType*>(view.data()), view.size() });
+				return sink;
+			}
 
-		/* check if the source does not need to be decoded */
-		if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
-			for (auto c : view)
-				str::CodepointTo<CodeError>(sink, char32_t(c), 1);
-			return sink;
-		}
+			/* check if the source does not need to be decoded */
+			if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
+				for (auto c : view)
+					str::CodepointTo<CodeError>(sink, char32_t(c), 1);
+				return sink;
+			}
 
-		/* check if the destination does not need to be encoded */
-		if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
+			/* check if the destination does not need to be encoded */
+			if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
+				str::Iterator<SChType, CodeError> it{ view };
+				while (it.valid())
+					str::CallSink(sink, DChType(it.next()), 1);
+				return sink;
+			}
+
+			/* iterate over the source-codepoints and transcode them */
 			str::Iterator<SChType, CodeError> it{ view };
 			while (it.valid())
-				str::CallSink(sink, DChType(it.next()), 1);
+				str::CodepointTo<CodeError>(sink, it.next(), 1);
 			return sink;
 		}
-
-		/* iterate over the source-codepoints and transcode them */
-		str::Iterator<SChType, CodeError> it{ view };
-		while (it.valid())
-			str::CodepointTo<CodeError>(sink, it.next(), 1);
-		return sink;
 	}
 
-	/* transcode the entire source-string as efficient as possible to an object of the given sink-type using str::TranscodeAllTo
-	*	and return it (does not guarantee valid encoding, if both source and destination are of the same type) */
+	/* transcode the entire source-string to the sink and return it (does guarantee valid encoding at all times) */
+	template <char32_t CodeError = err::DefChar>
+	constexpr auto& TranscodeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
+		return detail::ConvertCodesTo<CodeError, false>(sink, source);
+	}
+
+	/* transcode the entire source-string to an object of the given sink-type using
+	*	str::TranscodeAllTo and return it (does guarantee valid encoding at all times) */
 	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
 	constexpr SinkType TranscodeAll(const str::IsStr auto& source) {
 		SinkType out{};
 		str::TranscodeAllTo<CodeError>(out, source);
+		return out;
+	}
+
+	/* transcode the entire source-string as efficient as possible to the sink and return it (does
+	*	not guarantee valid encoding, if both source and destination are of the same type) */
+	template <char32_t CodeError = err::DefChar>
+	constexpr auto& FastcodeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
+		return detail::ConvertCodesTo<CodeError, true>(sink, source);
+	}
+
+	/* transcode the entire source-string as efficient as possible to an object of the given sink-type using str::FastcodeAllTo
+	*	and return it (does not guarantee valid encoding, if both source and destination are of the same type) */
+	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	constexpr SinkType FastcodeAll(const str::IsStr auto& source) {
+		SinkType out{};
+		str::FastcodeAllTo<CodeError>(out, source);
 		return out;
 	}
 }

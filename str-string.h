@@ -9,6 +9,10 @@
 #include "str-coding.h"
 #include "str-escape.h"
 
+/*
+*	Coding-Rules:
+*	 - Uses str::FastcodeAll<CodeError> whereever possible, and otherwise uses str::TranscodeAll<CodeError> on explicit selection
+*/
 namespace str {
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
 	*	Note: Must not outlive the sink object as it stores a reference to it */
@@ -312,19 +316,23 @@ namespace str {
 			}
 
 			/* fetch the codepoint iterator for the string */
-			constexpr ItType it(size_t index = 0) const {
-				return ItType{ fBase(), index };
+			constexpr ItType it(size_t index = 0, bool previous = false) const {
+				return ItType{ fBase(), index, previous };
 			}
 
-			/* convert the string to the corrsponding string-type */
+			/* convert the string to the corrsponding string-type as fast as possible (either fast but potentially incorrect, or slower but correct) */
 			template <str::IsSink SinkType>
-			constexpr SinkType to() const {
+			constexpr SinkType to(bool fast = true) const {
+				if (fast)
+					return str::FastcodeAll<SinkType, CodeError>(fBase());
 				return str::TranscodeAll<SinkType, CodeError>(fBase());
 			}
 
-			/* convert the string to a string of the corresponding character type */
-			template <str::IsChar OChType, char32_t OCodeError = CodeError>
-			constexpr str::String<OChType, OCodeError> str() const {
+			/* convert the string to a string of the corresponding character type (either fast but potentially incorrect, or slower but correct) */
+			template <str::IsChar OChType = ChType, char32_t OCodeError = CodeError>
+			constexpr str::String<OChType, OCodeError> str(bool fast = true) const {
+				if (fast)
+					return str::FastcodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
 				return str::TranscodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
 			}
 
@@ -336,7 +344,7 @@ namespace str {
 					return str::View<OChType, OCodeError>{ std::basic_string_view<OChType>{ reinterpret_cast<const OChType*>(_this.data()), _this.size() } };
 				}
 				else
-					return str::TranscodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
+					return str::FastcodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
 			}
 
 			/* convert the string to the corresponding string-type but as an escaped string */
