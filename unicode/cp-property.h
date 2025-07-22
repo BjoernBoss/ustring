@@ -177,24 +177,24 @@ namespace cp {
 		};
 	}
 
-	/* check if the codepoint is a valid unicode-codepoint (in principle, i.e. in Unicode-Range and not a surrogate-pair) */
+	/* [str::IsTester] check if the codepoint is a valid unicode-codepoint (in principle, i.e. in Unicode-Range and not a surrogate-pair) */
 	inline constexpr bool IsUnicode(char32_t cp) {
 		return detail::gen::TestUnicode(cp);
 	}
 
 	/* query properties about single codepoints optimized but only yield results for ascii */
 	namespace ascii {
-		/* check if the codepoint is an ascii alpha character [a-zA-Z] */
+		/* [str::IsTester] check if the codepoint is an ascii alpha character [a-zA-Z] */
 		inline constexpr bool IsAlpha(char32_t cp) {
 			return detail::gen::TestAsciiAlphabetic(cp);
 		}
 
-		/* check if the codepoint is an ascii numeric character [0-9] */
+		/* [str::IsTester] check if the codepoint is an ascii numeric character [0-9] */
 		inline constexpr bool IsNum(char32_t cp) {
 			return detail::gen::TestAsciiNumeric(cp);
 		}
 
-		/* check if the codepoint is an ascii alpha/numeric character [a-zA-Z0-9] */
+		/* [str::IsTester] check if the codepoint is an ascii alpha/numeric character [a-zA-Z0-9] */
 		inline constexpr bool IsAlNum(char32_t cp) {
 			return (detail::gen::TestAsciiAlphabetic(cp) || detail::gen::TestAsciiNumeric(cp));
 		}
@@ -224,40 +224,40 @@ namespace cp {
 
 	/* query unicode properties about single codepoints */
 	namespace prop {
-		/* check if the codepoint is an ascii character [\x00-\x7f] */
+		/* [str::IsTester] check if the codepoint is an ascii character [\x00-\x7f] */
 		inline constexpr bool IsAscii(char32_t cp) {
 			return detail::gen::TestAscii(cp);
 		}
 
-		/* check if the codepoint is a whitespace character [Unicode White_Space] */
+		/* [str::IsTester] check if the codepoint is a whitespace character [Unicode White_Space] */
 		inline constexpr bool IsSpace(char32_t cp) {
 			return detail::gen::TestWhiteSpace(cp);
 		}
 
-		/* check if the codepoint is a control character [Unicode C0, C1] */
+		/* [str::IsTester] check if the codepoint is a control character [Unicode C0, C1] */
 		inline constexpr bool IsControl(char32_t cp) {
 			return detail::gen::TestControl(cp);
 		}
 
-		/* check if the codepoint does not have the General_Category Cn, Cs, Co */
+		/* [str::IsTester] check if the codepoint does not have the General_Category Cn, Cs, Co */
 		inline constexpr bool IsAssigned(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			return ((prop >> detail::gen::PropertyAssignedOff) & detail::gen::PropertyAssignedMask) != 0;
 		}
 
-		/* check if the codepoint is a alpha character [Unicode Alphabetic] */
+		/* [str::IsTester] check if the codepoint is a alpha character [Unicode Alphabetic] */
 		inline constexpr bool IsAlpha(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			return ((prop >> detail::gen::PropertyAlphabeticOff) & detail::gen::PropertyAlphabeticMask) != 0;
 		}
 
-		/* check if the codepoint is a numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit] */
+		/* [str::IsTester] check if the codepoint is a numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit] */
 		inline constexpr bool IsNumeric(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			return ((prop >> detail::gen::PropertyNumericOff) & detail::gen::PropertyNumericMask) != 0;
 		}
 
-		/* check if the codepoint is a alpha/numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit or Unicode Alphabetic] */
+		/* [str::IsTester] check if the codepoint is a alpha/numeric character [Unicode Numeric_Type=Numeric/Decimal/Digit or Unicode Alphabetic] */
 		inline constexpr bool IsAlNum(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			if (((prop >> detail::gen::PropertyAlphabeticOff) & detail::gen::PropertyAlphabeticMask) != 0)
@@ -284,7 +284,7 @@ namespace cp {
 			return (anySpace || cp == U' ');
 		}
 
-		/* check if the codepoint is graphical [Unicode General_Category L*,M*,N*,P*,S* without Zs] */
+		/* [str::IsTester] check if the codepoint is graphical [Unicode General_Category L*,M*,N*,P*,S* without Zs] */
 		inline constexpr bool IsGraphic(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::PrintableType val = static_cast<detail::gen::PrintableType>((prop >> detail::gen::PropertyPrintableOff) & detail::gen::PropertyPrintableMask);
@@ -304,28 +304,28 @@ namespace cp {
 			return static_cast<prop::CaseType>(val);
 		}
 
-		/* check if the codepoint has different cases [Unicode property Lowercase, Uppercase or General_Category Lt] */
+		/* [str::IsTester] check if the codepoint has different cases [Unicode property Lowercase, Uppercase or General_Category Lt] */
 		inline constexpr bool IsCased(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseMask);
 			return (val != detail::gen::CaseType::none);
 		}
 
-		/* check if the codepoint is uppercase [Unicode property Uppercase] */
+		/* [str::IsTester] check if the codepoint is uppercase [Unicode property Uppercase] */
 		inline constexpr bool IsUpper(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseMask);
 			return (val == detail::gen::CaseType::upperCase);
 		}
 
-		/* check if the codepoint is lowercase [Unicode property Lowercase] */
+		/* [str::IsTester] check if the codepoint is lowercase [Unicode property Lowercase] */
 		inline constexpr bool IsLower(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseMask);
 			return (val == detail::gen::CaseType::lowerCase);
 		}
 
-		/* check if the codepoint is titlecase [Unicode General_Category Lt] */
+		/* [str::IsTester] check if the codepoint is titlecase [Unicode General_Category Lt] */
 		inline constexpr bool IsTitle(char32_t cp) {
 			auto prop = detail::gen::GetProperty(cp);
 			detail::gen::CaseType val = static_cast<detail::gen::CaseType>((prop >> detail::gen::PropertyCaseOff) & detail::gen::PropertyCaseMask);

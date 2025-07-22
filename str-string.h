@@ -201,7 +201,7 @@ namespace str {
 
 			/* iterate over all codepoints of the current object and check if they all fulfill the tester-requirements */
 			template <class TsType>
-			constexpr bool fTest(TsType tester) const {
+			constexpr bool fTest(const TsType& tester) const {
 				if (fBase().empty())
 					return false;
 				ItType it{ fBase() };
@@ -270,6 +270,36 @@ namespace str {
 				return valid;
 			}
 
+			/* skip the first codepoints until the tester returns false */
+			template <class TsType>
+			constexpr SelfType fLeftStrip(const TsType& tester) const {
+				ItType it{ fBase(), 0, false };
+
+				/* iterate over the codepoints and look for the first fail */
+				while (it.valid()) {
+					if (!tester(it.get()))
+						return SelfType{ fBase().substr(it.base()) };
+					it.advance();
+				}
+				return SelfType{};
+			}
+
+			/* skip the last codepoints until the tester returns false */
+			template <class TsType>
+			constexpr SelfType fRightStrip(const TsType& tester) const {
+				size_t lastEnd = fBase().size();
+				ItType it{ fBase(), lastEnd, true };
+
+				/* iterate over the codepoints and look for the first fail */
+				while (it.valid()) {
+					if (!tester(it.get()))
+						return SelfType{ fBase().substr(0, lastEnd) };
+					lastEnd = it.base();
+					it.reverse();
+				}
+				return SelfType{};
+			}
+
 		public:
 			/* fetch the underlying string-object */
 			constexpr BaseType& base() {
@@ -318,6 +348,37 @@ namespace str {
 			/* overwrite sub-string of base-type */
 			constexpr SelfType substr(size_t pos = 0, size_t count = BaseType::npos) const {
 				return SelfType{ fBase().substr(pos, count) };
+			}
+
+		public:
+			/* strip any leading characters, which fulfill [prop::IsSpace] */
+			constexpr SelfType lstrip() const {
+				return fLeftStrip(cp::prop::IsSpace);
+			}
+
+			/* strip any leading characters, which fulfill the tester */
+			constexpr SelfType lstrip(const str::IsTester auto& tester) const {
+				return fLeftStrip(tester);
+			}
+
+			/* strip any trailing characters, which fulfill [prop::IsSpace] */
+			constexpr SelfType rstrip() const {
+				return fRightStrip(cp::prop::IsSpace);
+			}
+
+			/* strip any trailing characters, which fulfill the tester */
+			constexpr SelfType rstrip(const str::IsTester auto& tester) const {
+				return fRightStrip(tester);
+			}
+
+			/* strip any leading or trailing characters, which fulfill [prop::IsSpace] */
+			constexpr SelfType strip() const {
+				return fLeftStrip(cp::prop::IsSpace).fRightStrip(cp::prop::IsSpace);
+			}
+
+			/* strip any leading or trailing characters, which fulfill the tester */
+			constexpr SelfType strip(const str::IsTester auto& tester) const {
+				return fLeftStrip(tester).fRightStrip(tester);
 			}
 
 		public:
@@ -563,7 +624,7 @@ namespace str {
 			}
 
 			/* test if the string is non-empty and fulfills the tester after having the transformations applied in nested order */
-			constexpr bool test(str::IsTester auto&& tester, const str::IsMapper auto&... mapper) {
+			constexpr bool test(const str::IsTester auto& tester, const str::IsMapper auto&... mapper) {
 				if (fBase().empty())
 					return false;
 				bool valid = true;

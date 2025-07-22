@@ -279,11 +279,14 @@ namespace str {
 		str::Decoded pOut{};
 
 	public:
-		constexpr Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0) : pBegin{ s.data() }, pEnd{ s.data() + s.size() } {
+		constexpr Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0, bool previous = false) : pBegin{ s.data() }, pEnd{ s.data() + s.size() } {
 			pCurrent = std::min(pBegin + off, pEnd);
 
 			/* initialize the first codepoint */
-			fNext();
+			if (previous)
+				fPrev();
+			else
+				fNext();
 		}
 
 	private:
