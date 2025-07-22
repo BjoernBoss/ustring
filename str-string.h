@@ -11,7 +11,7 @@
 
 /*
 *	Coding-Rules:
-*	 - Uses str::FastcodeAll<CodeError> whereever possible, and otherwise uses str::TranscodeAll<CodeError> on explicit selection
+*	 - Uses str::FastcodeAll<CodeError> by default and otherwise uses str::TranscodeAll<CodeError> on explicit selection
 */
 namespace str {
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
