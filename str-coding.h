@@ -188,12 +188,12 @@ namespace str {
 			}
 			return dec;
 		}
-		template <class DChType, class SChType, char32_t CodeError, bool AllowIncomplete>
+		template <class DChType, class SChType, char32_t CodeError, bool AllowIncomplete, bool FastMode>
 		inline constexpr str::Transcoded<DChType> TranscodeSingle(const std::basic_string_view<SChType>& view) {
 			str::Transcoded<DChType> out{};
 
 			/* check if the length can just be copied */
-			if constexpr (str::EffSame<SChType, DChType>) {
+			if constexpr (str::EffSame<SChType, DChType> && FastMode) {
 				if (view.empty())
 					return out;
 				uint32_t len = detail::EstimateLength<SChType>(view.data(), view.data() + view.size());
@@ -457,14 +457,33 @@ namespace str {
 		return detail::DecodeSingle<ChType, CodeError, true>(view);
 	}
 
-	/* transcode the next codepoint as efficient as possible and return it (does not guarantee valid encoding, if both source
-	*	and destination are of the same type, return consumed null if the source is empty and otherwise consume at all times
-	*	at least one character and return an empty string on errors, if CodeError does not define alternative behavior) */
+	/* transcode the next codepoint and return it (does guarantee valid encoding, return consumed null if the source is empty and otherwise
+	*	consume at all times at least one character and return an empty string on errors, if CodeError does not define alternative behavior) */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
 	constexpr str::Transcoded<ChType> GetTranscode(const str::IsStr auto& source) {
 		using SChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<SChType> view{ source };
-		return detail::TranscodeSingle<ChType, SChType, CodeError, false>(view);
+		return detail::TranscodeSingle<ChType, SChType, CodeError, false, false>(view);
+	}
+
+	/* transcode the next codepoint and return it (does guarantee valid encoding, return consumed null if the
+	*	source is empty or the next codepoint is incomplete and otherwise consume at all times at least one
+	*	character and return an empty string on errors, if CodeError does not define alternative behavior) */
+	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
+	constexpr str::Transcoded<ChType> PartialTranscode(const str::IsStr auto& source) {
+		using SChType = str::StringChar<decltype(source)>;
+		std::basic_string_view<SChType> view{ source };
+		return detail::TranscodeSingle<ChType, SChType, CodeError, true, false>(view);
+	}
+
+	/* transcode the next codepoint as efficient as possible and return it (does not guarantee valid encoding, if both source
+	*	and destination are of the same type, return consumed null if the source is empty and otherwise consume at all times
+	*	at least one character and return an empty string on errors, if CodeError does not define alternative behavior) */
+	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
+	constexpr str::Transcoded<ChType> GetFastcode(const str::IsStr auto& source) {
+		using SChType = str::StringChar<decltype(source)>;
+		std::basic_string_view<SChType> view{ source };
+		return detail::TranscodeSingle<ChType, SChType, CodeError, false, true>(view);
 	}
 
 	/* transcode the next codepoint as efficient as possible and return it (does not guarantee valid
@@ -472,10 +491,10 @@ namespace str {
 	*	is empty or the next codepoint is incomplete and otherwise consume at all times at least one
 	*	character and return an empty string on errors, if CodeError does not define alternative behavior) */
 	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
-	constexpr str::Transcoded<ChType> PartialTranscode(const str::IsStr auto& source) {
+	constexpr str::Transcoded<ChType> PartialFastcode(const str::IsStr auto& source) {
 		using SChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<SChType> view{ source };
-		return detail::TranscodeSingle<ChType, SChType, CodeError, true>(view);
+		return detail::TranscodeSingle<ChType, SChType, CodeError, true, true>(view);
 	}
 
 	namespace detail {
