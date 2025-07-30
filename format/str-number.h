@@ -1496,6 +1496,22 @@ namespace str {
 		}
 	}
 
+	/* to be used for number arguments */
+	struct ArgsParse {
+		size_t radix = 10;
+		str::PrefixMode prefix = str::PrefixMode::none;
+	};
+	struct IntArgs {
+		size_t radix = 10;
+		str::NumStyle style = str::NumStyle::lower;
+	};
+	struct FloatArgs {
+		size_t precision = 0;
+		size_t radix = 10;
+		str::FloatStyle fltStyle = str::FloatStyle::general;
+		str::NumStyle numStyle = str::NumStyle::lower;
+	};
+
 	/*
 	*	Parse the next integer/float with an optional leading sign and optional prefix for the radix (prefixes: [0b/0q/0o/0d/0x])
 	*	Use the radix for the mantissa, exponent, and base of floats. (Use str::HexFloat-radix to parse hex-floats)
@@ -1510,7 +1526,7 @@ namespace str {
 	*		- with h any hex-digit, and d any decimal-digit
 	*/
 	template <str::IsNumber Type>
-	constexpr str::ParsedNum ParseNumTo(const str::IsStr auto& source, Type& num, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+	constexpr str::ParsedNum ParseNumTo(const str::IsStr auto& source, Type& num, str::ArgsParse args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		str::ParsedNum out{};
 
@@ -1522,64 +1538,64 @@ namespace str {
 		}
 
 		/* ensure the radix is valid (set it even for hex-floats in order to ensure the prefix is parsed correctly) */
-		bool hexFloat = (radix == str::HexFloat);
+		bool hexFloat = (args.radix == str::HexFloat);
 		if (std::is_floating_point_v<Type> && hexFloat) {
-			radix = 16;
-			if (prefix == str::PrefixMode::overwrite)
-				prefix = str::PrefixMode::optional;
-			else if (prefix == str::PrefixMode::detect)
-				prefix = str::PrefixMode::mandatory;
+			args.radix = 16;
+			if (args.prefix == str::PrefixMode::overwrite)
+				args.prefix = str::PrefixMode::optional;
+			else if (args.prefix == str::PrefixMode::detect)
+				args.prefix = str::PrefixMode::mandatory;
 		}
-		else if (radix < str::MinRadix || radix > str::MaxRadix)
-			radix = 10;
+		else if (args.radix < str::MinRadix || args.radix > str::MaxRadix)
+			args.radix = 10;
 
 		/* parse the sign and prefix and check if the parsed prefix is valid */
-		detail::PrefixParseOut prefixParsed = detail::ParseSignAndPrefix<Type, ChType>(view, prefix == str::PrefixMode::none);
-		if (prefix == str::PrefixMode::mandatory || prefix == str::PrefixMode::detect) {
-			if (prefixParsed.prefixConsumed == 0 || (prefix == str::PrefixMode::mandatory && prefixParsed.radix != radix)) {
+		detail::PrefixParseOut prefixParsed = detail::ParseSignAndPrefix<Type, ChType>(view, args.prefix == str::PrefixMode::none);
+		if (args.prefix == str::PrefixMode::mandatory || args.prefix == str::PrefixMode::detect) {
+			if (prefixParsed.prefixConsumed == 0 || (args.prefix == str::PrefixMode::mandatory && prefixParsed.radix != args.radix)) {
 				out.result = str::NumResult::invalid;
 				num = 0;
 				return out;
 			}
 
 			/* radix cannot be null, as prefix-consumed must be greater than zero */
-			radix = prefixParsed.radix;
+			args.radix = prefixParsed.radix;
 		}
 
 		/* check if the prefix might change the radix or check that it matches the actual radix */
-		else if (prefix == str::PrefixMode::overwrite && prefixParsed.radix != 0)
-			radix = prefixParsed.radix;
-		else if (prefixParsed.radix != radix)
+		else if (args.prefix == str::PrefixMode::overwrite && prefixParsed.radix != 0)
+			args.radix = prefixParsed.radix;
+		else if (prefixParsed.radix != args.radix)
 			prefixParsed.prefixConsumed = 0;
 		size_t prefixSize = prefixParsed.prefixConsumed + prefixParsed.signConsumed;
 
 		/* parse the integer or float and add the sign/prefix consumed characters to the overall consumed characters */
 		if constexpr (std::is_integral_v<Type>)
-			out = detail::ParseInteger<Type, ChType>(num, view.substr(prefixSize), radix, prefixParsed.negative);
+			out = detail::ParseInteger<Type, ChType>(num, view.substr(prefixSize), args.radix, prefixParsed.negative);
 		else
-			out = detail::ParseFloat<Type, ChType>(num, view.substr(prefixSize), radix, prefixParsed.negative, hexFloat);
+			out = detail::ParseFloat<Type, ChType>(num, view.substr(prefixSize), args.radix, prefixParsed.negative, hexFloat);
 		out.consumed += prefixSize;
 		return out;
 	}
 
 	/* parse the next integer/float using str::ParseNumTo and return it as one structure */
 	template <str::IsNumber Type>
-	constexpr str::ParsedNumValue<Type> ParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+	constexpr str::ParsedNumValue<Type> ParseNum(const str::IsStr auto& source, const str::ArgsParse& args = {}) {
 		Type num = 0;
-		auto [consumed, result] = str::ParseNumTo<Type>(source, num, radix, prefix);
+		auto [consumed, result] = str::ParseNumTo<Type>(source, num, args);
 		return str::ParsedNumValue<Type>{ num, consumed, result };
 	}
 
 	/* parse the entire string as integer/float using str::ParseNumTo and return the value, if the
 	*	string was fully consumed and fit into the type, and otherwise return the [otherwise] value */
 	template <str::IsNumber Type>
-	constexpr Type ParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none) {
+	constexpr Type ParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), const str::ArgsParse& args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		/* parse the number as far as possible */
 		Type num = 0;
-		auto [consumed, result] = str::ParseNumTo<Type>(view, num, radix, prefix);
+		auto [consumed, result] = str::ParseNumTo<Type>(view, num, args);
 
 		/* check if no error occurred and the entire string has been consumed */
 		if (result == str::NumResult::valid && consumed == view.size())
@@ -1623,47 +1639,47 @@ namespace str {
 	}
 
 	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
-	constexpr auto& IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr auto& IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, str::IntArgs args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* ensure the radix is valid and print the integer */
-		if (radix < str::MinRadix || radix > str::MaxRadix)
-			radix = 10;
-		bool addPrefix = (numStyle == str::NumStyle::lowerWithPrefix || numStyle == str::NumStyle::upperWithPrefix);
-		bool upperCase = (numStyle == str::NumStyle::upper || numStyle == str::NumStyle::upperWithPrefix);
-		detail::PrintInteger<NumType>(sink, num, radix, 0, addPrefix, upperCase);
+		if (args.radix < str::MinRadix || args.radix > str::MaxRadix)
+			args.radix = 10;
+		bool addPrefix = (args.style == str::NumStyle::lowerWithPrefix || args.style == str::NumStyle::upperWithPrefix);
+		bool upperCase = (args.style == str::NumStyle::upper || args.style == str::NumStyle::upperWithPrefix);
+		detail::PrintInteger<NumType>(sink, num, args.radix, 0, addPrefix, upperCase);
 		return sink;
 	}
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
-	constexpr auto& FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr auto& FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::FloatArgs args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */
-		bool hexFloat = (radix == str::HexFloat);
+		bool hexFloat = (args.radix == str::HexFloat);
 		if (hexFloat)
-			radix = 16;
-		else if (radix < str::MinRadix || radix > str::MaxRadix)
-			radix = 10;
-		bool addPrefix = (numStyle == str::NumStyle::lowerWithPrefix || numStyle == str::NumStyle::upperWithPrefix);
-		bool upperCase = (numStyle == str::NumStyle::upper || numStyle == str::NumStyle::upperWithPrefix);
-		detail::PrintFloat<NumType>(sink, num, style, radix, precision, addPrefix, upperCase, hexFloat);
+			args.radix = 16;
+		else if (args.radix < str::MinRadix || args.radix > str::MaxRadix)
+			args.radix = 10;
+		bool addPrefix = (args.numStyle == str::NumStyle::lowerWithPrefix || args.numStyle == str::NumStyle::upperWithPrefix);
+		bool upperCase = (args.numStyle == str::NumStyle::upper || args.numStyle == str::NumStyle::upperWithPrefix);
+		detail::PrintFloat<NumType>(sink, num, args.fltStyle, args.radix, args.precision, addPrefix, upperCase, hexFloat);
 		return sink;
 	}
 
 	/* write the integer to an object of the given sink-type using str::IntTo and return it */
 	template <str::IsSink SinkType>
-	constexpr SinkType Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr SinkType Int(const str::IsInteger auto& num, const str::IntArgs& args = {}) {
 		SinkType sink{};
-		str::IntTo(sink, num, radix, numStyle);
+		str::IntTo(sink, num, args);
 		return sink;
 	}
 
 	/* write the float to an object of the given sink-type using str::FloatTo and return it */
 	template <str::IsSink SinkType>
-	constexpr SinkType Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr SinkType Float(const str::IsFloat auto& num, const str::FloatArgs& args = {}) {
 		SinkType sink{};
-		str::FloatTo(sink, num, style, precision, radix, numStyle);
+		str::FloatTo(sink, num, args);
 		return sink;
 	}
 }

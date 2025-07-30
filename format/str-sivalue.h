@@ -127,12 +127,31 @@ namespace str {
 		}
 	}
 
+	/* to be used for si-value arguments */
+	struct SiMakeArgs {
+		bool asciiOnly = false;
+		bool binarySystem = false;
+	};
+	struct SiParseArgs {
+		size_t radix = 10;
+		str::PrefixMode prefix = str::PrefixMode::none;
+		str::SiScaleMode scale = str::SiScaleMode::decimal;
+	};
+	struct SiValueArgs {
+		size_t precision = 0;
+		size_t radix = 10;
+		str::FloatStyle fltStyle = str::FloatStyle::general;
+		str::NumStyle numStyle = str::NumStyle::lower;
+		bool asciiOnly = false;
+		bool binarySystem = false;
+	};
+
 	/* match the number to the corresponding si-scale type, such that it has between [1,3] digits before the decimal point
 	*	(supported units: Q, R, Y, Z, E, P, T, G, M, k, m, u, n, p, f, a, z, y, r, q; if ascii-only, 'u' is used for micro,
 	*	instead of U+00b5; if binary-system, use [2^10, 2^20, ...], otherwise use normal scale [10^3, 10^6, ...]) */
-	constexpr str::SiScale SiMakeScale(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false) {
+	constexpr str::SiScale SiMakeScale(const str::IsNumber auto& num, str::SiMakeArgs args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
-		return detail::GetSiScale<NumType>(num, asciiOnly, binarySystem);
+		return detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
 	}
 
 	/* decode the si-scale at the string (note: unique characters are case-insensitive) */
@@ -144,13 +163,13 @@ namespace str {
 
 	/* parse the next number as a float and respect and apply the corresponding si-scale */
 	template <str::IsNumber Type>
-	constexpr str::ParsedNum SiParseNumTo(const str::IsStr auto& source, Type& num, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none, str::SiScaleMode scale = str::SiScaleMode::decimal) {
+	constexpr str::ParsedNum SiParseNumTo(const str::IsStr auto& source, Type& num, str::SiParseArgs args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		/* parse the number itself */
 		long double value = 0.0;
-		auto [consumed, result] = str::ParseNumTo(view, value, radix, prefix);
+		auto [consumed, result] = str::ParseNumTo(view, value, { .radix = args.radix, .prefix = args.prefix });
 		if (result != str::NumResult::valid && result != str::NumResult::range) {
 			num = 0;
 			return str::ParsedNum{ 0, result };
@@ -168,7 +187,7 @@ namespace str {
 			result = str::NumResult::range;
 
 		/* parse the si-prefix (use the output type for the prefix) */
-		str::ParsedSiScale parsed = detail::ParseSiScale<ChType>(view.substr(consumed), scale);
+		str::ParsedSiScale parsed = detail::ParseSiScale<ChType>(view.substr(consumed), args.scale);
 		consumed += parsed.consumed;
 
 		/* check if the value is valid and can be scaled based on the si-value */
@@ -208,22 +227,22 @@ namespace str {
 
 	/* parse the next number using str::ParseNumTo and respect the corresponding si-scale and return it as one structure */
 	template <str::IsNumber Type>
-	constexpr str::ParsedNumValue<Type> SiParseNum(const str::IsStr auto& source, size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none, str::SiScaleMode scale = str::SiScaleMode::decimal) {
+	constexpr str::ParsedNumValue<Type> SiParseNum(const str::IsStr auto& source, const str::SiParseArgs& args = {}) {
 		Type num = 0;
-		auto [consumed, result] = str::SiParseNumTo<Type>(source, num, radix, prefix, scale);
+		auto [consumed, result] = str::SiParseNumTo<Type>(source, num, args);
 		return str::ParsedNumValue<Type>{ num, consumed, result };
 	}
 
 	/* parse the entire string as number using str::ParseNumTo and respect the corresponding si-scale and return the value,
 	*	if the string was fully consumed and fit into the type, and otherwise return the [otherwise] value */
 	template <str::IsNumber Type>
-	constexpr Type SiParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), size_t radix = 10, str::PrefixMode prefix = str::PrefixMode::none, str::SiScaleMode scale = str::SiScaleMode::decimal) {
+	constexpr Type SiParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), const str::SiParseArgs& args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		/* parse the number as far as possible */
 		Type num = 0;
-		auto [consumed, result] = str::SiParseNumTo<Type>(view, num, radix, prefix, scale);
+		auto [consumed, result] = str::SiParseNumTo<Type>(view, num, args);
 
 		/* check if no error occurred and the entire string has been consumed */
 		if (result == str::NumResult::valid && consumed == view.size())
@@ -232,22 +251,22 @@ namespace str {
 	}
 
 	/* print value with optional leading [-] for the given radix with si-scale prefix to the sink and return the sink (using str::FloatTo) */
-	constexpr auto& SiValueTo(str::IsSink auto&& sink, const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr auto& SiValueTo(str::IsSink auto&& sink, const str::IsNumber auto& num, str::SiValueArgs args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* setup the scale to be used */
-		str::SiScale scale = detail::GetSiScale<NumType>(num, asciiOnly, binarySystem);
+		str::SiScale scale = detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
 
 		/* write the actual value out and append the si-scale */
-		str::FloatTo(sink, static_cast<long double>(num) / scale.scale, style, precision, radix, numStyle);
+		str::FloatTo(sink, static_cast<long double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });
 		return str::FastcodeAllTo<err::Nothing>(sink, scale.prefix);
 	}
 
 	/* write the value to an object of the given sink-type using str::SiValueTo and return it */
 	template <str::IsSink SinkType>
-	constexpr SinkType SiValue(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+	constexpr SinkType SiValue(const str::IsNumber auto& num, const str::SiValueArgs& args = {}) {
 		SinkType sink{};
-		str::SiValueTo(sink, num, asciiOnly, binarySystem, style, precision, radix, numStyle);
+		str::SiValueTo(sink, num, args);
 		return sink;
 	}
 }

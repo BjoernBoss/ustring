@@ -326,7 +326,7 @@ namespace str {
 				return out;
 
 			/* parse the number (range-error will automatically result in the largest possible value) */
-			auto [value, consumed, result] = str::ParseNum<size_t>(fmt.substr(1), 10, str::PrefixMode::none);
+			auto [value, consumed, result] = str::ParseNum<size_t>(fmt.substr(1), { .radix = 10, .prefix = str::PrefixMode::none });
 			if (result == str::NumResult::valid || result == str::NumResult::range) {
 				out.consumed = consumed + 1;
 				out.number = value;
@@ -367,7 +367,7 @@ namespace str {
 		}
 		inline constexpr size_t ParsePaddingMinimum(std::u32string_view fmt, fmt::Padding& out) {
 			/* parse the minimum length (range-error will automatically result in the largest possible value) */
-			auto [value, consumed, result] = str::ParseNum<size_t>(fmt, 10, str::PrefixMode::none);
+			auto [value, consumed, result] = str::ParseNum<size_t>(fmt, { .radix = 10, .prefix = str::PrefixMode::none });
 			if (result != str::NumResult::valid && result != str::NumResult::range)
 				return 0;
 			out.minimum = std::max<size_t>(1, value);
@@ -669,7 +669,7 @@ namespace str {
 		}
 
 		template <class Type>
-		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val) {
+		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val, const str::FloatArgs& floatArgs) {
 			std::u32string buffer;
 
 			/* write the prefix to be used to the buffer */
@@ -677,13 +677,13 @@ namespace str {
 
 			/* check if the number can just be written out */
 			if (!fmt.nullPadding) {
-				str::FloatTo(buffer, val, fmt.style, fmt.precision, fmt.radix, (fmt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::FloatTo(buffer, val, floatArgs);
 				return buffer;
 			}
 
 			/* write the number to an intermediate buffer to estimate its size */
 			std::u32string temp;
-			str::FloatTo(temp, val, fmt.style, fmt.precision, fmt.radix, (fmt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			str::FloatTo(temp, val, floatArgs);
 
 			/* write the nulls to the buffer and write the number itself to the buffer */
 			if (buffer.size() + temp.size() < fmt.padding.minimum)
@@ -738,11 +738,12 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (consumed < fmt.size())
 				return false;
+			str::IntArgs intArgs = { .radix = radix, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) };
 
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, prefix);
-				str::IntTo(sink, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::IntTo(sink, val, intArgs);
 				return true;
 			}
 
@@ -754,7 +755,7 @@ namespace str {
 			if (nullPadding) {
 				/* write the number to an intermediate buffer to estimate its size */
 				std::u32string temp;
-				str::IntTo(temp, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::IntTo(temp, val, intArgs);
 
 				/* write the nulls to the buffer and write the number itself to the buffer */
 				if (buffer.size() + temp.size() < padding.minimum)
@@ -764,7 +765,7 @@ namespace str {
 
 			/* write the number to an intermediate buffer */
 			else
-				str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::IntTo(buffer, val, intArgs);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -792,16 +793,22 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (flt.consumed < fmt.size())
 				return false;
+			str::FloatArgs floatArgs = {
+				.precision = flt.precision,
+				.radix = flt.radix,
+				.fltStyle = flt.style,
+				.numStyle = (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower)
+			};
 
 			/* check if the number can just be written out */
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
 				detail::NumPreambleInto<Type>(sink, val, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
-				str::FloatTo(sink, val, flt.style, flt.precision, flt.radix, (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::FloatTo(sink, val, floatArgs);
 				return true;
 			}
 
 			/* write the float to the buffer and format it padded out */
-			std::u32string buffer = detail::WriteFltBuffered(flt, val);
+			std::u32string buffer = detail::WriteFltBuffered(flt, val, floatArgs);
 			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
 		}
@@ -1134,21 +1141,27 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (!fmt.empty())
 				return false;
+			str::FloatArgs floatArgs = {
+				.precision = flt.precision,
+				.radix = flt.radix,
+				.fltStyle = flt.style,
+				.numStyle = (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower)
+			};
 
 			/* compute the actual value to be formatted */
-			str::SiScale scale = str::SiMakeScale(val.value, simple, two);
+			str::SiScale scale = str::SiMakeScale(val.value, { .asciiOnly = simple, .binarySystem = two });
 			long double number = static_cast<long double>(val.value) / scale.scale;
 
 			/* check if the number can just be written out */
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
 				detail::NumPreambleInto<long double>(sink, number, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
-				str::FloatTo(sink, number, flt.style, flt.precision, flt.radix, (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				str::FloatTo(sink, number, floatArgs);
 				detail::SiEpilogueInto(sink, scale.prefix, val.unit, space, always, two);
 				return true;
 			}
 
 			/* write the value to the buffer and format it padded out */
-			std::u32string buffer = detail::WriteFltBuffered(flt, number);
+			std::u32string buffer = detail::WriteFltBuffered(flt, number, floatArgs);
 			detail::SiEpilogueInto(buffer, scale.prefix, val.unit, space, always, two);
 			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
