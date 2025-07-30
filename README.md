@@ -87,7 +87,7 @@ For convenience, `str::UString` is defined as `str::String<char16_t, str::err::D
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:
 
 ```C++
-std::wstring s = str::Float<std::wstring>(50.0f, str::FloatStyle::general);
+std::wstring s = str::Float<std::wstring>(50.0f, { .fltStyle = str::FloatStyle::general });
 float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
@@ -102,7 +102,7 @@ std::wstring t = str::Build<std::wstring>(1, true, "abc", u8'-', U"def");
 std::string u = str::Format<std::string>(U"abc: {:#0{}{3}}\n", 512, 20, "unused", 'x');
 ```
 
-For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ... To print ranges defined by iterators or `begin()` and `end()`, the `str::Range` helper can be used. Further, `str::As` exists, to allow a format to be specified and bound to an argument. This allows `str::Build` to be used, while simultaneously formatting a parameter:
+For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to either format or build directly out to `std::cout`, or `std::wcout`, when using `str::FmtW`, ... To print ranges defined by iterators or `begin()` and `end()`, the `str::Range` helper can be used. Another addition is `str::Si` to format numerical values using si unit scaling, such as `k` for kilo, `M` for Mega and so on.  Further, `str::As` exists, to allow a format to be specified and bound to an argument. This allows `str::Build` to be used, while simultaneously formatting a parameter:
 
 ```C++
 std::u16string s = str::Build<std::u16string>(1, true, str::As{ "#010x", 50 }, u8"Def");
