@@ -5,6 +5,7 @@
 #include "unicode/cp-property.h"
 #include "str-coding.h"
 #include "str-number.h"
+#include "str-sivalue.h"
 #include "str-escape.h"
 
 #include <filesystem>
@@ -277,7 +278,7 @@ namespace str {
 		typename Type::const_iterator;
 		{ val.begin() } -> std::same_as<typename Type::const_iterator>;
 		{ val.end() } -> std::same_as<typename Type::const_iterator>;
-		requires str::IsFmtRangeIt<typename Type::const_iterator>;
+			requires str::IsFmtRangeIt<typename Type::const_iterator>;
 	};
 
 	/* format a range of values defined by iterators */
@@ -293,6 +294,17 @@ namespace str {
 	};
 	template <class Type>
 	Range(const Type&) -> Range<typename Type::const_iterator>;
+
+	/* format a value using si-units */
+	template <str::IsNumber NumType, str::IsStr UnitType>
+	struct Si {
+	public:
+		std::basic_string_view<str::StringChar<UnitType>> unit;
+		NumType value = 0;
+
+	public:
+		constexpr Si(NumType value, const UnitType& unit) : value{ value }, unit{ unit } {}
+	};
 
 	/*	Normal padding: in Order; all optional
 	*	[char?[<^>]]: padding character and side
@@ -525,7 +537,7 @@ namespace str {
 
 			/* check if a prefix needs to be added */
 			if (prefix)
-				str::FastcodeAllTo<err::DefChar>(sink, str::MakePrefix<char32_t>(radix, upperCase));
+				str::FastcodeAllTo<err::DefChar>(sink, str::MakePrefix(radix, upperCase));
 		}
 
 		struct StrFormatting {
@@ -536,8 +548,8 @@ namespace str {
 			detail::StrFormatting out{};
 
 			/* check if the string contains the aA or eE characters */
-			if (!fmt.empty() && (fmt[0] == U'a' || fmt[0] == U'A' || fmt[0] == U'e' || fmt[0] == U'E')) {
-				out.ascii = (fmt[0] == U'a' || fmt[0] == U'A');
+			if (!fmt.empty() && (fmt[0] == U'a' || fmt[0] == U'e')) {
+				out.ascii = (fmt[0] == U'a');
 				out.escape = true;
 			}
 			return out;
@@ -593,6 +605,107 @@ namespace str {
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
+
+		struct FltFormat {
+			size_t consumed = 0;
+			fmt::Padding padding;
+			size_t radix = 10;
+			size_t precision = 0;
+			char32_t signChar = U'-';
+			str::FloatStyle style = str::FloatStyle::general;
+			bool prefix = false;
+			bool nullPadding = false;
+			bool upperCase = false;
+		};
+		constexpr detail::FltFormat ParseFltFormatting(std::u32string_view fmt) {
+			detail::FltFormat flt;
+
+			/* parse the initial padding alignment */
+			flt.consumed += fmt::ParsePaddingAlignment(fmt, flt.padding);
+
+			/* parse the number-preamble requirements (only allow null-padding if no alignment has been specified) */
+			auto [_consumed0, signChar, prefix, nullPadding] = detail::ParseNumPreamble(fmt.substr(flt.consumed), flt.padding.align == fmt::Alignment::standard);
+			flt.consumed += _consumed0;
+			flt.signChar = signChar;
+			flt.prefix = prefix;
+			flt.nullPadding = nullPadding;
+
+			/* parse the minimum padding state */
+			flt.consumed += fmt::ParsePaddingMinimum(fmt.substr(flt.consumed), flt.padding);
+
+			/* parse the precision between the minimum and maximum */
+			auto [precision, _consumed1] = fmt::ParseIndicatedNumber(fmt.substr(flt.consumed), U'.', 0);
+			flt.consumed += _consumed1;
+			flt.precision = precision;
+
+			/* parse the maximum padding state */
+			flt.consumed += fmt::ParsePaddingMaximum(fmt.substr(flt.consumed), flt.padding);
+
+			/* parse the num-radix */
+			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(flt.consumed), true, false, false);
+			if (_radixFound)
+				++flt.consumed;
+			flt.radix = radix;
+			flt.upperCase = upperCase;
+
+			/* parse the float-style */
+			if (flt.consumed >= fmt.size())
+				return flt;
+
+			/* match the separate types */
+			if (fmt[flt.consumed] == U'f') {
+				flt.style = str::FloatStyle::fixed;
+				++flt.consumed;
+			}
+			else if (fmt[flt.consumed] == U'g') {
+				flt.style = str::FloatStyle::general;
+				++flt.consumed;
+			}
+			else if (fmt[flt.consumed] == U'e') {
+				flt.style = str::FloatStyle::scientific;
+				++flt.consumed;
+			}
+			return flt;
+		}
+
+		template <class Type>
+		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val) {
+			std::u32string buffer;
+
+			/* write the prefix to be used to the buffer */
+			detail::NumPreambleInto<Type>(buffer, val, fmt.signChar, fmt.radix, fmt.upperCase, fmt.prefix);
+
+			/* check if the number can just be written out */
+			if (!fmt.nullPadding) {
+				str::FloatTo(buffer, val, fmt.style, fmt.precision, fmt.radix, (fmt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				return buffer;
+			}
+
+			/* write the number to an intermediate buffer to estimate its size */
+			std::u32string temp;
+			str::FloatTo(temp, val, fmt.style, fmt.precision, fmt.radix, (fmt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+
+			/* write the nulls to the buffer and write the number itself to the buffer */
+			if (buffer.size() + temp.size() < fmt.padding.minimum)
+				str::CodepointTo<err::DefChar>(buffer, U'0', fmt.padding.minimum - buffer.size() - temp.size());
+			str::FastcodeAllTo<err::DefChar>(buffer, temp);
+			return buffer;
+		}
+
+		constexpr void SiEpilogueInto(auto& sink, const str::Local<char32_t, 2>& prefix, const auto& unit, bool space, bool always, bool two) {
+			/* write the space out */
+			if (space)
+				str::CodepointTo<err::DefChar>(sink, U' ', 1);
+
+			/* write the prefix out and unit out */
+			if (!prefix.empty())
+				str::FastcodeAllTo<err::DefChar>(sink, prefix);
+			str::FastcodeAllTo<err::DefChar>(sink, unit);
+
+			/* check if spaces should be appended */
+			if (prefix.empty() && always)
+				str::CodepointTo<err::DefChar>(sink, U' ', (two ? 2 : 1));
+		}
 	}
 
 	/*	Normal padding but:
@@ -610,7 +723,7 @@ namespace str {
 			consumed += fmt::ParsePaddingAlignment(fmt, padding);
 
 			/* parse the number-preamble requirements (only allow null-padding if no alignment has been specified) */
-			auto [_consumed0, signChar, addPrefix, useNullPadding] = detail::ParseNumPreamble(fmt.substr(consumed), padding.align == fmt::Alignment::standard);
+			auto [_consumed0, signChar, prefix, nullPadding] = detail::ParseNumPreamble(fmt.substr(consumed), padding.align == fmt::Alignment::standard);
 			consumed += _consumed0;
 
 			/* parse the minimum and maximum padding state */
@@ -628,49 +741,30 @@ namespace str {
 
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
-				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
+				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, prefix);
 				str::IntTo(sink, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
+			/* write the prefix to be used to the buffer */
+			std::u32string buffer;
+			detail::NumPreambleInto<Type>(buffer, val, signChar, radix, upperCase, prefix);
+
 			/* check if the number is to be null-padded */
-			if (useNullPadding) {
-				str::Local<char32_t, 4> prefix;
-				detail::NumPreambleInto<Type>(prefix, val, signChar, radix, upperCase, addPrefix);
+			if (nullPadding) {
+				/* write the number to an intermediate buffer to estimate its size */
+				std::u32string temp;
+				str::IntTo(temp, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
-				/* write the preamble to the sink */
-				if (padding.maximum == 0)
-					str::FastcodeAllTo<err::DefChar>(sink, prefix);
-				else {
-					str::FastcodeAllTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
-					if (padding.maximum >= prefix.size())
-						return true;
-					padding.maximum -= prefix.size();
-				}
-
-				/* write the integer to an intermediate buffer to estimate its size */
-				std::u32string buffer;
-				str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
-
-				/* check if the buffer must be clipped */
-				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::FastcodeAllTo<err::DefChar>(sink, buffer.substr(padding.maximum));
-					return true;
-				}
-
-				/* write the nulls to the sink */
-				if (prefix.size() + buffer.size() < padding.minimum)
-					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
-
-				/* write the integer itself to the sink */
-				str::FastcodeAllTo<err::DefChar>(sink, buffer);
-				return true;
+				/* write the nulls to the buffer and write the number itself to the buffer */
+				if (buffer.size() + temp.size() < padding.minimum)
+					str::CodepointTo<err::DefChar>(buffer, U'0', padding.minimum - buffer.size() - temp.size());
+				str::FastcodeAllTo<err::DefChar>(buffer, temp);
 			}
 
 			/* write the number to an intermediate buffer */
-			std::u32string buffer;
-			detail::NumPreambleInto<Type>(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			else
+				str::IntTo(buffer, val, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -686,113 +780,36 @@ namespace str {
 	*	=> inbetween minimum-digits and maximum-digits:
 	*		[.d+]: precision (default: 0)
 	*	[bBqQoOdDxXaA]: radix and casing (aA: hex-float)
-	*	[eEgGfF]: style
-	*		=> eE: FloatStyle::scientific
-	*		=> gG: FloatStyle::general
-	*		=> fF: FloatStyle::fixed */
+	*	[egf]: style
+	*		=> e: FloatStyle::scientific
+	*		=> g: FloatStyle::general
+	*		=> f: FloatStyle::fixed */
 	template <str::IsFloat Type> struct Formatter<Type> {
 		bool operator()(str::IsSink auto& sink, Type val, std::u32string_view fmt) const {
-			fmt::Padding padding{};
-			size_t consumed = 0;
-
-			/* parse the initial padding alignment */
-			consumed += fmt::ParsePaddingAlignment(fmt, padding);
-
-			/* parse the number-preamble requirements (only allow null-padding if no alignment has been specified) */
-			auto [_consumed0, signChar, addPrefix, useNullPadding] = detail::ParseNumPreamble(fmt.substr(consumed), padding.align == fmt::Alignment::standard);
-			consumed += _consumed0;
-
-			/* parse the minimum padding state */
-			consumed += fmt::ParsePaddingMinimum(fmt.substr(consumed), padding);
-
-			/* parse the precision between the minimum and maximum */
-			auto [precision, _consumed1] = fmt::ParseIndicatedNumber(fmt.substr(consumed), U'.', 0);
-			consumed += _consumed1;
-
-			/* parse the maximum padding state */
-			consumed += fmt::ParsePaddingMaximum(fmt.substr(consumed), padding);
-
-			/* parse the num-radix */
-			auto [radix, upperCase, _radixFound] = detail::ParseNumRadix(fmt.substr(consumed), true, false, false);
-			if (_radixFound)
-				++consumed;
-
-			/* parse the float-style */
-			str::FloatStyle style = str::FloatStyle::general;
-			if (consumed < fmt.size()) {
-				if (fmt[consumed] == U'f' || fmt[consumed] == U'F') {
-					style = str::FloatStyle::fixed;
-					++consumed;
-				}
-				else if (fmt[consumed] == U'g' || fmt[consumed] == U'G') {
-					style = str::FloatStyle::general;
-					++consumed;
-				}
-				else if (fmt[consumed] == U'e' || fmt[consumed] == U'E') {
-					style = str::FloatStyle::scientific;
-					++consumed;
-				}
-			}
+			/* parse the float formatting */
+			detail::FltFormat flt = detail::ParseFltFormatting(fmt);
 
 			/* check if the entire format has been consumed */
-			if (consumed < fmt.size())
+			if (flt.consumed < fmt.size())
 				return false;
 
 			/* check if the number can just be written out */
-			if (padding.minimum <= 1 && padding.maximum == 0) {
-				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, addPrefix);
-				str::FloatTo(sink, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
+				detail::NumPreambleInto<Type>(sink, val, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
+				str::FloatTo(sink, val, flt.style, flt.precision, flt.radix, (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
 				return true;
 			}
 
-			/* check if the number is to be null-padded */
-			if (useNullPadding) {
-				str::Local<char32_t, 4> prefix;
-				detail::NumPreambleInto(prefix, val, signChar, radix, upperCase, addPrefix);
-
-				/* write the preamble to the sink */
-				if (padding.maximum == 0)
-					str::FastcodeAllTo<err::DefChar>(sink, prefix);
-				else {
-					str::FastcodeAllTo<err::DefChar>(sink, prefix.view().substr(padding.maximum));
-					if (padding.maximum >= prefix.size())
-						return true;
-					padding.maximum -= prefix.size();
-				}
-
-				/* write the float to an intermediate buffer to estimate its size */
-				std::u32string buffer;
-				str::FloatTo(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
-
-				/* check if the buffer must be clipped */
-				if (padding.maximum != 0 && buffer.size() >= padding.maximum) {
-					str::FastcodeAllTo<err::DefChar>(sink, buffer.substr(padding.maximum));
-					return true;
-				}
-
-				/* write the nulls to the sink */
-				if (prefix.size() + buffer.size() < padding.minimum)
-					str::CodepointTo<err::DefChar>(sink, U'0', padding.minimum - prefix.size() - buffer.size());
-
-				/* write the float itself to the sink */
-				str::FastcodeAllTo<err::DefChar>(sink, buffer);
-				return true;
-			}
-
-			/* write the number to an intermediate buffer */
-			std::u32string buffer;
-			detail::NumPreambleInto(buffer, val, signChar, radix, upperCase, addPrefix);
-			str::FloatTo(buffer, val, style, precision, radix, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
-
-			/* write the padded string to the sink */
-			fmt::WritePadded(sink, buffer, padding);
+			/* write the float to the buffer and format it padded out */
+			std::u32string buffer = detail::WriteFltBuffered(flt, val);
+			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
 		}
 	};
 
 	/*	Normal padding
-	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
-	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
+	*	[e]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
+	*	[a]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <str::IsStr Type> struct Formatter<Type> {
 		bool operator()(str::IsSink auto& sink, const Type& t, std::u32string_view fmt) const {
 			auto [padding, rest] = fmt::ParsePadding(fmt);
@@ -843,7 +860,7 @@ namespace str {
 
 	/*	Normal padding but:
 	*	[#]: add prefix
-	*	[uU]: uppercase */
+	*	[u]: uppercase */
 	template <> struct Formatter<const void*> {
 		constexpr bool operator()(str::IsSink auto& sink, const void* val, std::u32string_view fmt) const {
 			/* parse the remainder of the padding rules */
@@ -856,7 +873,7 @@ namespace str {
 
 			/* parse the final arguments and validate them */
 			bool upperCase = false;
-			if (!rest.empty() && (rest[0] == U'u' || rest[0] == U'U')) {
+			if (!rest.empty() && rest[0] == U'u') {
 				upperCase = true;
 				rest = rest.substr(1);
 			}
@@ -868,7 +885,7 @@ namespace str {
 			/* construct the output-string */
 			str::Local<char32_t, sizeof(void*) * 2 + 2> buffer;
 			if (prefix)
-				buffer.append(str::MakePrefix<char32_t>(16, upperCase));
+				buffer.append(str::MakePrefix(16, upperCase));
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
 			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
@@ -970,8 +987,8 @@ namespace str {
 
 	/*	Normal padding
 	*	[@d+]: number of times to repeat char (default: 1)
-	*	[eE]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
-	*	[aA]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
+	*	[e]: escape: escape all non-printable characters using \x or \u{...} or common escape-sequences
+	*	[a]: ascii: escape any non-ascii characters or control-characters using \x or \u{...} or common escape-sequences (if not in escape-mode) */
 	template <> struct Formatter<char> {
 		constexpr bool operator()(str::IsSink auto& sink, char val, std::u32string_view fmt) const {
 			return detail::FormatChar<char>(sink, val, fmt);
@@ -1079,6 +1096,61 @@ namespace str {
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
+			return true;
+		}
+	};
+
+	/*	Float formatting
+	*	[_]: use space between value and unit
+	*	[s]: use simple si-prefixes (i.e. ascii-only)
+	*	[2]: use binary-system instead of normal decimal-system for the si-prefix
+	*	[!]: append spaces for equal sizes, if no si-prefix is necessary */
+	template <class NumType, class UnitType> struct Formatter<str::Si<NumType, UnitType>> {
+		constexpr bool operator()(str::IsSink auto& sink, const str::Si<NumType, UnitType>& val, std::u32string_view fmt) const {
+			/* parse the float formatting */
+			detail::FltFormat flt = detail::ParseFltFormatting(fmt);
+			fmt = fmt.substr(flt.consumed);
+
+			/* check if a space should be inserted */
+			bool space = fmt.starts_with(U'_');
+			if (space)
+				fmt = fmt.substr(1);
+
+			/* check if the simple prefix should be used */
+			bool simple = fmt.starts_with(U's');
+			if (simple)
+				fmt = fmt.substr(1);
+
+			/* check if it should be the two-system */
+			bool two = fmt.starts_with(U'2');
+			if (two)
+				fmt = fmt.substr(1);
+
+			/* check if always a character should be inserted */
+			bool always = fmt.starts_with(U'!');
+			if (always)
+				fmt = fmt.substr(1);
+
+			/* check if the entire format has been consumed */
+			if (!fmt.empty())
+				return false;
+
+			/* compute the actual value to be formatted */
+			str::SiScale scale = str::SiMakeScale(val.value, simple, two);
+			long double number = static_cast<long double>(val.value) / scale.scale;
+
+			/* check if the number can just be written out */
+			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
+				detail::NumPreambleInto<long double>(sink, number, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
+				str::FloatTo(sink, number, flt.style, flt.precision, flt.radix, (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+				detail::SiEpilogueInto(sink, scale.prefix, val.unit, space, always, two);
+				return true;
+			}
+
+			/* write the value to the buffer and format it padded out */
+			std::u32string buffer = detail::WriteFltBuffered(flt, number);
+			detail::SiEpilogueInto(buffer, scale.prefix, val.unit, space, always, two);
+			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
 		}
 	};
