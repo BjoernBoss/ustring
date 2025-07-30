@@ -2,8 +2,8 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "unicode/cp-property.h"
-#include "str-coding.h"
+#include "../unicode/cp-property.h"
+#include "../coding/str-coding.h"
 #include "str-number.h"
 #include "str-sivalue.h"
 #include "str-escape.h"

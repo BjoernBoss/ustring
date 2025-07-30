@@ -2,9 +2,10 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "str-common.h"
-#include "str-bytes.h"
-#include "str-chars.h"
+#include "common/str-common.h"
+#include "common/str-bytes.h"
+#include "common/str-chars.h"
+#include "format/str-wire.h"
 
 namespace str {
 	/* [str::IsSink] wrapper to create a sink into a constant buffer or a pointer with a null-byte (if capacity is greater than zero)

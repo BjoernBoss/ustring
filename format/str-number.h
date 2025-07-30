@@ -2,8 +2,8 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "str-common.h"
-#include "str-coding.h"
+#include "../common/str-common.h"
+#include "../coding/str-coding.h"
 
 #include <cmath>
 #include <utility>

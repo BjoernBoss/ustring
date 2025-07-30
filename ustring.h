@@ -2,22 +2,22 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "str-local.h"
-#include "str-bytes.h"
-#include "str-chars.h"
-#include "str-number.h"
-#include "str-sivalue.h"
-#include "str-coding.h"
-#include "str-string.h"
-#include "str-wire.h"
-#include "str-helper.h"
-#include "str-escape.h"
-#include "str-specializations.h"
-#include "str-format.h"
+#include "common/str-local.h"
+#include "common/str-bytes.h"
+#include "common/str-chars.h"
+#include "coding/str-coding.h"
+#include "format/str-number.h"
+#include "format/str-sivalue.h"
+#include "format/str-wire.h"
+#include "format/str-escape.h"
+#include "format/str-format.h"
 #include "unicode/cp-casing.h"
 #include "unicode/cp-normalization.h"
 #include "unicode/cp-property.h"
 #include "unicode/cp-segmentation.h"
+#include "str-helper.h"
+#include "str-string.h"
+#include "str-specializations.h"
 
 namespace str {
 	/* default string-type to be used [utf-16] */

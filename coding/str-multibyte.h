@@ -2,8 +2,8 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "../str-common.h"
-#include "../str-local.h"
+#include "../common/str-common.h"
+#include "../common/str-local.h"
 
 #include "str-utf8.h"
 #include "str-wide.h"

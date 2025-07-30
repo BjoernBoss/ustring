@@ -6,8 +6,8 @@
 #include "unicode/cp-normalization.h"
 #include "unicode/cp-property.h"
 #include "unicode/cp-segmentation.h"
-#include "str-coding.h"
-#include "str-escape.h"
+#include "coding/str-coding.h"
+#include "format/str-escape.h"
 
 /*
 *	Coding-Rules:

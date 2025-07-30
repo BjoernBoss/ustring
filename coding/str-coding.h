@@ -2,13 +2,13 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "coding/str-utf8.h"
-#include "coding/str-utf16.h"
-#include "coding/str-utf32.h"
-#include "coding/str-wide.h"
-#include "coding/str-multibyte.h"
-#include "str-common.h"
-#include "str-chars.h"
+#include "../common/str-common.h"
+#include "../common/str-chars.h"
+#include "str-utf8.h"
+#include "str-utf16.h"
+#include "str-utf32.h"
+#include "str-wide.h"
+#include "str-multibyte.h"
 
 /*
 *	All codepoints are represented as char32_t

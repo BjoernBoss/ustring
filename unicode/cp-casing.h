@@ -2,7 +2,7 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "../str-common.h"
+#include "../common/str-common.h"
 #include "cp-segmentation.h"
 
 #include "../generated/unicode-casing.h"

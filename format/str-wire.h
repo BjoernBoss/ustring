@@ -2,10 +2,10 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "str-bytes.h"
-#include "str-coding.h"
-#include "str-escape.h"
-#include "str-chars.h"
+#include "../common/str-bytes.h"
+#include "../common/str-chars.h"
+#include "../coding/str-coding.h"
+#include "../format/str-escape.h"
 
 namespace str {
 	enum class WireCoding : uint8_t {

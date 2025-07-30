@@ -2,9 +2,9 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "str-common.h"
-#include "str-wire.h"
-#include "str-coding.h"
+#include "common/str-common.h"
+#include "format/str-wire.h"
+#include "coding/str-coding.h"
 #include "str-string.h"
 
 #include <memory>

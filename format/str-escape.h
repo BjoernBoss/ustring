@@ -2,8 +2,8 @@
 /* Copyright (c) 2024 Bjoern Boss Henrichsen */
 #pragma once
 
-#include "unicode/cp-property.h"
-#include "str-coding.h"
+#include "../unicode/cp-property.h"
+#include "../coding/str-coding.h"
 
 /*
 *	Decoding-issues will consume as many characters as are considered invalid
