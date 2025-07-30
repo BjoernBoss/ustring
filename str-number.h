@@ -72,7 +72,7 @@ namespace str {
 		/* common mappings */
 		general = generalShort,
 		scientific = scientificFull,
-		fixed = fixedTrim
+		fixed = fixedFull
 	};
 
 	struct ParsedNum {
@@ -93,6 +93,12 @@ namespace str {
 	static constexpr size_t HexFloat = size_t(-1);
 
 	namespace detail {
+		/* own definition to be constexpr */
+		template <class Type>
+		inline constexpr Type NumAbs(Type v) {
+			return (v < 0 ? -v : v);
+		}
+
 		inline constexpr uint8_t BitsForNumber(uint64_t v) {
 			if (v == 0)
 				return 0;
@@ -1012,7 +1018,7 @@ namespace str {
 			/* construct the final value and check if an overflow/underflow occurred */
 			errno = 0;
 			Type value = std::ldexp(Type(flMantissa), flExponent);
-			if (errno == ERANGE)
+			if (errno == ERANGE || value == 0.0)
 				return { Type(), (exponent < 0 ? -1 : 1) };
 			return { value, 0 };
 		}
@@ -1074,7 +1080,7 @@ namespace str {
 			}
 
 			/* validate the range of the exponent */
-			if (range == 0 && std::abs(exponent.exponent * detail::LogBase2[radix]) > detail::LargeIntSafeExponentLimit)
+			if (range == 0 && detail::NumAbs(exponent.exponent * detail::LogBase2[radix]) > detail::LargeIntSafeExponentLimit)
 				range = (exponent.exponent < 0 ? -1 : 1);
 
 			/* check if the mantissa is null, in which case any range-errors are ignored */
@@ -1469,26 +1475,20 @@ namespace str {
 			}
 
 			/* select the resolution to be used (add two additional data-packages for scratch-pad and imprecisions/accumulating errors,
-			*	and make it dependent on the digits and rounding-digit, as well as an imprecision-correctuion for larger exponents) */
-			uint32_t expBits = uint32_t(detail::BitsForNumber(std::abs(flExponent))) * 2;
+			*	and make it dependent on the digits and rounding-digit, as well as an imprecision-correction for larger exponents) */
+			uint32_t expBits = uint32_t(detail::BitsForNumber(detail::NumAbs(flExponent))) * 2;
 			uint32_t digitsBits = uint32_t(std::ceil((totalDigits + 1) * detail::LogBase2[radix]));
 			uint32_t dataPackages = ((expBits + digitsBits + 31) / 32) + 2;
 			if (dataPackages <= 4)
 				detail::PrintNormalFloat<Type, 4>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
-			else if (dataPackages <= 6)
-				detail::PrintNormalFloat<Type, 6>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else if (dataPackages <= 8)
 				detail::PrintNormalFloat<Type, 8>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
-			else if (dataPackages <= 12)
-				detail::PrintNormalFloat<Type, 12>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else if (dataPackages <= 16)
 				detail::PrintNormalFloat<Type, 16>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else if (dataPackages <= 32)
 				detail::PrintNormalFloat<Type, 32>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else if (dataPackages <= 64)
 				detail::PrintNormalFloat<Type, 64>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
-			else if (dataPackages <= 96)
-				detail::PrintNormalFloat<Type, 96>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else if (dataPackages <= 128)
 				detail::PrintNormalFloat<Type, 128>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
 			else
@@ -1604,9 +1604,8 @@ namespace str {
 	}
 
 	/* return an empty local string or a string containg the prefix for the corresponding radix (hex-float radix will result in radix-16) */
-	template <str::IsChar ChType>
-	constexpr str::Local<ChType, 2> MakePrefix(size_t radix, bool upperCase = false) {
-		str::Local<ChType, 2> out;
+	constexpr str::Local<char32_t, 2> MakePrefix(size_t radix, bool upperCase = false) {
+		str::Local<char32_t, 2> out;
 		if (radix == str::HexFloat)
 			radix = 16;
 		else if (radix < str::MinRadix || radix > str::MaxRadix)

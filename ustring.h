@@ -6,6 +6,7 @@
 #include "str-bytes.h"
 #include "str-chars.h"
 #include "str-number.h"
+#include "str-sivalue.h"
 #include "str-coding.h"
 #include "str-string.h"
 #include "str-wire.h"
@@ -85,6 +86,9 @@ namespace str {
 			static constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 				return str::Float<std::basic_string<ChType>>(num, style, precision, radix, numStyle);
 			}
+			static constexpr std::basic_string<ChType> SiValue(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::SiValue<std::basic_string<ChType>>(num, asciiOnly, binarySystem, style, precision, radix, numStyle);
+			}
 		};
 
 		template <class ChType, intptr_t Capacity>
@@ -108,6 +112,9 @@ namespace str {
 			}
 			static constexpr str::Local<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
 				return str::Float<str::Local<ChType, Capacity>>(num, style, precision, radix, numStyle);
+			}
+			static constexpr str::Local<ChType, Capacity> SiValue(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
+				return str::SiValue<str::Local<ChType, Capacity>>(num, asciiOnly, binarySystem, style, precision, radix, numStyle);
 			}
 		};
 	}
