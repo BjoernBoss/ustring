@@ -669,7 +669,7 @@ namespace str {
 		}
 
 		template <class Type>
-		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val, const str::FloatArgs& floatArgs) {
+		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val, const str::ArgsFloat& floatArgs) {
 			std::u32string buffer;
 
 			/* write the prefix to be used to the buffer */
@@ -738,7 +738,7 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (consumed < fmt.size())
 				return false;
-			str::IntArgs intArgs = { .radix = radix, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) };
+			str::ArgsInt intArgs = { .radix = radix, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) };
 
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
@@ -793,7 +793,7 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (flt.consumed < fmt.size())
 				return false;
-			str::FloatArgs floatArgs = {
+			str::ArgsFloat floatArgs = {
 				.precision = flt.precision,
 				.radix = flt.radix,
 				.fltStyle = flt.style,
@@ -1141,7 +1141,7 @@ namespace str {
 			/* check if the entire format has been consumed */
 			if (!fmt.empty())
 				return false;
-			str::FloatArgs floatArgs = {
+			str::ArgsFloat floatArgs = {
 				.precision = flt.precision,
 				.radix = flt.radix,
 				.fltStyle = flt.style,
