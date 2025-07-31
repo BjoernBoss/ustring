@@ -895,7 +895,7 @@ namespace str {
 				buffer.append(str::MakePrefix(16, upperCase));
 			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
-			str::IntTo(buffer, uintptr_t(val), 16, (upperCase ? str::NumStyle::upper : str::NumStyle::lower));
+			str::IntTo(buffer, uintptr_t(val), { .radix = 16, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) });
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -1150,11 +1150,11 @@ namespace str {
 
 			/* compute the actual value to be formatted */
 			str::SiScale scale = str::SiMakeScale(val.value, { .asciiOnly = simple, .binarySystem = two });
-			long double number = static_cast<long double>(val.value) / scale.scale;
+			double number = static_cast<double>(val.value) / scale.scale;
 
 			/* check if the number can just be written out */
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
-				detail::NumPreambleInto<long double>(sink, number, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
+				detail::NumPreambleInto<double>(sink, number, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
 				str::FloatTo(sink, number, floatArgs);
 				detail::SiEpilogueInto(sink, scale.prefix, val.unit, space, always, two);
 				return true;

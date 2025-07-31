@@ -26,14 +26,14 @@ namespace str {
 	*	size of 1 for decimal, and size of 2 for binary, and scale will be set accordingly) */
 	struct SiScale {
 		str::Local<char32_t, 2> prefix;
-		long double scale = 1.0;
+		double scale = 1.0;
 	};
 
 	/* parsed si scale (consumed is zero if no prefix is detected,
 	*	scale will be 1, otherwise scale will be set accordingly) */
 	struct ParsedSiScale {
 		size_t consumed = 0;
-		long double scale = 1.0;
+		double scale = 1.0;
 	};
 
 	namespace detail {
@@ -46,11 +46,11 @@ namespace str {
 		static constexpr const char32_t SiPrefixCharDetectL[] = { U"qryzafpnumkMgtpeZRQ\u00b5" };
 		static constexpr const char32_t SiPrefixBinaryDetectU = U'I';
 		static constexpr const char32_t SiPrefixBinaryDetectL = U'i';
-		static constexpr long double SiScale10[] = {
+		static constexpr double SiScale10[] = {
 			1.0e-30, 1.0e-27, 1.0e-24, 1.0e-21, 1.0e-18, 1.0e-15, 1.0e-12, 1.0e-9, 1.0e-6, 1.0e-3,
 			1.0e+3, 1.0e+6, 1.0e+9, 1.0e+12, 1.0e+15, 1.0e+18, 1.0e+21, 1.0e+24, 1.0e+27, 1.0e-6
 		};
-		static constexpr long double SiScale2[] = {
+		static constexpr double SiScale2[] = {
 			0x1p-100, 0x1p-90, 0x1p-80, 0x1p-70, 0x1p-60, 0x1p-50, 0x1p-40, 0x1p-30, 0x1p-20, 0x1p-10,
 			0x1p+10, 0x1p+20, 0x1p+30, 0x1p+40, 0x1p+50, 0x1p+60, 0x1p+70, 0x1p+80, 0x1p+90, 0x1p-20
 		};
@@ -96,10 +96,10 @@ namespace str {
 			}
 
 			/* convert the value and ensure its unsigned */
-			long double value = detail::NumAbs(static_cast<long double>(num));
+			double value = detail::NumAbs(static_cast<double>(num));
 
 			/* fetch the scale to use (equal to number of scales is equal to scale of 1) */
-			const long double* scale = (binarySystem ? detail::SiScale2 : detail::SiScale10);
+			const double* scale = (binarySystem ? detail::SiScale2 : detail::SiScale10);
 			size_t indexToUse = 0;
 
 			/* check if the value is greater-equal to 1 */
@@ -160,7 +160,7 @@ namespace str {
 	}
 
 	/* parse the next number as a float and respect and apply the corresponding si-scale (if no si-ending is detected, it will parse the number as its
-	*	target type, which can potentially result in more details; otherwise it will be parsed as a long double and converted to the destination type) */
+	*	target type, which can potentially result in more details; otherwise it will be parsed as a double and converted to the destination type) */
 	template <str::IsNumber Type>
 	constexpr str::ParsedNum SiParseNumTo(const str::IsStr auto& source, Type& num, str::ArgsSiParse args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
@@ -175,7 +175,7 @@ namespace str {
 			return str::ParseNumTo(view, num, numArgs);
 
 		/* parse the number itself */
-		long double value = 0.0;
+		double value = 0.0;
 		auto [consumed, result] = str::ParseNumTo(view, value, numArgs);
 		if (result != str::NumResult::valid && result != str::NumResult::range) {
 			num = 0;
@@ -205,7 +205,7 @@ namespace str {
 
 			/* apply the scale and check if the value has not overflown/underflown */
 			value *= siScale.scale;
-			if (value != 0 && std::isfinite(value) && value >= Type(std::numeric_limits<Type>::lowest()) && value <= Type(std::numeric_limits<Type>::max())) {
+			if (value != 0 && std::isfinite(value) && value >= static_cast<double>(std::numeric_limits<Type>::lowest()) && value <= static_cast<double>(std::numeric_limits<Type>::max())) {
 				num = Type(value);
 
 				/* check if the loss of precision still results in a non-zero value */
@@ -262,7 +262,7 @@ namespace str {
 		str::SiScale scale = detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
 
 		/* write the actual value out and append the si-scale */
-		str::FloatTo(sink, static_cast<long double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });
+		str::FloatTo(sink, static_cast<double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });
 		return str::FastcodeAllTo<err::Nothing>(sink, scale.prefix);
 	}
 

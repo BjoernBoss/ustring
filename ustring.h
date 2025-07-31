@@ -10,14 +10,16 @@
 #include "format/str-sivalue.h"
 #include "format/str-wire.h"
 #include "format/str-escape.h"
+
+#include "str-helper.h"
+#include "str-specializations.h"
+
 #include "format/str-format.h"
 #include "unicode/cp-casing.h"
 #include "unicode/cp-normalization.h"
 #include "unicode/cp-property.h"
 #include "unicode/cp-segmentation.h"
-#include "str-helper.h"
 #include "str-string.h"
-#include "str-specializations.h"
 
 namespace str {
 	/* default string-type to be used [utf-16] */
@@ -80,14 +82,14 @@ namespace str {
 			static constexpr std::basic_string<ChType> Safe(const str::IsStr auto& source) {
 				return str::TranscodeAll<std::basic_string<ChType>>(source);
 			}
-			static constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::Int<std::basic_string<ChType>>(num, radix, numStyle);
+			static constexpr std::basic_string<ChType> Int(const str::IsInteger auto& num, const str::ArgsInt& args = {}) {
+				return str::Int<std::basic_string<ChType>>(num, args);
 			}
-			static constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::Float<std::basic_string<ChType>>(num, style, precision, radix, numStyle);
+			static constexpr std::basic_string<ChType> Float(const str::IsFloat auto& num, const str::ArgsFloat& args = {}) {
+				return str::Float<std::basic_string<ChType>>(num, args);
 			}
-			static constexpr std::basic_string<ChType> SiValue(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::SiValue<std::basic_string<ChType>>(num, asciiOnly, binarySystem, style, precision, radix, numStyle);
+			static constexpr std::basic_string<ChType> SiValue(const str::IsNumber auto& num, const str::ArgsSiValue& args = {}) {
+				return str::SiValue<std::basic_string<ChType>>(num, args);
 			}
 		};
 
@@ -107,14 +109,14 @@ namespace str {
 			static constexpr str::Local<ChType, Capacity> Safe(const str::IsStr auto& source) {
 				return str::TranscodeAll<str::Local<ChType, Capacity>>(source);
 			}
-			static constexpr str::Local<ChType, Capacity> Int(const str::IsInteger auto& num, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::Int<str::Local<ChType, Capacity>>(num, radix, numStyle);
+			static constexpr str::Local<ChType, Capacity> Int(const str::IsInteger auto& num, const str::ArgsInt& args = {}) {
+				return str::Int<str::Local<ChType, Capacity>>(num, args);
 			}
-			static constexpr str::Local<ChType, Capacity> Float(const str::IsFloat auto& num, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::Float<str::Local<ChType, Capacity>>(num, style, precision, radix, numStyle);
+			static constexpr str::Local<ChType, Capacity> Float(const str::IsFloat auto& num, const str::ArgsFloat& args = {}) {
+				return str::Float<str::Local<ChType, Capacity>>(num, args);
 			}
-			static constexpr str::Local<ChType, Capacity> SiValue(const str::IsNumber auto& num, bool asciiOnly = false, bool binarySystem = false, str::FloatStyle style = str::FloatStyle::general, size_t precision = 0, size_t radix = 10, str::NumStyle numStyle = str::NumStyle::lower) {
-				return str::SiValue<str::Local<ChType, Capacity>>(num, asciiOnly, binarySystem, style, precision, radix, numStyle);
+			static constexpr str::Local<ChType, Capacity> SiValue(const str::IsNumber auto& num, const str::ArgsSiValue& args = {}) {
+				return str::SiValue<str::Local<ChType, Capacity>>(num, args);
 			}
 		};
 	}

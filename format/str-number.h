@@ -154,7 +154,7 @@ namespace str {
 		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
 		static constexpr int32_t LargeIntSafeExponentLimit = int32_t(0x01 << 24);
 
-		static constexpr long double LogBase2[str::MaxRadix + 1] = {
+		static constexpr double LogBase2[str::MaxRadix + 1] = {
 			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
 			2.0000000000000000, 2.3219280948873620, 2.5849625007211560, 2.8073549220576040,
 			3.0000000000000000, 3.1699250014423126, 3.3219280948873626, 3.4594316186372978,
