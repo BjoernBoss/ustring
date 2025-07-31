@@ -15,6 +15,10 @@
 *		while:
 *			str::ParseNum(str::Float(x)) will always be x (for given precision)
 *
+*	str::SiParseNumTo can be used for values of highest precision, as it will check for si-scaling.
+*	If no scaling is found, it will use the default str::ParseNum functions.
+*	Only if a scale factor exists, the value will be parsed as double and converted.
+*
 *
 *	Coding-Rules:
 *	 - decoding rules of str-number
