@@ -300,7 +300,7 @@ namespace tester {
 			std::from_chars(numString.data(), numString.data() + numString.size(), numCharsDouble);
 
 			/* parse the hex-string */
-			volatile auto hexResult = str::ParseNum<double>(hexString, str::HexFloat);
+			volatile auto hexResult = str::ParseNum<double>(hexString, { .radix = str::HexFloat });
 			double hexDouble = hexResult.value;
 			if (std::bit_cast<uint64_t>(hexDouble) != std::bit_cast<uint64_t>(hexCharsDouble)) {
 				str::PrintLn("hex-parsing-difference:");
@@ -322,8 +322,8 @@ namespace tester {
 			}
 
 			/* construct the hex-string and num-string */
-			hexSelf = str::Float<std::string>(val, str::FloatStyle::scientific, prec, str::HexFloat);
-			numSelf = str::Float<std::string>(val, str::FloatStyle::scientific, prec);
+			hexSelf = str::Float<std::string>(val, { .precision = prec, .radix = str::HexFloat, .fltStyle = str::FloatStyle::scientific });
+			numSelf = str::Float<std::string>(val, { .precision = prec, .fltStyle = str::FloatStyle::scientific });
 
 			/* compare the hex-strings */
 			if (hexString != hexSelf && (hexString[0] != '2' || hexSelf[0] != '1')) {
@@ -394,7 +394,7 @@ namespace compare {
 		/* time the str-implementation */
 		util::Timer t0;
 		for (size_t i = 0; i < count; ++i)
-			str::FloatTo(str::NullChars{ buf.data(), buf.size() }, value, str::FloatStyle::scientific, precision);
+			str::FloatTo(str::NullChars{ buf.data(), buf.size() }, value, { .precision = precision, .fltStyle = str::FloatStyle::scientific });
 		float first = t0.stop();
 
 		/* time the to_chars+transcode-implementation */
@@ -415,7 +415,7 @@ namespace compare {
 		/* time the str-implementation */
 		util::Timer t0;
 		for (size_t i = 0; i < count; ++i)
-			tmp = str::Float<std::string>(value, str::FloatStyle::fixed, 10);
+			tmp = str::Float<std::string>(value, { .radix = 10, .fltStyle = str::FloatStyle::fixed });
 		float first = t0.stop();
 
 		/* time the to_string-implementation */
@@ -434,7 +434,7 @@ namespace compare {
 		/* time the str-implementation */
 		util::Timer t0;
 		for (size_t i = 0; i < count; ++i)
-			d = str::ParseNum<double>(num, (hex ? str::HexFloat : 10)).value;
+			d = str::ParseNum<double>(num, { .radix = (hex ? str::HexFloat : 10) }).value;
 		float first = t0.stop();
 
 		/* time the from_chars-implementation */
