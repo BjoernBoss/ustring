@@ -5,6 +5,17 @@
 #include "str-number.h"
 
 /*
+*	Note: While si-values respect all boundaries and rounding constraints,
+*		it does not guarantee as precise conversions, as str-number does.
+*	It is not designed for accurate value handling, but rather for convenience.
+*	Specifically: normal double multiplications and divisions are used for applying the scale.
+*		This may result in minor loss of precision in the least significant digits.
+*		In conclusion:
+*			str::SiParseNum(str::SiValue(x)) is not always x (for given precision)
+*		while:
+*			str::ParseNum(str::Float(x)) will always be x (for given precision)
+*
+*
 *	Coding-Rules:
 *	 - decoding rules of str-number
 *	 - encoding using str::CodepointTo<err::Nothing>/str::FastcodeAllTo<err::Nothing> and of str-number
