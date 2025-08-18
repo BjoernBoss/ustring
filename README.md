@@ -83,7 +83,7 @@ bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
 
 For convenience, `str::UString` is defined as `str::String<char16_t, str::err::DefChar>` and `str::UView` is defined as `str::View<char16_t, str::err::DefChar>` to be used as default string types.
 
-### [str::Float, str::Int, str::ParseNum](str-number.h)
+### [str::Float, str::Int, str::ParseNum](format/str-number.h)
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:
 
 ```C++
@@ -91,7 +91,7 @@ std::wstring s = str::Float<std::wstring>(50.0f, { .fltStyle = str::FloatStyle::
 float f = str::ParseNum<float>(u8"-1523.23e+5").value;
 ```
 
-### [str::Format, str::Build](str-format.h), [str::Fmt, str::Print](ustring.h)
+### [str::Format, str::Build](format/str-format.h), [str::Fmt, str::Print](ustring.h)
 For interacting with formatting, `str::Format` and `str::Build` exist, where `str::Build` is effectively defined as a format using the format-string `"{}{}{}..."`. Otherwise the default formatting rules mostly apply. Comments per type exist. Examples of using these:
 
 ```C++
@@ -108,7 +108,7 @@ For convenience, `str::Fmt`, `str::FmtLn`, `str::Print`, `str::PrintLn` exist to
 std::u16string s = str::Build<std::u16string>(1, true, str::As{ "#010x", 50 }, u8"Def");
 ```
 
-### [str::ToWire, str::FromWire](str-wire.h)
+### [str::ToWire, str::FromWire](format/str-wire.h)
 To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` exist. They both optionally add a `BOM` or try to determine the encoding type, based on an encountered `BOM`. Examples of using the functions:
 
 ```C++
@@ -132,7 +132,7 @@ std::ofstream someFile = /* ... */;
 str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
-### [str::Stream](str-chars.h), [str::Source](str-bytes.h)
+### [str::Stream](common/str-chars.h), [str::Source](common/str-bytes.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
 
 ```C++
@@ -147,7 +147,7 @@ The `str::U32Stream` wrapper implements a stream, which allows to create a strea
 
 Similarly, `str::InheritSource` and `str::InheritStream` exist, alongside with `str::SourceImplementation` and `str::StreamImplementation`. These allow to create virtualized sources or streams, thus preventing to use templates everywhere.
 
-### [str::Iterator](str-coding.h)
+### [str::Iterator](coding/str-coding.h)
 The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:
 
 ```C++
@@ -157,7 +157,7 @@ while (it.valid())
 ```
 Note: To ensure the iterator starts at an codepoint aligned index, use `str::IsCodepoint` or `str::View::isAligned`.
 
-## [Coding Error Handling](str-coding.h)
+## [Coding Error Handling](coding/str-coding.h)
 Any encoding or decoding errors will be handled according to the `CodeError` template parameter. Most corresponding functions in the `str` namespace will have the `CodeError` parameter, which is defaulted to `str::err::DefChar`. The following values are defined:
 
     str::err::Throw     Throw an error if an encoding or decoding error is encountered
