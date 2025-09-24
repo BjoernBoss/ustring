@@ -31,13 +31,15 @@
 */
 namespace str {
 	namespace detail {
-		template <class ChType>
-		struct EncSize;
+		template <class ChType> struct EncSize;
 		template <> struct EncSize<char8_t> { static constexpr size_t value = detail::Utf8Len; };
 		template <> struct EncSize<char16_t> { static constexpr size_t value = detail::Utf16Len; };
 		template <> struct EncSize<char32_t> { static constexpr size_t value = detail::Utf32Len; };
 		template <> struct EncSize<wchar_t> { static constexpr size_t value = detail::WideLen; };
 		template <> struct EncSize<char> { static constexpr size_t value = detail::CharLen; };
+
+		template <class ChType> struct IsUnicode { static constexpr bool value = true; };
+		template <> struct IsUnicode<char> { static constexpr bool value = str::CharIsUtf8; };
 	}
 
 	/* maximum encoding-size for any codepoint for the corresponding type */
@@ -69,6 +71,12 @@ namespace str {
 	template <class ChTypeA, class ChTypeB>
 	concept EffSame = std::is_same_v<str::EffChar<ChTypeA>, str::EffChar<ChTypeB>>;
 
+	/* replacement character for the corresponding character type (for non-unicode, default to ascii question-mark) */
+	static constexpr const char32_t RepCharAscii = U'?';
+	static constexpr const char32_t RepCharUnicode = U'\ufffd';
+	template <str::IsChar Type>
+	constexpr char32_t GetRepChar = (detail::IsUnicode<Type>::value ? str::RepCharUnicode : str::RepCharAscii);
+
 	/*
 	*	define behavior when encountering invalid codepoints while decoding/encoding
 	*		=> If no predefined value, CodeError is interpreted as codepoint to be used instead as value
@@ -97,6 +105,13 @@ namespace str {
 		*	=> ascii: return str::Invalid
 		*	=> iterator: advance to next valid codepoint in given direction */
 		static constexpr char32_t Skip = char32_t(-3);
+
+		/* return replacement character when str::Invalid is encountered
+		*	=> encoding: encode str::GetRepChar
+		*	=> decoding: return str::RepCharUnicode
+		*	=> ascii: return str::RepCharAscii
+		*	=> iterator: return str::RepCharUnicode */
+		static constexpr char32_t RepChar = char32_t(-4);
 	}
 
 	/* invalid codepoint decoding/encoding exception */
@@ -168,7 +183,11 @@ namespace str {
 				return false;
 			else if constexpr (CodeError == err::Throw)
 				throw str::CodingException(L"Codepoint could not be encoded");
-			if (!detail::EncodeCodepoint<ChType>(sink, CodeError))
+			else if constexpr (CodeError == err::RepChar) {
+				if (!detail::EncodeCodepoint<ChType>(sink, str::GetRepChar<ChType>))
+					throw str::CodingException(L"Replacement character codepoint could not be encoded");
+			}
+			else if (!detail::EncodeCodepoint<ChType>(sink, CodeError))
 				throw str::CodingException(L"Alternative coding-error codepoint could not be encoded");
 			return true;
 		}
@@ -183,7 +202,10 @@ namespace str {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (CodeError == err::Throw)
 						throw str::CodingException(L"Codepoint could not be decoded");
-					dec.cp = CodeError;
+					if constexpr (CodeError == err::RepChar)
+						dec.cp = str::RepCharUnicode;
+					else
+						dec.cp = CodeError;
 				}
 			}
 			return dec;
@@ -214,7 +236,11 @@ namespace str {
 				if constexpr (CodeError != err::Nothing && CodeError != err::Skip) {
 					if constexpr (CodeError == err::Throw)
 						throw str::CodingException(L"Codepoint could not be transcoded");
-					if (!detail::EncodeCodepoint<DChType>(out.cp, CodeError))
+					if constexpr (CodeError == err::RepChar) {
+						if (!detail::EncodeCodepoint<DChType>(out.cp, str::GetRepChar<DChType>))
+							throw str::CodingException(L"Replacement character codepoint could not be transcoded");
+					}
+					else if (!detail::EncodeCodepoint<DChType>(out.cp, CodeError))
 						throw str::CodingException(L"Alternative coding-error codepoint could not be transcoded");
 				}
 				return out;
@@ -309,7 +335,10 @@ namespace str {
 							continue;
 						if constexpr (CodeError == err::Throw)
 							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
-						pOut.cp = CodeError;
+						if constexpr (CodeError == err::RepChar)
+							pOut.cp = str::RepCharUnicode;
+						else
+							pOut.cp = CodeError;
 					}
 				}
 				return true;
@@ -332,9 +361,12 @@ namespace str {
 					if (pOut.cp == str::Invalid) {
 						if constexpr (CodeError == err::Skip)
 							continue;
-						else if constexpr (CodeError == err::Throw)
+						if constexpr (CodeError == err::Throw)
 							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
-						pOut.cp = CodeError;
+						if constexpr (CodeError == err::RepChar)
+							pOut.cp = str::RepCharUnicode;
+						else
+							pOut.cp = CodeError;
 					}
 				}
 				return true;
@@ -409,6 +441,8 @@ namespace str {
 			return { str::Invalid, len };
 		if constexpr (CodeError == err::Throw)
 			throw str::CodingException(L"Codepoint is not a valid ascii codepoint");
+		if constexpr (CodeError == err::RepChar)
+			return { str::RepCharAscii, len };
 		if constexpr (CodeError >= detail::AsciiRange)
 			throw str::CodingException(L"Alternative coding-error codepoint is not a valid ascii codepoint");
 		return { CodeError, len };
