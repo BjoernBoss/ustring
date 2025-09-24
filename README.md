@@ -81,7 +81,7 @@ std::u16string s = str::View{ L"abc-def" }.norm().to<std::u16string>();
 bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
 ```
 
-For convenience, `str::UString` is defined as `str::String<char16_t, str::err::DefChar>` and `str::UView` is defined as `str::View<char16_t, str::err::DefChar>` to be used as default string types.
+For convenience, `str::UString` is defined as `str::String<char16_t, str::CodeError::replace>` and `str::UView` is defined as `str::View<char16_t, str::CodeError::replace>` to be used as default string types.
 
 ### [str::Float, str::Int, str::ParseNum](format/str-number.h)
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:
@@ -158,13 +158,13 @@ while (it.valid())
 Note: To ensure the iterator starts at an codepoint aligned index, use `str::IsCodepoint` or `str::View::isAligned`.
 
 ## [Coding Error Handling](coding/str-coding.h)
-Any encoding or decoding errors will be handled according to the `CodeError` template parameter. Most corresponding functions in the `str` namespace will have the `CodeError` parameter, which is defaulted to `str::err::DefChar`. The following values are defined:
+Any encoding or decoding errors will be handled according to the `Error` template parameter. Most corresponding functions in the `str` namespace will have the `Error` parameter, which is defaulted to `str::CodeError::replace`. The following values are defined:
 
-    str::err::Throw     Throw an error if an encoding or decoding error is encountered
-    str::err::Nothing   Return str::Invalid as codepoint if an error is encountered
-    str::err::Skip      Skip any invalid codepoints and ignore them
-    %any%               Replace any invalid codepoints with the current value
-                            => This also includes str::err::DefChar, which defaults to '?'
+    str::CodeError::replace   Replace any invalid codepoints with the unicode replacement character or '?'
+    str::CodeError::exception Throw an error if an encoding or decoding error is encountered
+    str::CodeError::nothing   Return str::Invalid as codepoint if an error is encountered
+    str::CodeError::skip      Skip any invalid codepoints and ignore them
+    %any%                     Replace any invalid codepoints with the current value
 
 ## Unicode Functionality
 The unicode related operations lie in the namespace `cp`. All codepoints are represented using `char32_t` as type.
