@@ -185,14 +185,14 @@ namespace str {
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
 	*	Note: Must not outlive the source as it stores a reference to it */
-	template <str::IsSource Type, char32_t CodeError = err::DefChar>
+	template <str::IsSource Type, str::CodeError Error = str::CodeError::replace>
 	class WireIn {
 	private:
 		static constexpr size_t BytesPerIteration = 256;
 
 	private:
 		str::Source<Type> pSource;
-		str::FromWire<CodeError> pWire;
+		str::FromWire<Error> pWire;
 		std::u32string pBuffer;
 		std::u32string_view pView;
 		bool pClosed = false;
@@ -251,12 +251,12 @@ namespace str {
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
 	*	Note: Must not outlive target-wire as it stores a reference to it */
-	template <str::IsWire Type, char32_t CodeError = err::DefChar>
+	template <str::IsWire Type, str::CodeError Error = str::CodeError::replace>
 	class WireOut {
-		friend struct CharWriter<str::WireOut<Type, CodeError>>;
+		friend struct CharWriter<str::WireOut<Type, Error>>;
 	private:
 		Type& pSink;
-		str::ToWire<CodeError> pWire;
+		str::ToWire<Error> pWire;
 
 	public:
 		constexpr WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
@@ -273,7 +273,7 @@ namespace str {
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
 	*	Note: Must not outlive the source as it stores a reference to it */
-	template <str::IsStream Type, char32_t CodeError = err::DefChar>
+	template <str::IsStream Type, str::CodeError Error = str::CodeError::replace>
 	struct U32Stream {
 	public:
 		using ChType = char32_t;
@@ -312,11 +312,11 @@ namespace str {
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
 			while (pBuffer.size() < size) {
-				auto [cp, consumed] = str::PartialCodepoint<CodeError>(pStream.load(str::MaxEncSize<SChType>));
+				auto [cp, consumed] = str::PartialCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
 
 				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
 				if (consumed == 0) {
-					auto [cp, consumed] = str::GetCodepoint<CodeError>(pStream.load(str::MaxEncSize<SChType>));
+					auto [cp, consumed] = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
 					pStream.consume(consumed);
 					pBuffer.push_back(cp);
 					pClosed = true;
@@ -397,10 +397,10 @@ namespace str {
 
 	public:
 		void write(char32_t chr, size_t count) override {
-			str::CodepointTo<str::err::DefChar>(pSink, chr, count);
+			str::CodepointTo<str::CodeError::replace>(pSink, chr, count);
 		}
 		void write(std::u32string_view s) override {
-			str::FastcodeAllTo<str::err::DefChar>(pSink, s);
+			str::FastcodeAllTo<str::CodeError::replace>(pSink, s);
 		}
 	};
 
@@ -448,7 +448,7 @@ namespace str {
 	template <str::IsStream Type>
 	struct StreamImplementation final : public str::InheritStream {
 	private:
-		str::U32Stream<Type, str::err::DefChar> pStream;
+		str::U32Stream<Type, str::CodeError::replace> pStream;
 
 	public:
 		StreamImplementation(Type& stream) : pStream{ stream } {}

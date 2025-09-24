@@ -22,7 +22,7 @@
 *
 *	Coding-Rules:
 *	 - decoding rules of str-number
-*	 - encoding using str::CodepointTo<err::Nothing>/str::FastcodeAllTo<err::Nothing> and of str-number
+*	 - encoding using str::CodepointTo<str::CodeError::nothing>/str::FastcodeAllTo<str::CodeError::nothing> and of str-number
 *		(character set is so small and essential that every codepage should support it)
 */
 namespace str {
@@ -73,7 +73,7 @@ namespace str {
 		template <class ChType>
 		constexpr str::ParsedSiScale ParseSiScale(const std::basic_string_view<ChType>& source, str::SiScaleMode scale) {
 			/* extract the first token (implicitly checks for empty strings) */
-			auto [cp, consumed] = str::GetCodepoint<err::Nothing>(source);
+			auto [cp, consumed] = str::GetCodepoint<str::CodeError::nothing>(source);
 			if (cp == str::Invalid)
 				return str::ParsedSiScale{};
 
@@ -87,7 +87,7 @@ namespace str {
 			/* check if a binary scale is to be found */
 			bool binary = false;
 			if (scale != str::SiScaleMode::decimal) {
-				auto [_cp, _consumed] = str::GetCodepoint<err::Nothing>(source.substr(consumed));
+				auto [_cp, _consumed] = str::GetCodepoint<str::CodeError::nothing>(source.substr(consumed));
 
 				/* check if a valid indicator was found and consume it */
 				if (_cp == detail::SiPrefixBinaryDetectU || _cp == detail::SiPrefixBinaryDetectL) {
@@ -278,7 +278,7 @@ namespace str {
 
 		/* write the actual value out and append the si-scale */
 		str::FloatTo(sink, static_cast<double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });
-		return str::FastcodeAllTo<err::Nothing>(sink, scale.prefix);
+		return str::FastcodeAllTo<str::CodeError::nothing>(sink, scale.prefix);
 	}
 
 	/* write the value to an object of the given sink-type using str::SiValueTo and return it */

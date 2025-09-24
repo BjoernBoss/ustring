@@ -11,7 +11,7 @@
 
 /*
 *	Coding-Rules:
-*	 - Uses str::FastcodeAll<CodeError> by default and otherwise uses str::TranscodeAll<CodeError> on explicit selection
+*	 - Uses str::FastcodeAll<Error> by default and otherwise uses str::TranscodeAll<Error> on explicit selection
 */
 namespace str {
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
@@ -49,19 +49,19 @@ namespace str {
 		constexpr void done() {}
 	};
 
-	template <str::IsChar ChType, char32_t CodeError>
+	template <str::IsChar ChType, str::CodeError>
 	struct String;
 
 	namespace detail {
-		template <class ChType, class BaseType, char32_t CodeError, class SelfType>
+		template <class ChType, class BaseType, str::CodeError, class SelfType>
 		struct UWrapper;
 	}
 
 	/* [str::IsStr] wrap std::string_view to support the extended unicode-operations */
-	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
-	struct View : public detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::View<ChType, CodeError>> {
+	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
+	struct View : public detail::UWrapper<ChType, std::basic_string_view<ChType>, Error, str::View<ChType, Error>> {
 	private:
-		using Super = detail::UWrapper<ChType, std::basic_string_view<ChType>, CodeError, str::View<ChType, CodeError>>;
+		using Super = detail::UWrapper<ChType, std::basic_string_view<ChType>, Error, str::View<ChType, Error>>;
 
 	public:
 		using Super::Super;
@@ -69,33 +69,33 @@ namespace str {
 		View(std::basic_string_view<ChType>&& v) : Super{ v } {}
 
 	public:
-		template <char32_t OCodeError>
-		View(const str::View<ChType, OCodeError>& v) : Super{ v } {}
-		template <char32_t OCodeError>
-		View(str::View<ChType, OCodeError>&& v) : Super{ v } {}
+		template <str::CodeError OError>
+		View(const str::View<ChType, OError>& v) : Super{ v } {}
+		template <str::CodeError OError>
+		View(str::View<ChType, OError>&& v) : Super{ v } {}
 
 	public:
-		template <char32_t OCodeError>
-		View(const str::String<ChType, OCodeError>& v) : Super{ std::basic_string_view<ChType>{ v } } {}
-		template <char32_t OCodeError>
-		View(str::String<ChType, OCodeError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
+		template <str::CodeError OError>
+		View(const str::String<ChType, OError>& v) : Super{ std::basic_string_view<ChType>{ v } } {}
+		template <str::CodeError OError>
+		View(str::String<ChType, OError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 	};
 	template <str::IsChStr<char> Type>
-	View(Type) -> View<char, err::DefChar>;
+	View(Type) -> View<char, str::CodeError::replace>;
 	template <str::IsChStr<wchar_t> Type>
-	View(Type) -> View<wchar_t, err::DefChar>;
+	View(Type) -> View<wchar_t, str::CodeError::replace>;
 	template <str::IsChStr<char8_t> Type>
-	View(Type) -> View<char8_t, err::DefChar>;
+	View(Type) -> View<char8_t, str::CodeError::replace>;
 	template <str::IsChStr<char16_t> Type>
-	View(Type) -> View<char16_t, err::DefChar>;
+	View(Type) -> View<char16_t, str::CodeError::replace>;
 	template <str::IsChStr<char32_t> Type>
-	View(Type) -> View<char32_t, err::DefChar>;
+	View(Type) -> View<char32_t, str::CodeError::replace>;
 
 	/* [str::IsStr/str::IsSink] wrap std::string to support the extended unicode-operations */
-	template <str::IsChar ChType, char32_t CodeError = err::DefChar>
-	struct String : public detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::String<ChType, CodeError>> {
+	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
+	struct String : public detail::UWrapper<ChType, std::basic_string<ChType>, Error, str::String<ChType, Error>> {
 	private:
-		using Super = detail::UWrapper<ChType, std::basic_string<ChType>, CodeError, str::String<ChType, CodeError>>;
+		using Super = detail::UWrapper<ChType, std::basic_string<ChType>, Error, str::String<ChType, Error>>;
 
 	public:
 		using Super::Super;
@@ -103,42 +103,42 @@ namespace str {
 		explicit String(std::basic_string_view<ChType>&& v) : Super{ v } {}
 
 	public:
-		template <char32_t OCodeError>
-		String(const str::String<ChType, OCodeError>& v) : Super{ v } {}
-		template <char32_t OCodeError>
-		String(str::String<ChType, OCodeError>&& v) : Super{ v } {}
+		template <str::CodeError OError>
+		String(const str::String<ChType, OError>& v) : Super{ v } {}
+		template <str::CodeError OError>
+		String(str::String<ChType, OError>&& v) : Super{ v } {}
 
 	public:
-		constexpr operator str::View<ChType, CodeError>() const {
-			return str::View<ChType, CodeError>{ *static_cast<const std::basic_string<ChType>*>(this) };
+		constexpr operator str::View<ChType, Error>() const {
+			return str::View<ChType, Error>{ *static_cast<const std::basic_string<ChType>*>(this) };
 		}
 	};
 	template <str::IsChStr<char> Type>
-	String(Type) -> String<char, err::DefChar>;
+	String(Type) -> String<char, str::CodeError::replace>;
 	template <str::IsChStr<wchar_t> Type>
-	String(Type) -> String<wchar_t, err::DefChar>;
+	String(Type) -> String<wchar_t, str::CodeError::replace>;
 	template <str::IsChStr<char8_t> Type>
-	String(Type) -> String<char8_t, err::DefChar>;
+	String(Type) -> String<char8_t, str::CodeError::replace>;
 	template <str::IsChStr<char16_t> Type>
-	String(Type) -> String<char16_t, err::DefChar>;
+	String(Type) -> String<char16_t, str::CodeError::replace>;
 	template <str::IsChStr<char32_t> Type>
-	String(Type) -> String<char32_t, err::DefChar>;
+	String(Type) -> String<char32_t, str::CodeError::replace>;
 
 	namespace detail {
-		template <class ChType, class BaseType, char32_t CodeError, class SelfType>
+		template <class ChType, class BaseType, str::CodeError Error, class SelfType>
 		struct UWrapper : public BaseType {
 		public:
 			/* character type of the current object */
 			using CharType = ChType;
 
 			/* string-view type of the current object */
-			using ViewType = str::View<ChType, CodeError>;
+			using ViewType = str::View<ChType, Error>;
 
 			/* string type of the current object */
-			using StrType = str::String<ChType, CodeError>;
+			using StrType = str::String<ChType, Error>;
 
 			/* codepoint-iterator type of the current type */
-			using ItType = str::Iterator<ChType, CodeError>;
+			using ItType = str::Iterator<ChType, Error>;
 
 		public:
 			using BaseType::BaseType;
@@ -225,8 +225,8 @@ namespace str {
 				int8_t state = 0;
 
 				/* construct the two iterators to iterate across the two strings */
-				str::Iterator<AChType, CodeError> aIt{ a };
-				str::Iterator<BChType, CodeError> bIt{ b };
+				str::Iterator<AChType, Error> aIt{ a };
+				str::Iterator<BChType, Error> bIt{ b };
 
 				/* instantiate the two transformations, which compare their produced codepoints to the cached last codepoints */
 				auto aTrans = fTransform(str::ForEach([&](char32_t cp) {
@@ -324,33 +324,33 @@ namespace str {
 			template <str::IsSink SinkType>
 			constexpr SinkType to(bool fast = true) const {
 				if (fast)
-					return str::FastcodeAll<SinkType, CodeError>(fBase());
-				return str::TranscodeAll<SinkType, CodeError>(fBase());
+					return str::FastcodeAll<SinkType, Error>(fBase());
+				return str::TranscodeAll<SinkType, Error>(fBase());
 			}
 
 			/* convert the string to a string of the corresponding character type (either fast but potentially incorrect, or slower but correct) */
-			template <str::IsChar OChType = ChType, char32_t OCodeError = CodeError>
-			constexpr str::String<OChType, OCodeError> str(bool fast = true) const {
+			template <str::IsChar OChType = ChType, str::CodeError OError = Error>
+			constexpr str::String<OChType, OError> str(bool fast = true) const {
 				if (fast)
-					return str::FastcodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
-				return str::TranscodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
+					return str::FastcodeAll<str::String<OChType, OError>, Error>(fBase());
+				return str::TranscodeAll<str::String<OChType, OError>, Error>(fBase());
 			}
 
 			/* convert the string to a string of the corresponding char-type or return a view, if this string and the destination type are effectively using the same encoding [such as char and char8_t] */
-			template <str::IsChar OChType, char32_t OCodeError = CodeError>
-			constexpr std::conditional_t<str::EffSame<ChType, OChType>, str::View<OChType, OCodeError>, str::String<OChType, OCodeError>> as() const {
+			template <str::IsChar OChType, str::CodeError OError = Error>
+			constexpr std::conditional_t<str::EffSame<ChType, OChType>, str::View<OChType, OError>, str::String<OChType, OError>> as() const {
 				if constexpr (str::EffSame<ChType, OChType>) {
 					std::basic_string_view<ChType> _this = fBase();
-					return str::View<OChType, OCodeError>{ std::basic_string_view<OChType>{ reinterpret_cast<const OChType*>(_this.data()), _this.size() } };
+					return str::View<OChType, OError>{ std::basic_string_view<OChType>{ reinterpret_cast<const OChType*>(_this.data()), _this.size() } };
 				}
 				else
-					return str::FastcodeAll<str::String<OChType, OCodeError>, CodeError>(fBase());
+					return str::FastcodeAll<str::String<OChType, OError>, Error>(fBase());
 			}
 
 			/* convert the string to the corresponding string-type but as an escaped string */
 			template <str::IsSink SinkType>
 			constexpr SinkType escape(bool compact = false) const {
-				return str::EscapeAll<SinkType, CodeError>(fBase(), compact);
+				return str::EscapeAll<SinkType, Error>(fBase(), compact);
 			}
 
 			/* overwrite sub-string of base-type */
@@ -456,9 +456,9 @@ namespace str {
 					char32_t cp = it.next();
 					size_t digit = cp::prop::GetDecimal(cp);
 					if (digit == cp::prop::ErrDecimal)
-						str::CodepointTo<CodeError>(out, cp);
+						str::CodepointTo<Error>(out, cp);
 					else
-						str::CodepointTo<CodeError>(out, cp::ascii::GetRadixLower(digit));
+						str::CodepointTo<Error>(out, cp::ascii::GetRadixLower(digit));
 				}
 				return out;
 			}
@@ -512,7 +512,7 @@ namespace str {
 		public:
 			/* test if every codepoint in the string can be decoded and is considered valid (can be empty) */
 			constexpr bool isValid() const {
-				str::Iterator<ChType, err::Nothing> it{ fBase() };
+				str::Iterator<ChType, str::CodeError::nothing> it{ fBase() };
 				while (it.valid()) {
 					if (it.next() == str::Invalid)
 						return false;

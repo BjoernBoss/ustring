@@ -12,8 +12,8 @@
 
 /*
 *	Coding-Rules:
-*	 - decoding using str::GetAscii<err::Nothing>, any invalid decodings will simply abort the parsing up to that point
-*	 - encoding using str::CodepointTo<err::Nothing>/str::FastcodeAllTo<err::Nothing>
+*	 - decoding using str::GetAscii<str::CodeError::nothing>, any invalid decodings will simply abort the parsing up to that point
+*	 - encoding using str::CodepointTo<str::CodeError::nothing>/str::FastcodeAllTo<str::CodeError::nothing>
 *		(character set is so small and essential that every codepage should support it)
 */
 namespace str {
@@ -663,7 +663,7 @@ namespace str {
 			size_t prefixConsumed = 0;
 			while (true) {
 				/* decode the next character */
-				auto [cp, consumed] = str::GetAscii<err::Nothing>(view.substr(out.signConsumed + prefixConsumed));
+				auto [cp, consumed] = str::GetAscii<str::CodeError::nothing>(view.substr(out.signConsumed + prefixConsumed));
 				if (cp == str::Invalid)
 					return out;
 
@@ -739,7 +739,7 @@ namespace str {
 
 				/* mark the characters as consumed and decode the next character */
 				totalConsumed += dec.consumed;
-				dec = str::GetAscii<err::Nothing>(view.substr(totalConsumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(totalConsumed));
 			}
 
 			/* apply the sign and return the value */
@@ -752,7 +752,7 @@ namespace str {
 		template <class Type, class ChType>
 		constexpr str::ParsedNum ParseInteger(Type& num, const std::basic_string_view<ChType>& view, size_t radix, bool negative) {
 			/* parse the raw value */
-			str::Decoded dec = str::GetAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
 			auto [value, totalConsumed, overflow] = detail::ParseRawInteger<Type, ChType>(view, radix, dec, negative);
 
 			/* check if an overflow occurred and setup the overflow value */
@@ -804,26 +804,26 @@ namespace str {
 
 			/* write the sign out */
 			if (negative)
-				str::CodepointTo<err::Nothing>(sink, U'-', 1);
+				str::CodepointTo<str::CodeError::nothing>(sink, U'-', 1);
 
 			/* check if a prefix should be added */
 			if (addPrefix) {
 				char32_t c = (upperCase ? detail::PrefixUpper : detail::PrefixLower)[radix];
 				if (c != U'_') {
-					str::CodepointTo<err::Nothing>(sink, U'0', 1);
-					str::CodepointTo<err::Nothing>(sink, c, 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'0', 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, c, 1);
 				}
 			}
 
 			/* write the additional null-digits out */
 			if (size_t(next - digits) < digitCount)
-				str::CodepointTo<err::Nothing>(sink, U'0', digitCount - size_t(next - digits));
+				str::CodepointTo<str::CodeError::nothing>(sink, U'0', digitCount - size_t(next - digits));
 
 
 			/* write the digits out */
 			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
 			while (next != digits)
-				str::CodepointTo<err::Nothing>(sink, digitSet[*(--next)], 1);
+				str::CodepointTo<str::CodeError::nothing>(sink, digitSet[*(--next)], 1);
 		}
 
 		struct SpecialOut {
@@ -838,7 +838,7 @@ namespace str {
 			if (radix > detail::MaxRadixBeforeSpecialChar) {
 				if (dec.cp != U'#')
 					return detail::SpecialOut{};
-				dec = str::GetAscii<err::Nothing>(view.substr(consumed += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(consumed += dec.consumed));
 			}
 
 			/* check if it could be a nan or inf */
@@ -851,7 +851,7 @@ namespace str {
 			/* fetch and validate the remaining characters */
 			const char32_t* mask = U"nfanNFAN";
 			for (size_t i = 0; i < 2; ++i) {
-				dec = str::GetAscii<err::Nothing>(view.substr(consumed += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(consumed += dec.consumed));
 				if (dec.cp != mask[i + (nan ? 2 : 0)] && dec.cp != mask[i + (nan ? 2 : 0) + 4])
 					return detail::SpecialOut{};
 			}
@@ -931,7 +931,7 @@ namespace str {
 				}
 
 				/* decode the next character */
-				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(out.consumed += dec.consumed));
 			}
 			return out;
 		}
@@ -950,7 +950,7 @@ namespace str {
 			bool expNegative = false;
 			if (dec.cp == U'+' || dec.cp == U'-') {
 				expNegative = (dec.cp == U'-');
-				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(out.consumed += dec.consumed));
 			}
 
 			/* parse the exponent and check if an invalid exponent has been encountered */
@@ -1060,7 +1060,7 @@ namespace str {
 			size_t totalConsumed = 0;
 
 			/* check if the value is an inf/nan number (ignore any errors as the characters can otherwise just be parsed as normal numbers) */
-			str::Decoded dec = str::GetAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
 			detail::SpecialOut special = detail::ParseFloatSpecial<ChType>(view, radix, dec);
 			if (special.consumed > 0) {
 				Type value = (special.nan ? (Limits::has_quiet_NaN ? Limits::quiet_NaN() : Limits::signaling_NaN()) : Limits::infinity());
@@ -1079,7 +1079,7 @@ namespace str {
 			/* check if an exponent has been detected and parse it */
 			detail::ExponentOut exponent;
 			if (hexFloat ? (dec.cp == U'p' || dec.cp == U'P') : (dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
-				dec = str::GetAscii<err::Nothing>(view.substr(totalConsumed += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(totalConsumed += dec.consumed));
 
 				/* parse the exponent and check if an error occurred */
 				exponent = detail::ParseFloatExponent<ChType>(view.substr(totalConsumed), (hexFloat ? 10 : radix), dec);
@@ -1134,20 +1134,20 @@ namespace str {
 		constexpr void FlushFloatDigits(auto& sink, char32_t digit, size_t count, intptr_t& digitsBeforePoint) {
 			/* check if the point will be inserted within this iteration */
 			if (digitsBeforePoint >= 0 && size_t(digitsBeforePoint) < count) {
-				str::CodepointTo<err::Nothing>(sink, digit, size_t(digitsBeforePoint));
-				str::CodepointTo<err::Nothing>(sink, U'.', 1);
-				str::CodepointTo<err::Nothing>(sink, digit, count - size_t(digitsBeforePoint));
+				str::CodepointTo<str::CodeError::nothing>(sink, digit, size_t(digitsBeforePoint));
+				str::CodepointTo<str::CodeError::nothing>(sink, U'.', 1);
+				str::CodepointTo<str::CodeError::nothing>(sink, digit, count - size_t(digitsBeforePoint));
 			}
 
 			/* insert all digits */
 			else
-				str::CodepointTo<err::Nothing>(sink, digit, count);
+				str::CodepointTo<str::CodeError::nothing>(sink, digit, count);
 			digitsBeforePoint -= count;
 		}
 
 		constexpr void PrintHexFloat(auto& sink, intptr_t totalDigits, int32_t flExponent, uint64_t flMantissa, str::FloatStyle style, bool upperCase) {
 			/* write out the first implicit 1 and patch the digit count */
-			str::CodepointTo<err::Nothing>(sink, U'1', 1);
+			str::CodepointTo<str::CodeError::nothing>(sink, U'1', 1);
 			--totalDigits;
 
 			/* find the topmost bit to be to the right of the point (must exist as the mantissa cannot be null) and check if the value should be rounded up */
@@ -1200,8 +1200,8 @@ namespace str {
 				detail::FlushFloatDigits(sink, U'0', digitsBeforePoint + 1, digitsBeforePoint);
 
 			/* write the exponent out */
-			str::CodepointTo<err::Nothing>(sink, upperCase ? U'P' : U'p', 1);
-			str::CodepointTo<err::Nothing>(sink, flExponent < 0 ? U'-' : U'+', 1);
+			str::CodepointTo<str::CodeError::nothing>(sink, upperCase ? U'P' : U'p', 1);
+			str::CodepointTo<str::CodeError::nothing>(sink, flExponent < 0 ? U'-' : U'+', 1);
 			if (flExponent < 0)
 				flExponent = -flExponent;
 
@@ -1387,8 +1387,8 @@ namespace str {
 			/* check if the exponent needs to be written out */
 			if (!scientific)
 				return;
-			str::CodepointTo<err::Nothing>(sink, U"eE^^"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00)], 1);
-			str::CodepointTo<err::Nothing>(sink, --flExponent < 0 ? U'-' : U'+', 1);
+			str::CodepointTo<str::CodeError::nothing>(sink, U"eE^^"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00)], 1);
+			str::CodepointTo<str::CodeError::nothing>(sink, --flExponent < 0 ? U'-' : U'+', 1);
 			flExponent = (flExponent < 0 ? -flExponent : flExponent);
 
 			/* write the exponent to the sink */
@@ -1408,7 +1408,7 @@ namespace str {
 
 			/* check if the value is negative and extract the sign */
 			if (num < 0) {
-				str::CodepointTo<err::Nothing>(sink, U'-', 1);
+				str::CodepointTo<str::CodeError::nothing>(sink, U'-', 1);
 				num = -num;
 			}
 
@@ -1416,19 +1416,19 @@ namespace str {
 			if (addPrefix) {
 				char32_t c = (upperCase ? detail::PrefixUpper : detail::PrefixLower)[radix];
 				if (c != U'_') {
-					str::CodepointTo<err::Nothing>(sink, U'0', 1);
-					str::CodepointTo<err::Nothing>(sink, c, 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'0', 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, c, 1);
 				}
 			}
 
 			/* check if the value is a special value and if a special-char needs to be inserted to differentiate it from ordinary numbers */
 			if (!std::isfinite(num)) {
 				if (radix > detail::MaxRadixBeforeSpecialChar)
-					str::CodepointTo<err::Nothing>(sink, U'#', 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'#', 1);
 				if (std::isinf(num))
-					str::FastcodeAllTo<err::Nothing>(sink, upperCase ? U"INF" : U"inf");
+					str::FastcodeAllTo<str::CodeError::nothing>(sink, upperCase ? U"INF" : U"inf");
 				else
-					str::FastcodeAllTo<err::Nothing>(sink, upperCase ? U"NAN" : U"nan");
+					str::FastcodeAllTo<str::CodeError::nothing>(sink, upperCase ? U"NAN" : U"nan");
 				return;
 			}
 
@@ -1471,23 +1471,23 @@ namespace str {
 			/* check if the value is null and print the null-representation as fast way out */
 			if (flMantissa == 0) {
 				/* produce the null-string */
-				str::CodepointTo<err::Nothing>(sink, U'0', 1);
+				str::CodepointTo<str::CodeError::nothing>(sink, U'0', 1);
 				if (style == str::FloatStyle::generalShort || style == str::FloatStyle::fixedShort)
 					return;
 
 				/* add the decimal point and chain of remaining nulls */
 				if (style != str::FloatStyle::scientificShort) {
-					str::CodepointTo<err::Nothing>(sink, U'.', 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'.', 1);
 					if (totalDigits <= 1 || style == str::FloatStyle::generalTrim || style == str::FloatStyle::fixedTrim || style == str::FloatStyle::scientificTrim)
 						totalDigits = 2;
-					str::CodepointTo<err::Nothing>(sink, U'0', totalDigits - 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'0', totalDigits - 1);
 				}
 
 				/* check if an exponent needs to be added */
 				if (style == str::FloatStyle::scientificShort || style == str::FloatStyle::scientificTrim || style == str::FloatStyle::scientificFull) {
-					str::CodepointTo<err::Nothing>(sink, U"eE^^pPpP"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00) + (hexFloat ? 0x04 : 0x00)], 1);
-					str::CodepointTo<err::Nothing>(sink, U'+', 1);
-					str::CodepointTo<err::Nothing>(sink, U'0', 2);
+					str::CodepointTo<str::CodeError::nothing>(sink, U"eE^^pPpP"[(upperCase ? 0x01 : 0x00) + (radix > 12 ? 0x02 : 0x00) + (hexFloat ? 0x04 : 0x00)], 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'+', 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'0', 2);
 				}
 				return;
 			}
@@ -1564,21 +1564,21 @@ namespace str {
 
 				/* mark the characters as consumed and decode the next character */
 				skipped += dec.consumed;
-				dec = str::GetAscii<err::Nothing>(view.substr(skipped));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped));
 			}
 			return skipped;
 		}
 
 		template <class ChType>
 		constexpr size_t SkipInteger(const std::basic_string_view<ChType>& view, size_t radix) {
-			str::Decoded dec = str::GetAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
 			return detail::SkipRawInteger<ChType>(view, radix, dec);
 		}
 
 		template <class ChType>
 		constexpr size_t SkipFloat(const std::basic_string_view<ChType>& view, size_t radix, bool hexFloat) {
 			/* check if the value is an inf/nan number */
-			str::Decoded dec = str::GetAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
 			detail::SpecialOut special = detail::ParseFloatSpecial<ChType>(view, radix, dec);
 			if (special.consumed > 0)
 				return special.consumed;
@@ -1589,7 +1589,7 @@ namespace str {
 			/* skip the fraction */
 			bool hasDigits = (skipped > 0);
 			if (dec.cp == U'.') {
-				dec = str::GetAscii<err::Nothing>(view.substr(skipped += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
 
 				/* parse the fraction and check if at least a single digit has been found */
 				size_t fraction = detail::SkipRawInteger<ChType>(view.substr(skipped), radix, dec);
@@ -1603,11 +1603,11 @@ namespace str {
 
 			/* check if an exponent has been detected and skip it */
 			if (hexFloat ? (dec.cp == U'p' || dec.cp == U'P') : (dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
-				dec = str::GetAscii<err::Nothing>(view.substr(skipped += dec.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
 
 				/* skip a potential sign of the exponent */
 				if (dec.cp == U'+' || dec.cp == U'-')
-					dec = str::GetAscii<err::Nothing>(view.substr(skipped += dec.consumed));
+					dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
 
 				/* skip the exponent itself */
 				skipped += detail::SkipRawInteger<ChType>(view.substr(skipped), (hexFloat ? 10 : radix), dec);

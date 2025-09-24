@@ -51,7 +51,7 @@ namespace str {
 
 	/* read a string from raw bytes and dynamically detect the encoding based on a BOM
 	*	or use the given encoding (will at all times consume all passed in bytes) */
-	template <char32_t CodeError = err::DefChar>
+	template <str::CodeError Error = str::CodeError::replace>
 	class FromWire {
 		static constexpr size_t TranscodeBufCapacity = std::max<size_t>(1024, detail::MaxCodingSize);
 	private:
@@ -176,15 +176,15 @@ namespace str {
 					/* check if the length is 0, in which case the codepoint must be incomplete */
 					str::Decoded dec{};
 					if constexpr (AsciiMode)
-						dec = str::PartialEscaped<CodeError>(view.substr(consumed));
+						dec = str::PartialEscaped<Error>(view.substr(consumed));
 					else
-						dec = str::PartialCodepoint<CodeError>(view.substr(consumed));
+						dec = str::PartialCodepoint<Error>(view.substr(consumed));
 					if (dec.consumed == 0)
 						break;
 
 					/* consume the codepoint and write it to the sink */
 					consumed += dec.consumed;
-					str::CodepointTo<CodeError>(sink, dec.cp, 1);
+					str::CodepointTo<Error>(sink, dec.cp, 1);
 				}
 
 				/* move any remaining characters down in the buffer */
@@ -202,7 +202,7 @@ namespace str {
 			if (sourceComplete) {
 				/* write the invalid codepoint to the sink, which will definitely not be writable and trigger the error-handler */
 				if (pBufSize > 0)
-					str::CodepointTo<CodeError>(sink, str::Invalid, 1);
+					str::CodepointTo<Error>(sink, str::Invalid, 1);
 				pBufSize = 0;
 			}
 
@@ -271,7 +271,7 @@ namespace str {
 	};
 
 	/* write a string of any type to a byte-sink and encode it using the defined wire-encoding */
-	template <char32_t CodeError = err::DefChar>
+	template <str::CodeError Error = str::CodeError::replace>
 	class ToWire {
 	private:
 		str::WireCoding pCoding = str::WireCoding::utf8;
@@ -301,11 +301,11 @@ namespace str {
 		static constexpr void fWriteCP(auto& sink, char32_t cp) {
 			/* check if an ascii-encoded character should be written out */
 			if constexpr (AsciiMode) {
-				str::Escaped<char8_t> enc = str::Escape<str::Escaped<char8_t>, CodeError>(cp, false, 1);
+				str::Escaped<char8_t> enc = str::Escape<str::Escaped<char8_t>, Error>(cp, false, 1);
 				str::CallWire(sink, { reinterpret_cast<const uint8_t*>(enc.data()), enc.size() });
 			}
 			else {
-				str::Encoded<WiType> enc = str::Codepoint<str::Encoded<WiType>, CodeError>(cp, 1);
+				str::Encoded<WiType> enc = str::Codepoint<str::Encoded<WiType>, Error>(cp, 1);
 
 				/* check if the data can be written out directly or apply the byte-order */
 				if constexpr (sizeof(WiType) == 1)
@@ -330,7 +330,7 @@ namespace str {
 
 			/* decode all characters and write them out */
 			while (!view.empty()) {
-				auto [cp, len] = str::GetCodepoint<CodeError>(view);
+				auto [cp, len] = str::GetCodepoint<Error>(view);
 				view = view.substr(len);
 
 				/* write the codepoint out (only if its valid) */

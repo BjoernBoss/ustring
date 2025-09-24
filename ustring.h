@@ -23,10 +23,10 @@
 
 namespace str {
 	/* default string-type to be used [utf-16] */
-	using UString = str::String<char16_t, err::DefChar>;
+	using UString = str::String<char16_t, str::CodeError::replace>;
 
 	/* default string-view-type to be used [utf-16] */
-	using UView = str::View<char16_t, err::DefChar>;
+	using UView = str::View<char16_t, str::CodeError::replace>;
 
 	/* convenience for fast formatting to std::cout */
 	constexpr void Fmt(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {

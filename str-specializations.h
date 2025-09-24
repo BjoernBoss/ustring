@@ -30,13 +30,13 @@ namespace str {
 			sink.append(s);
 		}
 	};
-	template <class Type, char32_t CodeError>
-	struct CharWriter<str::String<Type, CodeError>> {
+	template <class Type, str::CodeError Error>
+	struct CharWriter<str::String<Type, Error>> {
 		using ChType = Type;
-		constexpr void operator()(str::String<ChType, CodeError>& sink, ChType chr, size_t count) const {
+		constexpr void operator()(str::String<ChType, Error>& sink, ChType chr, size_t count) const {
 			sink.append(count, chr);
 		}
-		constexpr void operator()(str::String<ChType, CodeError>& sink, const std::basic_string_view<ChType>& s) const {
+		constexpr void operator()(str::String<ChType, Error>& sink, const std::basic_string_view<ChType>& s) const {
 			sink.append(s);
 		}
 	};
@@ -72,14 +72,14 @@ namespace str {
 			sink.write(s);
 		}
 	};
-	template <class Type, char32_t CodeError>
-	struct CharWriter<str::WireOut<Type, CodeError>> {
+	template <class Type, str::CodeError Error>
+	struct CharWriter<str::WireOut<Type, Error>> {
 		using ChType = char32_t;
-		constexpr void operator()(str::WireOut<Type, CodeError>& sink, char32_t chr, size_t count) const {
+		constexpr void operator()(str::WireOut<Type, Error>& sink, char32_t chr, size_t count) const {
 			for (size_t i = 0; i < count; ++i)
 				sink.put(chr);
 		}
-		constexpr void operator()(str::WireOut<Type, CodeError>& sink, std::u32string_view s) const {
+		constexpr void operator()(str::WireOut<Type, Error>& sink, std::u32string_view s) const {
 			sink.write(s);
 		}
 	};
@@ -196,17 +196,17 @@ namespace str {
 			return str::CallCharLoader(*src, buffer, size);
 		}
 	};
-	template <class Type, char32_t CodeError>
-	struct CharLoader<str::WireIn<Type, CodeError>> {
+	template <class Type, str::CodeError Error>
+	struct CharLoader<str::WireIn<Type, Error>> {
 		using ChType = char32_t;
-		constexpr size_t operator()(str::WireIn<Type, CodeError>& src, ChType* buffer, size_t size) const {
+		constexpr size_t operator()(str::WireIn<Type, Error>& src, ChType* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}
 	};
-	template <class Type, char32_t CodeError>
-	struct CharLoader<str::U32Stream<Type, CodeError>> {
+	template <class Type, str::CodeError Error>
+	struct CharLoader<str::U32Stream<Type, Error>> {
 		using ChType = char32_t;
-		constexpr size_t operator()(str::U32Stream<Type, CodeError>& src, ChType* buffer, size_t size) const {
+		constexpr size_t operator()(str::U32Stream<Type, Error>& src, ChType* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}
 	};

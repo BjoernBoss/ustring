@@ -33,14 +33,14 @@ namespace str {
 			size_t hexits = 0;
 
 			/* check if a valid escape-sequence is being started (will also catch empty-strings) */
-			str::Decoded dec = str::GetAscii<err::Nothing>(view);
+			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
 			if (dec.cp == str::Invalid || dec.cp != U'\\')
 				return dec;
 
 			/* iterate until the next valid escape-sequence has been processed */
 			str::Decoded out = { 0, dec.consumed };
 			while (out.consumed < view.size()) {
-				dec = str::GetAscii<err::Nothing>(view.substr(out.consumed));
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(out.consumed));
 
 				/* check if a valid next character has been encountered */
 				if (dec.cp == str::Invalid)
@@ -151,24 +151,27 @@ namespace str {
 			return { str::Invalid, out.consumed };
 		}
 
-		template <class ChType, char32_t CodeError, bool AllowIncomplete>
+		template <class ChType, str::CodeError Error, bool AllowIncomplete>
 		constexpr str::Decoded SingleEscaped(const std::basic_string_view<ChType>& view) {
 			if (view.empty())
 				return {};
 			str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
 
 			/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-			if constexpr (CodeError != err::Skip && CodeError != err::Nothing) {
+			if constexpr (Error != str::CodeError::skip && Error != str::CodeError::nothing) {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
-					if constexpr (CodeError == err::Throw)
+					if constexpr (Error == str::CodeError::exception)
 						throw str::CodingException(L"Escaped codepoint could not be decoded");
-					dec.cp = CodeError;
+					if constexpr (Error == str::CodeError::replace)
+						dec.cp = str::RepCharUnicode;
+					else
+						dec.cp = detail::CustomError<Error>();
 				}
 			}
 			return dec;
 		}
 
-		template <char32_t CodeError>
+		template <str::CodeError Error>
 		constexpr inline void EscapeTo(auto&& sink, char32_t cp, bool compact, size_t count) {
 			const char32_t* escaped = 0;
 
@@ -191,20 +194,20 @@ namespace str {
 			/* check if an escape sequence was found */
 			if (escaped != 0) {
 				if (escaped[1] == U'\0')
-					str::CodepointTo<CodeError>(sink, escaped[0], count);
+					str::CodepointTo<Error>(sink, escaped[0], count);
 				else for (size_t i = 0; i < count; ++i)
-					str::FastcodeAllTo<CodeError>(sink, escaped);
+					str::FastcodeAllTo<Error>(sink, escaped);
 			}
 
 			/* check if the character can be added as-is */
 			else if (cp::prop::IsAscii(cp) && !cp::prop::IsControl(cp))
-				str::CodepointTo<CodeError>(sink, cp, count);
+				str::CodepointTo<Error>(sink, cp, count);
 
 			/* check if the codepoint can be added as short-version */
 			else if (cp <= 0xff) {
 				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(cp >> 4), cp::ascii::GetRadixLower(cp & 0x0f) };
 				for (size_t i = 0; i < count; ++i)
-					str::FastcodeAllTo<CodeError>(sink, std::u32string_view{ buf, 4 });
+					str::FastcodeAllTo<Error>(sink, std::u32string_view{ buf, 4 });
 			}
 
 			/* add the codepoint as the unicode-codepoint (must be greater than 0xff, hence non-zero) */
@@ -222,7 +225,7 @@ namespace str {
 				buf[len++] = U'}';
 
 				for (size_t i = 0; i < count; ++i)
-					str::FastcodeAllTo<CodeError>(sink, std::u32string_view{ buf, len });
+					str::FastcodeAllTo<Error>(sink, std::u32string_view{ buf, len });
 			}
 		}
 
@@ -244,87 +247,87 @@ namespace str {
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */
-	template <char32_t CodeError = err::DefChar>
+	template <str::CodeError Error = str::CodeError::replace>
 	constexpr auto& EscapeTo(str::IsSink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
-		detail::EscapeTo<CodeError>(sink, cp, compact, count);
+		detail::EscapeTo<Error>(sink, cp, compact, count);
 		return sink;
 	}
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)}
 	*	and write it to an object of the given sink-type using str::EscapeTo (compact is designed for one-liner strings) */
-	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	template <str::IsSink SinkType, str::CodeError Error = str::CodeError::replace>
 	constexpr SinkType Escape(char32_t cp, bool compact = false, size_t count = 1) {
 		SinkType out{};
-		detail::EscapeTo<CodeError>(out, cp, compact, count);
+		detail::EscapeTo<Error>(out, cp, compact, count);
 		return out;
 	}
 
 	/* parse the escape-sequence in the style as produced by str::EscapeTo (return consumed null
 	*	if the source is empty and otherwise consume at all times at least one character and return
-	*	str::Invalid on errors, if CodeError does not define alternative behavior) */
-	template <char32_t CodeError = err::DefChar>
+	*	str::Invalid on errors, if Error does not define alternative behavior) */
+	template <str::CodeError Error = str::CodeError::replace>
 	constexpr str::Decoded GetEscaped(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		return detail::SingleEscaped<ChType, CodeError, false>(view);
+		return detail::SingleEscaped<ChType, Error, false>(view);
 	}
 
 	/* parse the escape-sequence in the style as produced by str::EscapeTo (return consumed null if the
 	*	source is empty or the next codepoint is incomplete and otherwise consume at all times at least
-	*	one character and return str::Invalid on errors, if CodeError does not define alternative behavior) */
-	template <char32_t CodeError = err::DefChar>
+	*	one character and return str::Invalid on errors, if Error does not define alternative behavior) */
+	template <str::CodeError Error = str::CodeError::replace>
 	constexpr str::Decoded PartialEscaped(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		return detail::SingleEscaped<ChType, CodeError, true>(view);
+		return detail::SingleEscaped<ChType, Error, true>(view);
 	}
 
 	/* escape the entire source-string to the sink and return it */
-	template <char32_t CodeError = err::DefChar>
+	template <str::CodeError Error = str::CodeError::replace>
 	constexpr auto& EscapeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source, bool compact = false) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		/* iterate over the codepoints and escape them all to the sink */
-		str::Iterator<ChType, CodeError> it{ view };
+		str::Iterator<ChType, Error> it{ view };
 		while (it.next())
-			str::EscapeTo<CodeError>(sink, it.get(), compact, 1);
+			str::EscapeTo<Error>(sink, it.get(), compact, 1);
 		return sink;
 	}
 
 	/* escape the entire source-string to an object of the given sink-type using str::EscapeAllTo and return it */
-	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	template <str::IsSink SinkType, str::CodeError Error = str::CodeError::replace>
 	constexpr SinkType EscapeAll(const str::IsStr auto& source, bool compact = false) {
 		SinkType out{};
-		str::EscapeAllTo<CodeError>(out, source, compact);
+		str::EscapeAllTo<Error>(out, source, compact);
 		return out;
 	}
 
 	/* read the entire source-string as an escaped string and write it to the sink and return it */
-	template <char32_t CodeError = err::DefChar>
+	template <str::CodeError Error = str::CodeError::replace>
 	constexpr auto& AllEscapedTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
 		while (!view.empty()) {
 			/* read the next codepoint (Invalid implies it is to be ignored) */
-			auto [cp, len] = str::GetEscaped<CodeError>(view);
+			auto [cp, len] = str::GetEscaped<Error>(view);
 			view = view.substr(len);
 			if (cp == str::Invalid)
 				continue;
 
 			/* write the codepoint back to the sink */
-			str::CodepointTo<CodeError>(sink, cp, 1);
+			str::CodepointTo<Error>(sink, cp, 1);
 		}
 		return sink;
 	}
 
 	/* read the entire source-string as an escaped string and write it to an
 	*	object of the given sink-type using str::AllEscapedTo and return it */
-	template <str::IsSink SinkType, char32_t CodeError = err::DefChar>
+	template <str::IsSink SinkType, str::CodeError Error = str::CodeError::replace>
 	constexpr SinkType AllEscaped(const str::IsStr auto& source) {
 		SinkType out{};
-		str::AllEscapedTo<CodeError>(out, source);
+		str::AllEscapedTo<Error>(out, source);
 		return out;
 	}
 }

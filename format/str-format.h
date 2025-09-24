@@ -12,9 +12,9 @@
 
 /*
 *	Coding-Rules:
-*	 - decoding using str::Ascii/str::GetCodepoint<err::Nothing> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
-*	 - decoding using str::GetCodepoint<err::DefChar> for character/string as formattable arguments
-*	 - encoding using str::CodepointTo<err::DefChar>/str::FastcodeAllTo<err::DefChar> for all printable output
+*	 - decoding using str::Ascii/str::GetCodepoint<str::CodeError::nothing> for format-string itself (any invalid codepoints will result in an #malformed error in the format-string)
+*	 - decoding using str::GetCodepoint<str::CodeError::replace> for character/string as formattable arguments
+*	 - encoding using str::CodepointTo<str::CodeError::replace>/str::FastcodeAllTo<str::CodeError::replace> for all printable output
 *		(except when produced by other functions using other rules, such as str::Int/...)
 */
 namespace str {
@@ -56,7 +56,7 @@ namespace str {
 		template <class ChType, class Arg, class... Args>
 		constexpr void Append(auto& sink, const Arg& arg, const Args&... args) {
 			if (!str::CallFormat(sink, arg, U""))
-				str::FastcodeAllTo<err::DefChar>(sink, U"#fmt");
+				str::FastcodeAllTo<str::CodeError::replace>(sink, U"#fmt");
 			if constexpr (sizeof...(args) > 0)
 				detail::Append<ChType, Args...>(sink, args...);
 		}
@@ -67,7 +67,7 @@ namespace str {
 			bool openStarted = false;
 			while (!fmt.empty()) {
 				/* decode the next character */
-				auto [cp, len] = str::GetCodepoint<err::Nothing>(fmt);
+				auto [cp, len] = str::GetCodepoint<str::CodeError::nothing>(fmt);
 				if (cp == str::Invalid)
 					return false;
 
@@ -84,7 +84,7 @@ namespace str {
 					if constexpr (str::EffSame<FmtType, SinkType>)
 						str::CallSink(sink, std::basic_string_view<SinkType>{ reinterpret_cast<const SinkType*>(fmt.data()), len });
 					else
-						str::CodepointTo<err::DefChar>(sink, cp, 1);
+						str::CodepointTo<str::CodeError::replace>(sink, cp, 1);
 				}
 				fmt = fmt.substr(len);
 			}
@@ -110,7 +110,7 @@ namespace str {
 
 			/* parse the optional separator and closing bracket */
 			for (size_t i = 0; i < 2; ++i) {
-				auto [cp, len] = str::GetAscii<err::Nothing>(fmt);
+				auto [cp, len] = str::GetAscii<str::CodeError::nothing>(fmt);
 				fmt = fmt.substr(len);
 				if (cp == U':' && i == 0)
 					continue;
@@ -167,7 +167,7 @@ namespace str {
 				/* iterate over the remaining characters until the end of the argument has been reached */
 				bool hasSeparator = false;
 				while (true) {
-					auto [cp, len] = str::GetCodepoint<err::Nothing>(view);
+					auto [cp, len] = str::GetCodepoint<str::CodeError::nothing>(view);
 					if (cp == str::Invalid) {
 						fmtState = ArgValid::malformed;
 						break;
@@ -220,13 +220,13 @@ namespace str {
 
 			/* check if a format-string issue was encountered */
 			if (fmtState == ArgValid::index)
-				str::FastcodeAllTo<err::DefChar>(sink, U"#index");
+				str::FastcodeAllTo<str::CodeError::replace>(sink, U"#index");
 			else if (fmtState == ArgValid::format)
-				str::FastcodeAllTo<err::DefChar>(sink, U"#fmt");
+				str::FastcodeAllTo<str::CodeError::replace>(sink, U"#fmt");
 
 			/* check if the entire format-string was malformed, in which case further arguments will not be processed */
 			else if (fmtState == ArgValid::malformed) {
-				str::FastcodeAllTo<err::DefChar>(sink, U"#malformed");
+				str::FastcodeAllTo<str::CodeError::replace>(sink, U"#malformed");
 				break;
 			}
 		}
@@ -414,32 +414,32 @@ namespace str {
 
 				/* add the leading padding */
 				if (padding.align == fmt::Alignment::trailing || padding.align == fmt::Alignment::standard)
-					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff);
+					str::CodepointTo<str::CodeError::replace>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff / 2);
+					str::CodepointTo<str::CodeError::replace>(sink, padding.padChar, diff / 2);
 
 				/* add the string itself */
-				str::FastcodeAllTo<err::DefChar>(sink, str);
+				str::FastcodeAllTo<str::CodeError::replace>(sink, str);
 
 				/* add the trailing padding */
 				if (padding.align == fmt::Alignment::leading)
-					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff);
+					str::CodepointTo<str::CodeError::replace>(sink, padding.padChar, diff);
 				else if (padding.align == fmt::Alignment::center)
-					str::CodepointTo<err::DefChar>(sink, padding.padChar, diff - (diff / 2));
+					str::CodepointTo<str::CodeError::replace>(sink, padding.padChar, diff - (diff / 2));
 				return;
 			}
 
 			/* check if the string needs to be clipped or can just be written out */
 			if (padding.maximum == 0 || str.size() <= padding.maximum)
-				str::FastcodeAllTo<err::DefChar>(sink, str);
+				str::FastcodeAllTo<str::CodeError::replace>(sink, str);
 			else if (!padding.ellipsisClipping)
-				str::FastcodeAllTo<err::DefChar>(sink, str.substr(0, padding.maximum));
+				str::FastcodeAllTo<str::CodeError::replace>(sink, str.substr(0, padding.maximum));
 			else if (padding.maximum > 3) {
-				str::FastcodeAllTo<err::DefChar>(sink, str.substr(0, padding.maximum - 3));
-				str::FastcodeAllTo<err::DefChar>(sink, U"...");
+				str::FastcodeAllTo<str::CodeError::replace>(sink, str.substr(0, padding.maximum - 3));
+				str::FastcodeAllTo<str::CodeError::replace>(sink, U"...");
 			}
 			else
-				str::FastcodeAllTo<err::DefChar>(sink, std::u32string_view(U"...", padding.maximum));
+				str::FastcodeAllTo<str::CodeError::replace>(sink, std::u32string_view(U"...", padding.maximum));
 		}
 	}
 
@@ -530,14 +530,14 @@ namespace str {
 			if (val < 0) {
 				if constexpr (std::is_signed_v<Type>)
 					val = -val;
-				str::CodepointTo<err::DefChar>(sink, U'-');
+				str::CodepointTo<str::CodeError::replace>(sink, U'-');
 			}
 			else if (signChar != U'-' && signChar != 0)
-				str::CodepointTo<err::DefChar>(sink, signChar);
+				str::CodepointTo<str::CodeError::replace>(sink, signChar);
 
 			/* check if a prefix needs to be added */
 			if (prefix)
-				str::FastcodeAllTo<err::DefChar>(sink, str::MakePrefix(radix, upperCase));
+				str::FastcodeAllTo<str::CodeError::replace>(sink, str::MakePrefix(radix, upperCase));
 		}
 
 		struct StrFormatting {
@@ -575,12 +575,12 @@ namespace str {
 
 			/* check if the character can just be added */
 			if (!escape && padding.minimum <= count && padding.maximum == 0) {
-				str::CodepointTo<err::DefChar>(sink, val, count);
+				str::CodepointTo<str::CodeError::replace>(sink, val, count);
 				return true;
 			}
 
 			/* decode the character to a codepoint */
-			auto [cp, _] = str::GetCodepoint<err::DefChar>(std::basic_string_view<Type>{ &val, 1 });
+			auto [cp, _] = str::GetCodepoint<str::CodeError::replace>(std::basic_string_view<Type>{ &val, 1 });
 			if (cp == str::Invalid)
 				return true;
 
@@ -594,14 +594,14 @@ namespace str {
 			/* check if the codepoints themselves need to be written out */
 			if (padding.minimum <= buffer.size() * count && (padding.maximum == 0 || padding.maximum >= buffer.size() * count)) {
 				for (size_t i = 0; i < count; ++i)
-					str::FastcodeAllTo<err::DefChar>(sink, buffer);
+					str::FastcodeAllTo<str::CodeError::replace>(sink, buffer);
 				return true;
 			}
 
 			/* create the temporary buffer and let the writer handle it */
 			std::u32string bufTotal;
 			for (size_t i = 0; i < count; ++i)
-				str::FastcodeAllTo<err::DefChar>(bufTotal, buffer);
+				str::FastcodeAllTo<str::CodeError::replace>(bufTotal, buffer);
 			fmt::WritePadded(sink, bufTotal, padding);
 			return true;
 		}
@@ -687,24 +687,24 @@ namespace str {
 
 			/* write the nulls to the buffer and write the number itself to the buffer */
 			if (buffer.size() + temp.size() < fmt.padding.minimum)
-				str::CodepointTo<err::DefChar>(buffer, U'0', fmt.padding.minimum - buffer.size() - temp.size());
-			str::FastcodeAllTo<err::DefChar>(buffer, temp);
+				str::CodepointTo<str::CodeError::replace>(buffer, U'0', fmt.padding.minimum - buffer.size() - temp.size());
+			str::FastcodeAllTo<str::CodeError::replace>(buffer, temp);
 			return buffer;
 		}
 
 		constexpr void SiEpilogueInto(auto& sink, const str::Local<char32_t, 2>& prefix, const auto& unit, bool space, bool always, bool two) {
 			/* write the space out */
 			if (space)
-				str::CodepointTo<err::DefChar>(sink, U' ', 1);
+				str::CodepointTo<str::CodeError::replace>(sink, U' ', 1);
 
 			/* write the prefix out and unit out */
 			if (!prefix.empty())
-				str::FastcodeAllTo<err::DefChar>(sink, prefix);
-			str::FastcodeAllTo<err::DefChar>(sink, unit);
+				str::FastcodeAllTo<str::CodeError::replace>(sink, prefix);
+			str::FastcodeAllTo<str::CodeError::replace>(sink, unit);
 
 			/* check if spaces should be appended */
 			if (prefix.empty() && always)
-				str::CodepointTo<err::DefChar>(sink, U' ', (two ? 2 : 1));
+				str::CodepointTo<str::CodeError::replace>(sink, U' ', (two ? 2 : 1));
 		}
 	}
 
@@ -759,8 +759,8 @@ namespace str {
 
 				/* write the nulls to the buffer and write the number itself to the buffer */
 				if (buffer.size() + temp.size() < padding.minimum)
-					str::CodepointTo<err::DefChar>(buffer, U'0', padding.minimum - buffer.size() - temp.size());
-				str::FastcodeAllTo<err::DefChar>(buffer, temp);
+					str::CodepointTo<str::CodeError::replace>(buffer, U'0', padding.minimum - buffer.size() - temp.size());
+				str::FastcodeAllTo<str::CodeError::replace>(buffer, temp);
 			}
 
 			/* write the number to an intermediate buffer */
@@ -832,7 +832,7 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (!escape && padding.minimum <= 1 && padding.maximum == 0) {
-				str::FastcodeAllTo<err::DefChar>(sink, t);
+				str::FastcodeAllTo<str::CodeError::replace>(sink, t);
 				return true;
 			}
 
@@ -844,7 +844,7 @@ namespace str {
 
 				/* extract all separate characters */
 				while (!view.empty()) {
-					auto [cp, consumed] = str::GetCodepoint<err::DefChar>(view);
+					auto [cp, consumed] = str::GetCodepoint<str::CodeError::replace>(view);
 					view = view.substr(consumed);
 
 					/* create the escape sequence or write the character out as is */
@@ -857,7 +857,7 @@ namespace str {
 				}
 			}
 			else
-				str::FastcodeAllTo<err::DefChar>(buffer, t);
+				str::FastcodeAllTo<str::CodeError::replace>(buffer, t);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -963,7 +963,7 @@ namespace str {
 
 			/* check if the string can just be appended */
 			if (padding.minimum <= 1 && padding.maximum == 0 && rep == 0) {
-				str::FastcodeAllTo<err::DefChar>(sink, val.native());
+				str::FastcodeAllTo<str::CodeError::replace>(sink, val.native());
 				return true;
 			}
 
@@ -974,7 +974,7 @@ namespace str {
 
 			/* extract all separate characters */
 			while (!view.empty()) {
-				auto [cp, consumed] = str::GetCodepoint<err::DefChar>(view);
+				auto [cp, consumed] = str::GetCodepoint<str::CodeError::replace>(view);
 				view = view.substr(consumed);
 
 				/* change the slash type accordingly */
@@ -1036,7 +1036,7 @@ namespace str {
 			/* convert the formatting and write the value out */
 			else {
 				std::u32string buffer;
-				str::FastcodeAllTo<err::DefChar>(buffer, val.format);
+				str::FastcodeAllTo<str::CodeError::replace>(buffer, val.format);
 				return str::CallFormat(sink, val.value, buffer);
 			}
 		}
@@ -1079,7 +1079,7 @@ namespace str {
 				/* iterate over the elements and write them out */
 				for (ItType it = val.begin; it != val.end; ++it) {
 					if (separate)
-						str::FastcodeAllTo<err::DefChar>(sink, separator);
+						str::FastcodeAllTo<str::CodeError::replace>(sink, separator);
 					separate = true;
 
 					/* format the value itself */
@@ -1093,7 +1093,7 @@ namespace str {
 			std::u32string buffer;
 			for (ItType it = val.begin; it != val.end; ++it) {
 				if (separate)
-					str::FastcodeAllTo<err::DefChar>(buffer, separator);
+					str::FastcodeAllTo<str::CodeError::replace>(buffer, separator);
 				separate = true;
 
 				/* format the value itself */
