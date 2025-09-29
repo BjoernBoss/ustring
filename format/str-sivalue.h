@@ -182,9 +182,9 @@ namespace str {
 		std::basic_string_view<ChType> view{ source };
 		str::ArgsParse numArgs{ .radix = args.radix, .prefix = args.prefix };
 
-		/* check if the number actually has a prefix, and if not, simply parse
-		*	it as is by itself (to preserve as much information as possible) */
-		size_t skipped = detail::SkipNum<Type>(source, numArgs);
+		/* check if the number actually has a prefix, and if not, simply parse it as is by itself (to preserve
+		*	as much information as possible; skip double, as the si number would be parsed as double) */
+		size_t skipped = detail::SkipNum<double>(source, numArgs);
 		str::ParsedSiScale siScale = detail::ParseSiScale<ChType>(view.substr(skipped), args.scale);
 		if (siScale.consumed == 0)
 			return str::ParseNumTo(view, num, numArgs);
