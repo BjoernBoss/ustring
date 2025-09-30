@@ -22,12 +22,6 @@
 #include "str-string.h"
 
 namespace str {
-	/* default string-type to be used [utf-16] */
-	using UString = str::String<char16_t, str::CodeError::replace>;
-
-	/* default string-view-type to be used [utf-16] */
-	using UView = str::View<char16_t, str::CodeError::replace>;
-
 	/* convenience for fast formatting to std::cout */
 	constexpr void Fmt(const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		str::FormatTo(std::cout, fmt, args...);
@@ -69,6 +63,10 @@ namespace str {
 		struct StrConvenience {
 			template <intptr_t Capacity>
 			using Local = str::Local<ChType, Capacity>;
+
+			using View = str::View<ChType, str::CodeError::replace>;
+
+			using String = str::String<ChType, str::CodeError::replace>;
 
 			static constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
 				return str::Build<std::basic_string<ChType>>(args...);
@@ -143,4 +141,10 @@ namespace str {
 		template <class... Args>
 		constexpr BuildException(const Args&... args) : str::RuntimeException{ str::Build<std::wstring>(args...) } {}
 	};
+
+	/* default string-type for convenience [utf-16] */
+	using ustring = str::String<char16_t, str::CodeError::replace>;
+
+	/* default string-view-type for convenience [utf-16] */
+	using uview = str::View<char16_t, str::CodeError::replace>;
 }
