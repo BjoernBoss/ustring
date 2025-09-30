@@ -1262,7 +1262,7 @@ namespace cp {
 					return Break::combine;
 				case Type::gl:
 					/* LB12a */
-					if (l != Type::baDef && l != Type::baHyphen && l != Type::hy)
+					if (l != Type::ba && l != Type::hh && l != Type::hy)
 						return Break::combine;
 					break;
 				case Type::cl:
@@ -1314,8 +1314,8 @@ namespace cp {
 					if (l == Type::cl || l == Type::cp)
 						return Break::combine;
 					[[fallthrough]];
-				case Type::baDef:
-				case Type::baHyphen:
+				case Type::ba:
+				case Type::hh:
 				case Type::hy:
 				case Type::in:
 					/* LB11/LB12/LB14 */
@@ -1328,11 +1328,13 @@ namespace cp {
 
 					/* LB21/LB22 */
 					return Break::combine;
+				case Type::hl:
 				case Type::alDef:
+				case Type::alCnPict:
 				case Type::alDotCircle:
-					/* LB20a/LB21a */
-					if (l == Type::hy || l == Type::baHyphen || (l == Type::baDef && !lFWH))
-						return self.fLB20a21aCheck((l == Type::hy || l == Type::baHyphen), !lFWH);
+					/* LB20a */
+					if (l == Type::hy || l == Type::hh)
+						return self.fLB20a21aCheck(true, r != Type::hl);
 					break;
 				default:
 					break;
@@ -1368,15 +1370,14 @@ namespace cp {
 					if (r == Type::nu)
 						return Break::combine;
 					[[fallthrough]];
-				case Type::baDef:
-				case Type::baHyphen:
+				case Type::hh:
 					/* LB21a */
-					if ((l == Type::hy || !lFWH) && r != Type::hl)
+					if (r != Type::hl)
 						return self.fLB21aCheck();
 					break;
 				case Type::is:
 					/* LB29 */
-					if (r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
+					if (r == Type::alDef || r == Type::alCnPict || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
 						return Break::combine;
 					[[fallthrough]];
 				case Type::sy:
@@ -1397,6 +1398,11 @@ namespace cp {
 					if (r == Type::ak || r == Type::as)
 						return self.fLB28a3Check();
 					[[fallthrough]];
+				case Type::alCnPict:
+					/* LB30b */
+					if (l == Type::alCnPict && r == Type::em)
+						return Break::combine;
+					[[fallthrough]];
 				case Type::alDef:
 				case Type::cm:
 				case Type::zwj:
@@ -1410,7 +1416,7 @@ namespace cp {
 						return Break::combine;
 
 					/* LB28 */
-					if (r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
+					if (r == Type::alDef || r == Type::alCnPict || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
 						return Break::combine;
 
 					/* LB30 */
@@ -1419,7 +1425,7 @@ namespace cp {
 					break;
 				case Type::nu:
 					/* LB23 */
-					if (r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
+					if (r == Type::alDef || r == Type::alCnPict || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
 						return Break::combine;
 
 					/* LB25 */
@@ -1441,7 +1447,7 @@ namespace cp {
 					[[fallthrough]];
 				case Type::po:
 					/* LB24 */
-					if (r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
+					if (r == Type::alDef || r == Type::alCnPict || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl)
 						return Break::combine;
 
 					/* LB25 */
@@ -1509,7 +1515,7 @@ namespace cp {
 					break;
 				case Type::cp:
 					/* LB30 */
-					if (!lFWH && (r == Type::nu || r == Type::alDef || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl))
+					if (!lFWH && (r == Type::nu || r == Type::alDef || r == Type::alCnPict || r == Type::alDotCircle || r == Type::cm || r == Type::zwj || r == Type::hl))
 						return Break::combine;
 					[[fallthrough]];
 				case Type::cl:
@@ -1793,9 +1799,9 @@ namespace cp {
 					pChain = (pChain == Chain::lb25Nu ? Chain::lb25PrPo : Chain::none);
 					break;
 				case Host::Type::hy:
-				case Host::Type::baDef:
-				case Host::Type::baHyphen:
-					if (r.first != Host::Type::baDef && (pLast.first == Host::Type::bk || pLast.first == Host::Type::cr || pLast.first == Host::Type::lf || pLast.first == Host::Type::nl ||
+				case Host::Type::ba:
+				case Host::Type::hh:
+					if (r.first != Host::Type::ba && (pLast.first == Host::Type::bk || pLast.first == Host::Type::cr || pLast.first == Host::Type::lf || pLast.first == Host::Type::nl ||
 						pLast.first == Host::Type::zw || pLast.first == Host::Type::cb || pLast.first == Host::Type::gl || pActual.first == Host::Type::sp))
 						pChain = Chain::lb20aMatch;
 					else if ((r.first == Host::Type::hy || !r.second) && pLast.first == Host::Type::hl)
@@ -1900,7 +1906,7 @@ namespace cp {
 					pChain = Chain::lb25Nu;
 				else if (right.first == Host::Type::quPi)
 					pChain = Chain::lb15aMatch;
-				else if (right.first == Host::Type::baHyphen || right.first == Host::Type::hy)
+				else if (right.first == Host::Type::hh || right.first == Host::Type::hy)
 					pChain = Chain::lb20aMatch;
 				pNotFWH = true;
 			}

@@ -1497,7 +1497,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, b
 # parse test-file for separators/normalization and create source-code test file
 def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: SystemConfig) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [{name}]...')
-	tests: list[tuple[str, list[tuple[int, int]]]] = []
+	tests: list[tuple[str, int, list[tuple[int, int]]]] = []
 
 	# open the file which contains the test-sequences and parse it
 	with open(inPath, 'r', encoding='utf-8') as file:
@@ -1509,16 +1509,17 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: System
 			words = [w.strip() for w in line[1:-1].split('÷')]
 
 			# create the combined string and ranges
-			string, ranges = '', []
+			string, ranges, count = '', [], 0
 			for word in words:
 				chars = [int(c.strip(), 16) for c in word.split('×')]
 				start = len(string) // 10
 				ranges.append((start, start + len(chars) - 1))
 				for chr in chars:
 					string += f'\\U{chr:08x}'
+				count += len(chars)
 
 			# add the string and ranges to the tests
-			tests.append((string, ranges))
+			tests.append((string, count, ranges))
 
 	# open the file to contain the testing code and write it to the file
 	with GeneratedFile(outPath, config, True) as file:
@@ -1526,10 +1527,10 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: System
 		file.writeln('')
 
 		# write all strings to the file
-		file.write(f'static constexpr const char32_t* {name}Words[test::{name}Count] = {{')
+		file.write(f'static constexpr std::pair<const char32_t*, size_t> {name}Words[test::{name}Count] = {{')
 		for i in range(len(tests)):
 			file.write('\n\t' if i == 0 else ',\n\t')
-			file.write(f'U\"{tests[i][0]}\"')
+			file.write(f'{{ U\"{tests[i][0]}\", {tests[i][1]} }}')
 		file.writeln('\n};')
 		file.writeln('')
 
@@ -1538,8 +1539,8 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: System
 		offset = 0
 		for i in range(len(tests)):
 			file.write('\n\t' if i == 0 else ',\n\t')
-			file.write(f'{{ {offset}, {len(tests[i][1])} }}')
-			offset += len(tests[i][1]) * 2
+			file.write(f'{{ {offset}, {len(tests[i][2])} }}')
+			offset += len(tests[i][2]) * 2
 		file.writeln('\n};')
 		file.writeln('')
 
@@ -1547,9 +1548,9 @@ def CreateSeparatorTestFile(outPath: str, inPath: str, name: str, config: System
 		file.write(f'static constexpr size_t {name}RangesBlob[{offset}] = {{')
 		for i in range(len(tests)):
 			file.write('\n\t' if i == 0 else ',\n\t')
-			for j in range(len(tests[i][1])):
+			for j in range(len(tests[i][2])):
 				file.write('' if j == 0 else ', ')
-				file.write(f'{tests[i][1][j][0]}, {tests[i][1][j][1]}')
+				file.write(f'{tests[i][2][j][0]}, {tests[i][2][j][1]}')
 		file.writeln('\n};')
 def CreateNormalizationTestFile(outPath: str, inPath: str, config: SystemConfig) -> None:
 	print(f'Creating [{outPath}] from [{inPath}] for test [normalization]...')
@@ -2211,8 +2212,8 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			'BK':  0, 'CR':  1, 'LF':  2, 'CM':  3, 'NL':  4, 'WJ':  5, 'ZW':  6, 'GL':  7, 'SP':  8, 'ZWJ': 9, 'B2': 10,
 			'BA': 11, 'BB': 12, 'HY': 13, 'CB': 14, 'CL': 15, 'CP': 16, 'EX': 17, 'IN': 18, 'NS': 19, 'OP': 20, 'QU': 21,
 			'IS': 22, 'NU': 23, 'PO': 24, 'PR': 25, 'SY': 26, 'AK': 27, 'AL': 28, 'AP': 29, 'AS': 30, 'EB': 31, 'EM': 32,
-			'H2': 33, 'H3': 34, 'HL': 35, 'ID': 36, 'JL': 37, 'JV': 38, 'JT': 39, 'RI': 40, 'VF': 41, 'VI': 42,
-			'XX': 43, 'CJ': 44, 'AI': 45, 'SG': 46, 'SA': 47 }
+			'H2': 33, 'H3': 34, 'HL': 35, 'ID': 36, 'JL': 37, 'JV': 38, 'JT': 39, 'RI': 40, 'VF': 41, 'VI': 42, 'HH': 43,
+			'XX': 44, 'CJ': 45, 'AI': 46, 'SG': 47, 'SA': 48 }
 		lineRanges, lineRangesDef = lineBreak.singleMissing(lambda fs: lineEnumMap[fs[0]])
 		if lineRangesDef != (lineEnumMap['XX'],):
 			raise RuntimeError('Default break-value is expected to be [XX]')
@@ -2220,7 +2221,6 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		for k in lineEnumMap:
 			lineEnumList[lineEnumMap[k]] = k.lower()
 		lineEnumList[lineEnumMap['AL']] = 'alDef'
-		lineEnumList[lineEnumMap['BA']] = 'baDef'
 		lineEnumList[lineEnumMap['QU']] = 'quNoPiPf'
 		lineEnumList[lineEnumMap['ID']] = 'idDef'
 
@@ -2229,7 +2229,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		fwhAsianRanges = eastAsianWidth.values(lambda fs: 1 if fs[0] in 'FWH' else None)
 		cnPictRanges = Ranges.intersect(Ranges.complement(unicodeData.values(lambda fs: 1 if fs[1] != 'Cn' else None)), emojiData.values(lambda fs: 1 if fs[0] == 'Extended_Pictographic' else None))
 
-		# LB1 mapping
+		# LB1 mapping (replaces and removes xx, cj, ai, sg, sa)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['AI'] else v)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['SG'] else v)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['XX'] else v)
@@ -2244,16 +2244,14 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			raise RuntimeError('Dotted-Circle is assumed to be part of the [AL] break-type')
 		lineRanges = Ranges.merge(lineRanges, [Range(0x25cc, 0x25cc, 1)], lambda a, b: len(lineEnumList))
 		lineEnumList.append('alDotCircle')
-		if Ranges.lookup(lineRanges, 0x2010) != (lineEnumMap['BA'],):
-			raise RuntimeError('Hypen is assumed to be part of the [BA] break-type')
-		lineRanges = Ranges.merge(lineRanges, [Range(0x2010, 0x2010, 1)], lambda a, b: len(lineEnumList))
-		lineEnumList.append('baHyphen')
 		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pi' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPi')
 		lineRanges = Ranges.modify(lineRanges, unicodeData.values(lambda fs: 1 if fs[1] == 'Pf' else None), lambda a, _: (a if a[0] != lineEnumMap['QU'] else len(lineEnumList)))
 		lineEnumList.append('quPf')
+
+		# all other matches are al-cn-pict, as default values are 'xx', which are remapped to 'al'
 		lineRanges = Ranges.merge(lineRanges, Ranges.translate(cnPictRanges, lambda c, v: len(lineEnumList)), lambda a, _: _CnPictographicMerge(a, len(lineEnumList) + 1, lineEnumMap['ID']))
-		lineEnumList.append('defCnPict')
+		lineEnumList.append('alCnPict')
 		lineEnumList.append('idCnPict')
 		lineEnumList.append('_end')
 
