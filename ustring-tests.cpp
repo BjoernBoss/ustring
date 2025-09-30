@@ -62,7 +62,7 @@ namespace tester {
 			return _it.get();
 		}
 		template <class RangeItType, class... Args>
-		constexpr int8_t TestRangeIt(const str::View<char32_t>& s, size_t index, const std::vector<std::pair<size_t, size_t>>& ranges, const Args&... args) {
+		constexpr int8_t TestRangeIt(const str::u32::View& s, size_t index, const std::vector<std::pair<size_t, size_t>>& ranges, const Args&... args) {
 			/* find the range the current char lies in */
 			size_t r = 0;
 			while (index > ranges[r].second)
@@ -162,7 +162,8 @@ namespace tester {
 	static void Graphemes() {
 		size_t errors = 0;
 		for (size_t i = 0; i < cp::detail::gen::test::GraphemeCount; ++i) {
-			str::View s = cp::detail::gen::test::GraphemeWords[i];
+			const auto [ptr, len] = cp::detail::gen::test::GraphemeWords[i];
+			str::u32::View s{ ptr, len };
 			std::vector<std::pair<size_t, size_t>> r = util::LoadRange(cp::detail::gen::test::GraphemeRangesIndex[i], cp::detail::gen::test::GraphemeRangesBlob);
 
 			/* test the ranges-object */
@@ -190,7 +191,8 @@ namespace tester {
 	static void Words() {
 		size_t errors = 0;
 		for (size_t i = 0; i < cp::detail::gen::test::WordCount; ++i) {
-			str::View s = cp::detail::gen::test::WordWords[i];
+			const auto [ptr, len] = cp::detail::gen::test::WordWords[i];
+			str::u32::View s{ ptr, len };
 			std::vector<std::pair<size_t, size_t>> r = util::LoadRange(cp::detail::gen::test::WordRangesIndex[i], cp::detail::gen::test::WordRangesBlob);
 
 			/* test the ranges-object */
@@ -218,7 +220,8 @@ namespace tester {
 	static void Sentences() {
 		size_t errors = 0;
 		for (size_t i = 0; i < cp::detail::gen::test::SentenceCount; ++i) {
-			str::View s = cp::detail::gen::test::SentenceWords[i];
+			const auto [ptr, len] = cp::detail::gen::test::SentenceWords[i];
+			str::u32::View s{ ptr, len };
 			std::vector<std::pair<size_t, size_t>> r = util::LoadRange(cp::detail::gen::test::SentenceRangesIndex[i], cp::detail::gen::test::SentenceRangesBlob);
 
 			/* test the ranges-object */
@@ -246,7 +249,8 @@ namespace tester {
 	static void Lines() {
 		size_t errors = 0;
 		for (size_t i = 0; i < cp::detail::gen::test::LineCount; ++i) {
-			str::View s = cp::detail::gen::test::LineWords[i];
+			const auto [ptr, len] = cp::detail::gen::test::LineWords[i];
+			str::u32::View s{ ptr, len };
 			std::vector<std::pair<size_t, size_t>> r = util::LoadRange(cp::detail::gen::test::LineRangesIndex[i], cp::detail::gen::test::LineRangesBlob);
 
 			/* test the ranges-object */
