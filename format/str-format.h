@@ -573,16 +573,16 @@ namespace str {
 			if (!rest.empty())
 				return false;
 
-			/* check if the character can just be added */
-			if (!escape && padding.minimum <= count && padding.maximum == 0) {
-				str::CodepointTo<str::CodeError::replace>(sink, val, count);
-				return true;
-			}
-
 			/* decode the character to a codepoint */
 			auto [cp, _] = str::GetCodepoint<str::CodeError::replace>(std::basic_string_view<Type>{ &val, 1 });
 			if (cp == str::Invalid)
 				return true;
+
+			/* check if the character can just be added */
+			if (!escape && padding.minimum <= count && padding.maximum == 0) {
+				str::CodepointTo<str::CodeError::replace>(sink, cp, count);
+				return true;
+			}
 
 			/* create the temporary buffer containing the single codepoint */
 			str::Local<char32_t, str::MaxEscapeSize> buffer;
