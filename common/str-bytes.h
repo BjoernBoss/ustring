@@ -84,18 +84,13 @@ namespace str {
 		class SourceLoad {
 		private:
 			std::vector<uint8_t> pBuffer;
-			Type& pSource;
 			str::Data pData;
+			Type& pSource;
 			bool pClosed = false;
 
 		public:
-			/* perform initial load to ensure closed-flag is set */
-			constexpr SourceLoad(Type& d) : pSource{ d } {
-				fLoad(0);
-			}
-			constexpr SourceLoad(Type&& d) : pSource{ d } {
-				fLoad(0);
-			}
+			constexpr SourceLoad(Type& d) : pSource{ d } {}
+			constexpr SourceLoad(Type&& d) : pSource{ d } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -125,7 +120,11 @@ namespace str {
 			constexpr void consume(size_t size) {
 				pData = pData.subspan(std::min<size_t>(pData.size(), size));
 			}
-			constexpr bool done() const {
+			constexpr bool done() {
+				/* check if the view is currently empty, in which case there might still
+				*	be more data available - fetch them to get an accurate close-state */
+				if (pData.empty() && !pClosed)
+					fLoad(0);
 				return (pData.empty() && pClosed);
 			}
 		};
@@ -166,7 +165,7 @@ namespace str {
 		constexpr void consume(size_t size = size_t(-1)) {
 			pImpl.consume(size);
 		}
-		constexpr bool done() const {
+		constexpr bool done() {
 			return pImpl.done();
 		}
 	};

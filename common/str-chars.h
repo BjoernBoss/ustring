@@ -120,18 +120,13 @@ namespace str {
 		class StreamLoad {
 		private:
 			std::basic_string<ChType> pBuffer;
-			Type& pStream;
 			std::basic_string_view<ChType> pView;
+			Type& pStream;
 			bool pClosed = false;
 
 		public:
-			/* perform initial load to ensure closed-flag is set */
-			constexpr StreamLoad(Type& s) : pStream{ s } {
-				fLoad(0);
-			}
-			constexpr StreamLoad(Type&& s) : pStream{ s } {
-				fLoad(0);
-			}
+			constexpr StreamLoad(Type& s) : pStream{ s } {}
+			constexpr StreamLoad(Type&& s) : pStream{ s } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -161,7 +156,11 @@ namespace str {
 			constexpr void consume(size_t size) {
 				pView = pView.substr(std::min<size_t>(pView.size(), size));
 			}
-			constexpr bool done() const {
+			constexpr bool done() {
+				/* check if the view is currently empty, in which case there might still
+				*	be more data available - fetch them to get an accurate close-state */
+				if (pView.empty() && !pClosed)
+					fLoad(0);
 				return (pView.empty() && pClosed);
 			}
 		};
@@ -205,7 +204,7 @@ namespace str {
 		constexpr void consume(size_t size = size_t(-1)) {
 			pImpl.consume(size);
 		}
-		constexpr bool done() const {
+		constexpr bool done() {
 			return pImpl.done();
 		}
 	};
