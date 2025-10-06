@@ -73,7 +73,7 @@ For convenience, `str::ch` / `str::wd` / ... have been provided, which add commo
 
 The idea of the library is to offer two functions of any kind, such as `str::Int` and `str::IntTo`, where the first function returns a new string-object of the result of the function, while the `To`-function writes the result to the character sink, which is passed in as the first argument.
 
-### [str::String, str::View, str::ustring, str::uview](str-string.h)
+### [str::String, str::View, str::ustring, str::ustring_view](str-string.h)
 The primary functionality is combined into the `str::String` or `str::View` wrapper. They extend `std::basic_string` or `std::basic_string_view` accordingly, and extend it with the new functionality. They both provide the same interface, and will therefore only be referenced through `str::View` here. This functionality includes various testing functions, transformations, normalizations, and unicode normalized or case-folded comparisons. This also includes functions, such as `lstrip` or `rstrip`. As an example:
 
 ```C++
@@ -81,7 +81,7 @@ std::u16string s = str::View{ L"abc-def" }.norm().to<std::u16string>();
 bool t = str::View{ U"\U0001F9D1\u200D\U0001F680" }.isEmoji();
 ```
 
-For convenience, `str::ustring` is defined as `str::String<char16_t, str::CodeError::replace>` and `str::uview` is defined as `str::View<char16_t, str::CodeError::replace>` to be used as default string types.
+For convenience, `str::ustring` is defined as `str::String<char16_t, str::CodeError::replace>` and `str::ustring_view` is defined as `str::View<char16_t, str::CodeError::replace>` to be used as default string types.
 
 ### [str::Float, str::Int, str::ParseNum](format/str-number.h)
 The number functions can parse any kind of number and produce float or integer-strings for any valid radix. The functions themselves can only be used with ascii-numbers. In order to use it for any other decimal-representation, such as arabic-indic digit `\u0664`, use the convenience function `str::View::asciiDecimals` function. Examples for interacting with numbers:

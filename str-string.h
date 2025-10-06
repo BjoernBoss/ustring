@@ -127,6 +127,7 @@ namespace str {
 	namespace detail {
 		template <class ChType, class BaseType, str::CodeError Error, class SelfType>
 		struct UWrapper : public BaseType {
+			template <class, class, str::CodeError, class> friend struct detail::UWrapper;
 		public:
 			/* character type of the current object */
 			using CharType = ChType;
@@ -276,32 +277,32 @@ namespace str {
 
 			/* skip the first codepoints until the tester returns false */
 			template <class TsType>
-			constexpr SelfType fLeftStrip(const TsType& tester) const {
+			constexpr ViewType fLeftStrip(const TsType& tester) const {
 				ItType it{ fBase(), 0, false };
 
 				/* iterate over the codepoints and look for the first fail */
 				while (it.valid()) {
 					if (!tester(it.get()))
-						return SelfType{ fBase().substr(it.base()) };
+						return ViewType{ fBase() }.substr(it.base());
 					it.advance();
 				}
-				return SelfType{};
+				return ViewType{};
 			}
 
 			/* skip the last codepoints until the tester returns false */
 			template <class TsType>
-			constexpr SelfType fRightStrip(const TsType& tester) const {
+			constexpr ViewType fRightStrip(const TsType& tester) const {
 				size_t lastEnd = fBase().size();
 				ItType it{ fBase(), lastEnd, true };
 
 				/* iterate over the codepoints and look for the first fail */
 				while (it.valid()) {
 					if (!tester(it.get()))
-						return SelfType{ fBase().substr(0, lastEnd) };
+						return ViewType{ fBase() }.substr(0, lastEnd);
 					lastEnd = it.base();
 					it.reverse();
 				}
-				return SelfType{};
+				return ViewType{};
 			}
 
 		public:
@@ -361,32 +362,32 @@ namespace str {
 		public:
 			/* strip any leading characters, which fulfill [prop::IsSpace] */
 			constexpr SelfType lstrip() const {
-				return fLeftStrip(cp::prop::IsSpace);
+				return SelfType{ fLeftStrip(cp::prop::IsSpace) };
 			}
 
 			/* strip any leading characters, which fulfill the tester */
 			constexpr SelfType lstrip(const str::IsTester auto& tester) const {
-				return fLeftStrip(tester);
+				return SelfType{ fLeftStrip(tester) };
 			}
 
 			/* strip any trailing characters, which fulfill [prop::IsSpace] */
 			constexpr SelfType rstrip() const {
-				return fRightStrip(cp::prop::IsSpace);
+				return SelfType{ fRightStrip(cp::prop::IsSpace) };
 			}
 
 			/* strip any trailing characters, which fulfill the tester */
 			constexpr SelfType rstrip(const str::IsTester auto& tester) const {
-				return fRightStrip(tester);
+				return SelfType{ fRightStrip(tester) };
 			}
 
 			/* strip any leading or trailing characters, which fulfill [prop::IsSpace] */
 			constexpr SelfType strip() const {
-				return fLeftStrip(cp::prop::IsSpace).fRightStrip(cp::prop::IsSpace);
+				return SelfType{ fLeftStrip(cp::prop::IsSpace).fRightStrip(cp::prop::IsSpace) };
 			}
 
 			/* strip any leading or trailing characters, which fulfill the tester */
 			constexpr SelfType strip(const str::IsTester auto& tester) const {
-				return fLeftStrip(tester).fRightStrip(tester);
+				return SelfType{ fLeftStrip(tester).fRightStrip(tester) };
 			}
 
 		public:

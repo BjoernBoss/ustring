@@ -146,5 +146,5 @@ namespace str {
 	using ustring = str::String<char16_t, str::CodeError::replace>;
 
 	/* default string-view-type for convenience [utf-16] */
-	using uview = str::View<char16_t, str::CodeError::replace>;
+	using ustring_view = str::View<char16_t, str::CodeError::replace>;
 }
