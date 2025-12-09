@@ -64,7 +64,7 @@ namespace str {
 					switch (dec.cp) {
 					case U'\\':
 					case U'/':
-					case U'"':
+					case U'\"':
 					case U'\'':
 					case U'?':
 						out.cp = dec.cp;

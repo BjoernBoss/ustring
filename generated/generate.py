@@ -612,11 +612,11 @@ class CodeGen:
 				if i > 0:
 					self._file.write(f',{"\n\t" if (i % valsPerLine) == 0 else ""}')
 				if btFormat:
-					self._file.write(f' {data[i]: #05x}')
+					self._file.write(f' {data[i]:#04x}')
 				elif wdFormat:
-					self._file.write(f' {data[i]: #07x}')
+					self._file.write(f' {data[i]:#06x}')
 				else:
-					self._file.write(f' {data[i]: #011x}')
+					self._file.write(f' {data[i]:#010x}')
 			self._file.writeln('\n};')
 
 	def _value(self, val: int) -> str:
