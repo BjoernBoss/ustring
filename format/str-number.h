@@ -239,12 +239,12 @@ namespace str {
 			0xadc93b67, 0x6cc856b3, 0x959d9d0b, 0x5b48c100, 0x4abe8a3d, 0x52d936f4, 0x71dbe84d, 0xf91c21c5,
 			0x4a458109, 0xd7aad86a, 0x08e14c7c, 0x759ba59c, 0xe43c8800, 0x00000017
 		};
-		static constexpr uint64_t PreComputedPowerTenSmall[detail::MaxPowerTenSplit] = {
-			0x0000000000000001, 0x000000000000000a, 0x0000000000000064, 0x00000000000003e8,
-			0x0000000000002710, 0x00000000000186a0, 0x00000000000f4240, 0x0000000000989680,
-			0x0000000005f5e100, 0x000000003b9aca00, 0x00000002540be400, 0x000000174876e800,
-			0x000000e8d4a51000, 0x000009184e72a000, 0x00005af3107a4000, 0x00038d7ea4c68000,
-			0x002386f26fc10000, 0x016345785d8a0000, 0x0de0b6b3a7640000, 0x8ac7230489e80000
+		static constexpr uint32_t PreComputedPowerTenSmall[detail::MaxPowerTenSplit * 2] = {
+			0x00000001, 0x00000000, 0x0000000a, 0x00000000, 0x00000064, 0x00000000, 0x000003e8, 0x00000000,
+			0x00002710, 0x00000000, 0x000186a0, 0x00000000, 0x000f4240, 0x00000000, 0x00989680, 0x00000000,
+			0x05f5e100, 0x00000000, 0x3b9aca00, 0x00000000, 0x540be400, 0x00000002, 0x4876e800, 0x00000017,
+			0xd4a51000, 0x000000e8, 0x4e72a000, 0x00000918, 0x107a4000, 0x00005af3, 0xa4c68000, 0x00038d7e,
+			0x6fc10000, 0x002386f2, 0x5d8a0000, 0x01634578, 0xa7640000, 0x0de0b6b3, 0x89e80000, 0x8ac72304
 		};
 
 		template <size_t Units>
@@ -596,7 +596,7 @@ namespace str {
 					temp.size = std::min<int32_t>(temp.capacity, entry.size);
 					int32_t skipped = (entry.size - temp.size);
 					temp.nulls = entry.nulls + skipped;
-					std::memcpy(&temp.data[0], &detail::PreComputedPowerTenData[entry.offset + skipped], sizeof(uint32_t) * temp.size);
+					std::copy(detail::PreComputedPowerTenData + entry.offset + skipped, detail::PreComputedPowerTenData + entry.offset + skipped + temp.size, std::begin(temp.data));
 
 					/* perform the multiplication */
 					out = detail::LargeMul<Units>(out, temp);
@@ -608,7 +608,7 @@ namespace str {
 					/* populate the intermediate large-int */
 					temp.nulls = 0;
 					temp.size = 2;
-					std::memcpy(&temp.data[0], &detail::PreComputedPowerTenSmall[small], sizeof(uint32_t) * temp.size);
+					std::copy(detail::PreComputedPowerTenSmall + small * 2, detail::PreComputedPowerTenSmall + small * 2 + temp.size, std::begin(temp.data));
 					if (temp.data[1] == 0)
 						--temp.size;
 

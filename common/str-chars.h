@@ -135,7 +135,7 @@ namespace str {
 				/* check if the cache should be reset and reset it to have enough capacity */
 				size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
 				if (offset >= pView.size()) {
-					std::memmove(pBuffer.data(), pView.data(), pView.size() * sizeof(ChType));
+					std::move(pView.begin(), pView.end(), pBuffer.begin());
 					offset = 0;
 				}
 				size_t endOfData = offset + pView.size();

@@ -99,7 +99,7 @@ namespace str {
 				/* check if the cache should be reset and reset it to have enough capacity */
 				size_t offset = (pData.empty() ? 0 : pData.data() - pBuffer.data());
 				if (offset >= pData.size()) {
-					std::memmove(pBuffer.data(), pData.data(), pData.size());
+					std::move(pData.begin(), pData.end(), pBuffer.begin());
 					offset = 0;
 				}
 				size_t endOfData = offset + pData.size();
