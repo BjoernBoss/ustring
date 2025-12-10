@@ -97,8 +97,8 @@ namespace str {
 	}
 
 	/* local string-buffer overflow/underflow exception */
-	struct LocalException : public str::RuntimeException {
-		LocalException(const std::wstring& s) : str::RuntimeException{ s } {}
+	struct LocalException : public str::RuntimeException<wchar_t> {
+		LocalException(const std::wstring& s) : str::RuntimeException<wchar_t>{ s } {}
 	};
 
 	/* [str::IsStr/str::IsSink] local stack-buffered string null-terminated string, to be appended to, for intermediate/temporary value building

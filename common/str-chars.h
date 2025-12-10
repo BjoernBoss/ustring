@@ -126,7 +126,6 @@ namespace str {
 
 		public:
 			constexpr StreamLoad(Type& s) : pStream{ s } {}
-			constexpr StreamLoad(Type&& s) : pStream{ s } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -187,7 +186,6 @@ namespace str {
 
 	public:
 		constexpr Stream(Type& s) : pImpl{ s } {}
-		constexpr Stream(Type&& s) : pImpl{ std::move(s) } {}
 
 	public:
 		constexpr std::basic_string_view<ChType> load(size_t size) {

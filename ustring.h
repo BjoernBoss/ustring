@@ -58,6 +58,13 @@ namespace str {
 		std::wcout << L'\n';
 	}
 
+	/* convenience to build an runtime exception */
+	template <str::IsChar ChType>
+	struct BuildException : public str::RuntimeException<ChType> {
+		template <class... Args>
+		constexpr BuildException(const Args&... args) : str::RuntimeException<ChType>{ str::Build<std::basic_string<ChType>>(args...) } {}
+	};
+
 	namespace detail {
 		template <class ChType>
 		struct StrConvenience {
@@ -67,6 +74,10 @@ namespace str {
 			using View = str::View<ChType, str::CodeError::replace>;
 
 			using String = str::String<ChType, str::CodeError::replace>;
+
+			using RuntimeException = str::RuntimeException<ChType>;
+
+			using BuildException = str::BuildException<ChType>;
 
 			static constexpr std::basic_string<ChType> Build(const str::IsFormattable auto&... args) {
 				return str::Build<std::basic_string<ChType>>(args...);
@@ -135,12 +146,6 @@ namespace str {
 	using lu16 = detail::LocConvenience<char16_t, Capacity>;
 	template <intptr_t Capacity>
 	using lu32 = detail::LocConvenience<char32_t, Capacity>;
-
-	/* convenience to build an runtime exception */
-	struct BuildException : public str::RuntimeException {
-		template <class... Args>
-		constexpr BuildException(const Args&... args) : str::RuntimeException{ str::Build<std::wstring>(args...) } {}
-	};
 
 	/* default string-type for convenience [utf-16] */
 	using ustring = str::String<char16_t, str::CodeError::replace>;

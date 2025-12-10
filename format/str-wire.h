@@ -244,10 +244,9 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& readTo(str::IsSink auto&& sink, const str::IsData auto& data) {
+		constexpr void readTo(str::IsSink auto&& sink, const str::IsData auto& data) {
 			str::Data _data = str::CallData(data);
 			fSinkInto(sink, _data.data(), _data.size(), false);
-			return sink;
 		}
 		template <str::IsSink SinkType>
 		constexpr SinkType read(const str::IsData auto& data) {
@@ -256,10 +255,9 @@ namespace str {
 			fSinkInto(out, _data.data(), _data.size(), false);
 			return out;
 		}
-		constexpr auto& lastTo(str::IsSink auto&& sink, const str::IsData auto& data) {
+		constexpr void lastTo(str::IsSink auto&& sink, const str::IsData auto& data) {
 			str::Data _data = str::CallData(data);
 			fSinkInto(sink, _data.data(), _data.size(), true);
-			return sink;
 		}
 		template <str::IsSink SinkType>
 		constexpr SinkType last(const str::IsData auto& data) {
@@ -340,7 +338,7 @@ namespace str {
 		}
 
 	public:
-		constexpr auto& write(str::IsWire auto&& sink, const str::IsStr auto& string) {
+		constexpr void write(str::IsWire auto&& sink, const str::IsStr auto& string) {
 			using ChType = str::StringChar<decltype(string)>;
 			std::basic_string_view<ChType> view{ string };
 
@@ -357,7 +355,6 @@ namespace str {
 				fProcess<ChType, char32_t, false, false>(sink, view);
 			else
 				fProcess<ChType, char8_t, false, true>(sink, view);
-			return sink;
 		}
 	};
 }

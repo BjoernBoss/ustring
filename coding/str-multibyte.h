@@ -144,7 +144,7 @@ namespace str {
 #pragma warning(push)
 #pragma warning(disable : 4996)
 
-			/* try to convert the character to the multi-byte presentation (no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
+				/* try to convert the character to the multi-byte presentation (no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
 				std::basic_string<char> buf(MB_CUR_MAX, '\0');
 				std::mbstate_t state{ 0 };
 				size_t res = std::wcrtomb(&buf[0], wc[0], &state);

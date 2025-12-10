@@ -150,7 +150,6 @@ namespace str {
 
 	public:
 		constexpr LimitSource(Type& source, size_t count) : pSource{ source }, pCount{ count } {}
-		constexpr LimitSource(Type&& source, size_t count) : pSource{ std::move(source) }, pCount{ count } {}
 
 	public:
 		constexpr size_t read(uint8_t* buffer, size_t size) {
@@ -173,7 +172,7 @@ namespace str {
 
 	public:
 		constexpr LimitStream(Type& stream, size_t count) : pStream{ stream }, pCount{ count } {}
-		constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::move(stream) }, pCount{ count } {}
+		//constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::move(stream) }, pCount{ count } {}
 
 	public:
 		constexpr size_t read(ChType* buffer, size_t size) {
@@ -199,7 +198,6 @@ namespace str {
 
 	public:
 		constexpr WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
-		constexpr WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::move(source) }, pWire{ coding, mode } {}
 
 	private:
 		constexpr void fLoad(size_t size) {
@@ -260,7 +258,6 @@ namespace str {
 
 	public:
 		constexpr WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
-		constexpr WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
 
 	public:
 		constexpr void write(std::u32string_view s) {
@@ -290,7 +287,6 @@ namespace str {
 
 	public:
 		constexpr U32Stream(Type& stream) : pStream{ stream } {}
-		constexpr U32Stream(Type&& stream) : pStream{ std::move(stream) } {}
 
 	private:
 		constexpr void fLoad(size_t size) {
@@ -364,7 +360,6 @@ namespace str {
 
 	public:
 		constexpr WireImplementation(Type& wire) : pWire{ wire } {}
-		constexpr WireImplementation(Type&& wire) : pWire{ wire } {}
 
 	public:
 		void write(const str::Data& d) override {
@@ -393,7 +388,6 @@ namespace str {
 
 	public:
 		constexpr SinkImplementation(Type& sink) : pSink{ sink } {}
-		constexpr SinkImplementation(Type&& sink) : pSink{ sink } {}
 
 	public:
 		void write(char32_t chr, size_t count) override {
@@ -424,7 +418,6 @@ namespace str {
 
 	public:
 		constexpr SourceImplementation(Type& source) : pSource{ source } {}
-		constexpr SourceImplementation(Type&& source) : pSource{ std::move(source) } {}
 
 	public:
 		size_t read(uint8_t* buffer, size_t size) override {
@@ -452,7 +445,6 @@ namespace str {
 
 	public:
 		StreamImplementation(Type& stream) : pStream{ stream } {}
-		StreamImplementation(Type&& stream) : pStream{ std::move(stream) } {}
 
 	public:
 		size_t read(char32_t* buffer, size_t size) override {
@@ -474,9 +466,6 @@ namespace str {
 
 	public:
 		constexpr BufferSink(Type& sink, size_t bufferSize) : pSink{ sink } {
-			pBuffer.resize(bufferSize);
-		}
-		constexpr BufferSink(Type&& sink, size_t bufferSize) : pSink{ sink } {
 			pBuffer.resize(bufferSize);
 		}
 		~BufferSink() {
@@ -530,9 +519,6 @@ namespace str {
 
 	public:
 		constexpr BufferWire(Type& wire, size_t bufferSize) : pWire{ wire } {
-			pBuffer.resize(bufferSize);
-		}
-		constexpr BufferWire(Type&& wire, size_t bufferSize) : pWire{ wire } {
 			pBuffer.resize(bufferSize);
 		}
 		~BufferWire() {

@@ -128,7 +128,7 @@ namespace str {
 	}
 
 	/* format the arguments into the sink, based on the formatting-string */
-	auto& FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
+	void FormatTo(str::IsSink auto&& sink, const str::IsStr auto& fmt, const str::IsFormattable auto&... args) {
 		using FmtType = str::StringChar<decltype(fmt)>;
 		using SinkType = str::SinkChar<decltype(sink)>;
 		enum class ArgValid : uint8_t {
@@ -230,7 +230,6 @@ namespace str {
 				break;
 			}
 		}
-		return sink;
 	}
 
 	/* format the arguments to an object of the given sink-type using str::FormatTo and return it */
@@ -242,11 +241,10 @@ namespace str {
 	}
 
 	/* build the arguments into the sink (as if formatting with format "{}{}{}...") */
-	constexpr auto& BuildTo(str::IsSink auto&& sink, const str::IsFormattable auto&... args) {
+	constexpr void BuildTo(str::IsSink auto&& sink, const str::IsFormattable auto&... args) {
 		using ChType = str::SinkChar<decltype(sink)>;
 		if constexpr (sizeof...(args) > 0)
 			detail::Append<ChType>(sink, args...);
-		return sink;
 	}
 
 	/* build the arguments to an object of the given sink-type using str::BuildTo and return it */
@@ -257,7 +255,8 @@ namespace str {
 		return sink;
 	}
 
-	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting) */
+	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting)
+	*	Note: Must not outlive the value object as it may store a reference to it */
 	template <str::IsStr FmtType, str::IsFormattable Type>
 	struct As {
 	public:

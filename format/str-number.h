@@ -1740,7 +1740,7 @@ namespace str {
 	}
 
 	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
-	constexpr auto& IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, str::ArgsInt args = {}) {
+	constexpr void IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, str::ArgsInt args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* ensure the radix is valid and print the integer */
@@ -1749,11 +1749,10 @@ namespace str {
 		bool addPrefix = (args.style == str::NumStyle::lowerWithPrefix || args.style == str::NumStyle::upperWithPrefix);
 		bool upperCase = (args.style == str::NumStyle::upper || args.style == str::NumStyle::upperWithPrefix);
 		detail::PrintInteger<NumType>(sink, num, args.radix, 0, addPrefix, upperCase);
-		return sink;
 	}
 
 	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
-	constexpr auto& FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::ArgsFloat args = {}) {
+	constexpr void FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::ArgsFloat args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* check if a hex-float has been requested and ensure the radix is valid */
@@ -1765,7 +1764,6 @@ namespace str {
 		bool addPrefix = (args.numStyle == str::NumStyle::lowerWithPrefix || args.numStyle == str::NumStyle::upperWithPrefix);
 		bool upperCase = (args.numStyle == str::NumStyle::upper || args.numStyle == str::NumStyle::upperWithPrefix);
 		detail::PrintFloat<NumType>(sink, num, args.fltStyle, args.radix, args.precision, addPrefix, upperCase, hexFloat);
-		return sink;
 	}
 
 	/* write the integer to an object of the given sink-type using str::IntTo and return it */

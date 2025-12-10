@@ -270,7 +270,7 @@ namespace str {
 	}
 
 	/* print value with optional leading [-] for the given radix with si-scale prefix to the sink and return the sink (using str::FloatTo) */
-	constexpr auto& SiValueTo(str::IsSink auto&& sink, const str::IsNumber auto& num, str::ArgsSiValue args = {}) {
+	constexpr void SiValueTo(str::IsSink auto&& sink, const str::IsNumber auto& num, str::ArgsSiValue args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* setup the scale to be used */
@@ -278,7 +278,7 @@ namespace str {
 
 		/* write the actual value out and append the si-scale */
 		str::FloatTo(sink, static_cast<double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });
-		return str::FastcodeAllTo<str::CodeError::nothing>(sink, scale.prefix);
+		str::FastcodeAllTo<str::CodeError::nothing>(sink, scale.prefix);
 	}
 
 	/* write the value to an object of the given sink-type using str::SiValueTo and return it */

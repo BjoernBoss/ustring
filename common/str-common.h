@@ -148,16 +148,17 @@ namespace str {
 		{ t(c) } -> std::same_as<bool>;
 	};
 
-	/* wide-string runtime-exception */
+	/* any-string runtime-exception */
+	template <str::IsChar ChType>
 	class RuntimeException {
 	private:
-		std::wstring pMessage;
+		std::basic_string<ChType> pMessage;
 
 	public:
-		RuntimeException(const std::wstring& msg) : pMessage{ msg } {}
+		RuntimeException(const std::basic_string<ChType>& msg) : pMessage{ msg } {}
 
 	public:
-		constexpr const std::wstring& what() const {
+		constexpr const std::basic_string<ChType>& what() const {
 			return pMessage;
 		}
 	};

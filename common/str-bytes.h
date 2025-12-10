@@ -50,9 +50,8 @@ namespace str {
 	}
 
 	/* wrapper to write to a byte-wire */
-	constexpr auto& CallWire(str::IsWire auto&& wire, const str::Data& data) {
+	constexpr void CallWire(str::IsWire auto&& wire, const str::Data& data) {
 		str::ByteWriter<std::remove_cvref_t<decltype(wire)>>{}(wire, data);
-		return wire;
 	}
 
 	/* wrapper to write to load data from a byte-source */
@@ -90,7 +89,6 @@ namespace str {
 
 		public:
 			constexpr SourceLoad(Type& d) : pSource{ d } {}
-			constexpr SourceLoad(Type&& d) : pSource{ d } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -148,7 +146,6 @@ namespace str {
 
 	public:
 		constexpr Source(Type& s) : pImpl{ s } {}
-		constexpr Source(Type&& s) : pImpl{ std::move(s) } {}
 
 	public:
 		constexpr str::Data load(size_t size) {

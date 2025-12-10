@@ -248,9 +248,8 @@ namespace str {
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */
 	template <str::CodeError Error = str::CodeError::replace>
-	constexpr auto& EscapeTo(str::IsSink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
+	constexpr void EscapeTo(str::IsSink auto&& sink, char32_t cp, bool compact = false, size_t count = 1) {
 		detail::EscapeTo<Error>(sink, cp, compact, count);
-		return sink;
 	}
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh, \u{(0|[1-9a-fA-F]h*)}
@@ -284,7 +283,7 @@ namespace str {
 
 	/* escape the entire source-string to the sink and return it */
 	template <str::CodeError Error = str::CodeError::replace>
-	constexpr auto& EscapeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source, bool compact = false) {
+	constexpr void EscapeAllTo(str::IsSink auto&& sink, const str::IsStr auto& source, bool compact = false) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -292,7 +291,6 @@ namespace str {
 		str::Iterator<ChType, Error> it{ view };
 		while (it.next())
 			str::EscapeTo<Error>(sink, it.get(), compact, 1);
-		return sink;
 	}
 
 	/* escape the entire source-string to an object of the given sink-type using str::EscapeAllTo and return it */
@@ -305,7 +303,7 @@ namespace str {
 
 	/* read the entire source-string as an escaped string and write it to the sink and return it */
 	template <str::CodeError Error = str::CodeError::replace>
-	constexpr auto& AllEscapedTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
+	constexpr void AllEscapedTo(str::IsSink auto&& sink, const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -319,7 +317,6 @@ namespace str {
 			/* write the codepoint back to the sink */
 			str::CodepointTo<Error>(sink, cp, 1);
 		}
-		return sink;
 	}
 
 	/* read the entire source-string as an escaped string and write it to an
