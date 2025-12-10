@@ -248,7 +248,7 @@ namespace str {
 	};
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
-	*	Note: Must not outlive target-wire as it stores a reference to it */
+	*	Note: Must not outlive wire as it stores a reference to it */
 	template <str::IsWire Type, str::CodeError Error = str::CodeError::replace>
 	class WireOut {
 		friend struct CharWriter<str::WireOut<Type, Error>>;
@@ -314,7 +314,8 @@ namespace str {
 				if (consumed == 0) {
 					auto [cp, consumed] = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
 					pStream.consume(consumed);
-					pBuffer.push_back(cp);
+					if (consumed > 0)
+						pBuffer.push_back(cp);
 					pClosed = true;
 					break;
 				}
@@ -453,7 +454,7 @@ namespace str {
 	};
 
 	/* [str::IsSink] struct to buffer the data before writing them out to the sink
-	*	Note: Must not outlive the stream as it stores a reference to it */
+	*	Note: Must not outlive the sink as it stores a reference to it */
 	template <str::IsSink Type>
 	struct BufferSink {
 	public:
@@ -509,7 +510,7 @@ namespace str {
 	};
 
 	/* [str::IsWire] struct to buffer the data before writing them out to the wire
-	*	Note: Must not outlive the stream as it stores a reference to it */
+	*	Note: Must not outlive the wire as it stores a reference to it */
 	template <str::IsWire Type>
 	struct BufferWire {
 	private:
