@@ -165,8 +165,13 @@ namespace str {
 		};
 	}
 
+	/* the base-type used for a given str::Stream object's template parameter */
+	template <class Type>
+	using StreamType = std::conditional_t<str::IsStr<Type>, std::remove_cvref_t<Type>, Type>;
+
 	/* [str::IsStream] stream-reader to interact with a char-stream
-	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream
+	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must
+	*	not outlive the stream; For strings as source, the underlying string will be referenced and must not outlive the stream
 	*	Important: Stream-object may build up state around the source-stream, which already extracts more
 	*	than requested and therefore source-streams should be passed around as str::Stream-objects
 	*	load(size_t i): load at least [i] characters, or any remaining, if [i] is larger than the stream, and return a reference to them
@@ -185,6 +190,7 @@ namespace str {
 		Impl pImpl;
 
 	public:
+		constexpr Stream(const str::IsStr auto& s) : pImpl{ s } {}
 		constexpr Stream(Type&& s) : pImpl{ std::forward<Type>(s) } {}
 
 	public:
@@ -206,6 +212,6 @@ namespace str {
 			return pImpl.done();
 		}
 	};
-	template <class Type> Stream(Type&) -> Stream<Type&>;
-	template <class Type> Stream(Type&&) -> Stream<Type>;
+	template <class Type> Stream(Type&) -> Stream<str::StreamType<Type&>>;
+	template <class Type> Stream(Type&&) -> Stream<str::StreamType<Type>>;
 }

@@ -128,8 +128,13 @@ namespace str {
 		};
 	}
 
+	/* the base-type used for a given str::Source object's template parameter */
+	template <class Type>
+	using SourceType = std::conditional_t<str::IsData<Type>, std::remove_cvref_t<Type>, Type>;
+
 	/* [str::IsSource] source-reader to interact with a byte-source
-	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source
+	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must
+	*	not outlive the source; For data as source, the underlying data will be referenced and must not outlive the source
 	*	Important: Source-object may build up state around the source, which already extracts more
 	*	than requested and therefore sources should be passed around as str::Source-objects
 	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them
@@ -145,6 +150,7 @@ namespace str {
 		Impl pImpl;
 
 	public:
+		constexpr Source(const str::IsData auto& s) : pImpl{ s } {}
 		constexpr Source(Type&& s) : pImpl{ std::forward<Type>(s) } {}
 
 	public:
@@ -166,6 +172,6 @@ namespace str {
 			return pImpl.done();
 		}
 	};
-	template <class Type> Source(Type&) -> Source<Type&>;
-	template <class Type> Source(Type&&) -> Source<Type>;
+	template <class Type> Source(Type&) -> Source<str::SourceType<Type&>>;
+	template <class Type> Source(Type&&) -> Source<str::SourceType<Type>>;
 }

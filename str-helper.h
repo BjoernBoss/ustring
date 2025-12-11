@@ -141,7 +141,7 @@ namespace str {
 	};
 
 	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
-	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
+	*	Note: lifetime requirements of str::Source apply */
 	template <str::IsSource Type>
 	class LimitSource {
 	private:
@@ -149,6 +149,7 @@ namespace str {
 		size_t pCount = 0;
 
 	public:
+		constexpr LimitSource(const str::IsData auto& source, size_t count) : pSource{ source }, pCount{ count } {}
 		constexpr LimitSource(Type&& source, size_t count) : pSource{ std::forward<Type>(source) }, pCount{ count } {}
 
 	public:
@@ -158,11 +159,11 @@ namespace str {
 			return size;
 		}
 	};
-	template <class Type> LimitSource(Type&, size_t) -> LimitSource<Type&>;
-	template <class Type> LimitSource(Type&&, size_t) -> LimitSource<Type>;
+	template <class Type> LimitSource(Type&, size_t) -> LimitSource<str::SourceType<Type&>>;
+	template <class Type> LimitSource(Type&&, size_t) -> LimitSource<str::SourceType<Type>>;
 
 	/* [str::IsStream] wrapper to create a stream which reads at most count-number of characters from the stream
-	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
+	*	Note: lifetime requirements of str::Stream apply */
 	template <str::IsStream Type>
 	class LimitStream {
 	public:
@@ -173,6 +174,7 @@ namespace str {
 		size_t pCount = 0;
 
 	public:
+		constexpr LimitStream(const str::IsStr auto& stream, size_t count) : pStream{ stream }, pCount{ count } {}
 		constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::forward<Type>(stream) }, pCount{ count } {}
 
 	public:
@@ -182,11 +184,11 @@ namespace str {
 			return size;
 		}
 	};
-	template <class Type> LimitStream(Type&, size_t) -> LimitStream<Type&>;
-	template <class Type> LimitStream(Type&&, size_t) -> LimitStream<Type>;
+	template <class Type> LimitStream(Type&, size_t) -> LimitStream<str::StreamType<Type&>>;
+	template <class Type> LimitStream(Type&&, size_t) -> LimitStream<str::StreamType<Type>>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
+	*	Note: lifetime requirements of str::Source apply */
 	template <str::IsSource Type, str::CodeError Error = str::CodeError::replace>
 	class WireIn {
 	private:
@@ -200,6 +202,7 @@ namespace str {
 		bool pClosed = false;
 
 	public:
+		constexpr WireIn(const str::IsData auto& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
 		constexpr WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::forward<Type>(source) }, pWire{ coding, mode } {}
 
 	private:
@@ -249,12 +252,12 @@ namespace str {
 			return size;
 		}
 	};
-	template <class Type> WireIn(Type&) -> WireIn<Type&>;
-	template <class Type> WireIn(Type&&) -> WireIn<Type>;
-	template <class Type> WireIn(Type&, str::WireCoding) -> WireIn<Type&>;
-	template <class Type> WireIn(Type&&, str::WireCoding) -> WireIn<Type>;
-	template <class Type> WireIn(Type&, str::WireCoding, str::BOMMode) -> WireIn<Type&>;
-	template <class Type> WireIn(Type&&, str::WireCoding, str::BOMMode) -> WireIn<Type>;
+	template <class Type> WireIn(Type&) -> WireIn<str::SourceType<Type&>>;
+	template <class Type> WireIn(Type&&) -> WireIn<str::SourceType<Type>>;
+	template <class Type> WireIn(Type&, str::WireCoding) -> WireIn<str::SourceType<Type&>>;
+	template <class Type> WireIn(Type&&, str::WireCoding) -> WireIn<str::SourceType<Type>>;
+	template <class Type> WireIn(Type&, str::WireCoding, str::BOMMode) -> WireIn<str::SourceType<Type&>>;
+	template <class Type> WireIn(Type&&, str::WireCoding, str::BOMMode) -> WireIn<str::SourceType<Type>>;
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
 	*	Note: For rvalues, a local move-constructed value of the wire is held, otherwise a reference is held and it must not outlive the wire */
@@ -284,7 +287,7 @@ namespace str {
 	template <class Type> WireOut(Type&&, str::WireCoding, bool) -> WireOut<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
-	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
+	*	Note: lifetime requirements of str::Stream apply */
 	template <str::IsStream Type, str::CodeError Error = str::CodeError::replace>
 	struct U32Stream {
 	public:
@@ -301,6 +304,7 @@ namespace str {
 		bool pClosed = false;
 
 	public:
+		constexpr U32Stream(const str::IsStr auto& stream) : pStream{ stream } {}
 		constexpr U32Stream(Type&& stream) : pStream{ std::forward<Type>(stream) } {}
 
 	private:
@@ -355,6 +359,8 @@ namespace str {
 			return size;
 		}
 	};
+	template <class Type> U32Stream(Type&) -> U32Stream<str::SourceType<Type&>>;
+	template <class Type> U32Stream(Type&&) -> U32Stream<str::SourceType<Type>>;
 
 	/* [str::IsWire] structure to inherit from which can be used as a wire */
 	struct InheritWire {
@@ -430,13 +436,14 @@ namespace str {
 
 	/* wrapper type to create str::InheritSource from any source-type
 	*	Note: cannot be directly used, as only str::InheritSource implements the source-specialization
-	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
+	*	Note: lifetime requirements of str::Source apply */
 	template <str::IsSource Type>
 	struct SourceImplementation final : public str::InheritSource {
 	private:
 		str::Source<Type> pSource;
 
 	public:
+		constexpr SourceImplementation(const str::IsData auto& source) : pSource{ source } {}
 		constexpr SourceImplementation(Type&& source) : pSource{ std::forward<Type>(source) } {}
 
 	public:
@@ -444,8 +451,8 @@ namespace str {
 			return pSource.read(buffer, size);
 		}
 	};
-	template <class Type> SourceImplementation(Type&) -> SourceImplementation<Type&>;
-	template <class Type> SourceImplementation(Type&&) -> SourceImplementation<Type>;
+	template <class Type> SourceImplementation(Type&) -> SourceImplementation<str::SourceType<Type&>>;
+	template <class Type> SourceImplementation(Type&&) -> SourceImplementation<str::SourceType<Type>>;
 
 	/* [str::IsStream] structure to inherit from which can be used as a stream */
 	struct InheritStream {
@@ -459,13 +466,14 @@ namespace str {
 
 	/* wrapper type to create str::InheritStream from any stream-type
 	*	Note: cannot be directly used, as only str::InheritStream implements the stream-specialization
-	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
+	*	Note: lifetime requirements of str::Stream apply */
 	template <str::IsStream Type>
 	struct StreamImplementation final : public str::InheritStream {
 	private:
 		str::U32Stream<Type, str::CodeError::replace> pStream;
 
 	public:
+		StreamImplementation(const str::IsStr auto& stream) : pStream{ stream } {}
 		StreamImplementation(Type&& stream) : pStream{ std::forward<Type>(stream) } {}
 
 	public:
@@ -473,8 +481,8 @@ namespace str {
 			return str::CallCharLoader(pStream, buffer, size);
 		}
 	};
-	template <class Type> StreamImplementation(Type&) -> StreamImplementation<Type&>;
-	template <class Type> StreamImplementation(Type&&) -> StreamImplementation<Type>;
+	template <class Type> StreamImplementation(Type&) -> StreamImplementation<str::StreamType<Type&>>;
+	template <class Type> StreamImplementation(Type&&) -> StreamImplementation<str::StreamType<Type>>;
 
 	/* [str::IsSink] struct to buffer the data before writing them out to the sink
 	*	Note: For rvalues, a local move-constructed value of the sink is held, otherwise a reference is held and it must not outlive the sink */
