@@ -84,11 +84,11 @@ namespace str {
 		private:
 			std::vector<uint8_t> pBuffer;
 			str::Data pData;
-			Type& pSource;
+			Type pSource;
 			bool pClosed = false;
 
 		public:
-			constexpr SourceLoad(Type& d) : pSource{ d } {}
+			constexpr SourceLoad(Type&& d) : pSource{ std::forward<Type>(d) } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -129,7 +129,8 @@ namespace str {
 	}
 
 	/* [str::IsSource] source-reader to interact with a byte-source
-	*	Note: Must not outlive the source object as it stores a reference to it
+	*	Note: Must not outlive the source object as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held
 	*	Important: Source-object may build up state around the source, which already extracts more
 	*	than requested and therefore sources should be passed around as str::Source-objects
 	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them
@@ -145,7 +146,7 @@ namespace str {
 		Impl pImpl;
 
 	public:
-		constexpr Source(Type& s) : pImpl{ s } {}
+		constexpr Source(Type&& s) : pImpl{ std::forward<Type>(s) } {}
 
 	public:
 		constexpr str::Data load(size_t size) {
@@ -166,4 +167,6 @@ namespace str {
 			return pImpl.done();
 		}
 	};
+	template <class Type> Source(Type&) -> Source<Type&>;
+	template <class Type> Source(Type&&) -> Source<Type>;
 }

@@ -141,7 +141,8 @@ namespace str {
 	};
 
 	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
-	*	Note: Must not outlive the source as it stores a reference to it */
+	*	Note: Must not outlive the source as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSource Type>
 	class LimitSource {
 	private:
@@ -149,7 +150,7 @@ namespace str {
 		size_t pCount = 0;
 
 	public:
-		constexpr LimitSource(Type& source, size_t count) : pSource{ source }, pCount{ count } {}
+		constexpr LimitSource(Type&& source, size_t count) : pSource{ std::forward<Type>(source) }, pCount{ count } {}
 
 	public:
 		constexpr size_t read(uint8_t* buffer, size_t size) {
@@ -158,9 +159,12 @@ namespace str {
 			return size;
 		}
 	};
+	template <class Type> LimitSource(Type&, size_t) -> LimitSource<Type&>;
+	template <class Type> LimitSource(Type&&, size_t) -> LimitSource<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads at most count-number of characters from the stream
-	*	Note: Must not outlive the stream as it stores a reference to it */
+	*	Note: Must not outlive the stream as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsStream Type>
 	class LimitStream {
 	public:
@@ -171,8 +175,7 @@ namespace str {
 		size_t pCount = 0;
 
 	public:
-		constexpr LimitStream(Type& stream, size_t count) : pStream{ stream }, pCount{ count } {}
-		//constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::move(stream) }, pCount{ count } {}
+		constexpr LimitStream(Type&& stream, size_t count) : pStream{ std::forward<Type>(stream) }, pCount{ count } {}
 
 	public:
 		constexpr size_t read(ChType* buffer, size_t size) {
@@ -181,9 +184,12 @@ namespace str {
 			return size;
 		}
 	};
+	template <class Type> LimitStream(Type&, size_t) -> LimitStream<Type&>;
+	template <class Type> LimitStream(Type&&, size_t) -> LimitStream<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: Must not outlive the source as it stores a reference to it */
+	*	Note: Must not outlive the source as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSource Type, str::CodeError Error = str::CodeError::replace>
 	class WireIn {
 	private:
@@ -197,7 +203,7 @@ namespace str {
 		bool pClosed = false;
 
 	public:
-		constexpr WireIn(Type& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
+		constexpr WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::forward<Type>(source) }, pWire{ coding, mode } {}
 
 	private:
 		constexpr void fLoad(size_t size) {
@@ -246,18 +252,25 @@ namespace str {
 			return size;
 		}
 	};
+	template <class Type> WireIn(Type&) -> WireIn<Type&>;
+	template <class Type> WireIn(Type&&) -> WireIn<Type>;
+	template <class Type> WireIn(Type&, str::WireCoding) -> WireIn<Type&>;
+	template <class Type> WireIn(Type&&, str::WireCoding) -> WireIn<Type>;
+	template <class Type> WireIn(Type&, str::WireCoding, str::BOMMode) -> WireIn<Type&>;
+	template <class Type> WireIn(Type&&, str::WireCoding, str::BOMMode) -> WireIn<Type>;
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
-	*	Note: Must not outlive wire as it stores a reference to it */
+	*	Note: Must not outlive wire as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsWire Type, str::CodeError Error = str::CodeError::replace>
 	class WireOut {
 		friend struct CharWriter<str::WireOut<Type, Error>>;
 	private:
-		Type& pSink;
+		Type pSink;
 		str::ToWire<Error> pWire;
 
 	public:
-		constexpr WireOut(Type& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ sink }, pWire{ coding, addBOM } {}
+		constexpr WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ std::forward<Type>(sink) }, pWire{ coding, addBOM } {}
 
 	public:
 		constexpr void write(std::u32string_view s) {
@@ -267,9 +280,16 @@ namespace str {
 			pWire.write(pSink, std::u32string_view{ &c, 1 });
 		}
 	};
+	template <class Type> WireOut(Type&) -> WireOut<Type&>;
+	template <class Type> WireOut(Type&&) -> WireOut<Type>;
+	template <class Type> WireOut(Type&, str::WireCoding) -> WireOut<Type&>;
+	template <class Type> WireOut(Type&&, str::WireCoding) -> WireOut<Type>;
+	template <class Type> WireOut(Type&, str::WireCoding, bool) -> WireOut<Type&>;
+	template <class Type> WireOut(Type&&, str::WireCoding, bool) -> WireOut<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
-	*	Note: Must not outlive the source as it stores a reference to it */
+	*	Note: Must not outlive the source as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsStream Type, str::CodeError Error = str::CodeError::replace>
 	struct U32Stream {
 	public:
@@ -286,7 +306,7 @@ namespace str {
 		bool pClosed = false;
 
 	public:
-		constexpr U32Stream(Type& stream) : pStream{ stream } {}
+		constexpr U32Stream(Type&& stream) : pStream{ std::forward<Type>(stream) } {}
 
 	private:
 		constexpr void fLoad(size_t size) {
@@ -353,20 +373,23 @@ namespace str {
 
 	/* wrapper type to create str::InheritWire from any wire-type
 	*	Note: cannot be directly used, as only str::InheritWire implements the wire-specialization
-	*	Note: Must not outlive the wire as it stores a reference to it */
+	*	Note: Must not outlive the wire as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsWire Type>
 	struct WireImplementation final : public str::InheritWire {
 	private:
-		Type& pWire;
+		Type pWire;
 
 	public:
-		constexpr WireImplementation(Type& wire) : pWire{ wire } {}
+		constexpr WireImplementation(Type&& wire) : pWire{ std::forward<Type>(wire) } {}
 
 	public:
 		void write(const str::Data& d) override {
 			str::CallWire(pWire, d);
 		}
 	};
+	template <class Type> WireImplementation(Type&) -> WireImplementation<Type&>;
+	template <class Type> WireImplementation(Type&&) -> WireImplementation<Type>;
 
 	/* [str::IsSink] structure to inherit from which can be used as a sink */
 	struct InheritSink {
@@ -381,14 +404,15 @@ namespace str {
 
 	/* wrapper type to create str::InheritSink from any sink-type
 	*	Note: cannot be directly used, as only str::InheritSink implements the sink-specialization
-	*	Note: Must not outlive the sink as it stores a reference to it */
+	*	Note: Must not outlive the sink as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSink Type>
 	struct SinkImplementation final : public str::InheritSink {
 	private:
-		Type& pSink;
+		Type pSink;
 
 	public:
-		constexpr SinkImplementation(Type& sink) : pSink{ sink } {}
+		constexpr SinkImplementation(Type&& sink) : pSink{ std::forward<Type>(sink) } {}
 
 	public:
 		void write(char32_t chr, size_t count) override {
@@ -398,6 +422,8 @@ namespace str {
 			str::FastcodeAllTo<str::CodeError::replace>(pSink, s);
 		}
 	};
+	template <class Type> SinkImplementation(Type&) -> SinkImplementation<Type&>;
+	template <class Type> SinkImplementation(Type&&) -> SinkImplementation<Type>;
 
 	/* [str::IsSource] structure to inherit from which can be used as a source */
 	struct InheritSource {
@@ -411,20 +437,23 @@ namespace str {
 
 	/* wrapper type to create str::InheritSource from any source-type
 	*	Note: cannot be directly used, as only str::InheritSource implements the source-specialization
-	*	Note: Must not outlive the wire as it stores a reference to it */
+	*	Note: Must not outlive the wire as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSource Type>
 	struct SourceImplementation final : public str::InheritSource {
 	private:
 		str::Source<Type> pSource;
 
 	public:
-		constexpr SourceImplementation(Type& source) : pSource{ source } {}
+		constexpr SourceImplementation(Type&& source) : pSource{ std::forward<Type>(source) } {}
 
 	public:
 		size_t read(uint8_t* buffer, size_t size) override {
 			return pSource.read(buffer, size);
 		}
 	};
+	template <class Type> SourceImplementation(Type&) -> SourceImplementation<Type&>;
+	template <class Type> SourceImplementation(Type&&) -> SourceImplementation<Type>;
 
 	/* [str::IsStream] structure to inherit from which can be used as a stream */
 	struct InheritStream {
@@ -438,23 +467,27 @@ namespace str {
 
 	/* wrapper type to create str::InheritStream from any stream-type
 	*	Note: cannot be directly used, as only str::InheritStream implements the stream-specialization
-	*	Note: Must not outlive the stream as it stores a reference to it */
+	*	Note: Must not outlive the stream as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsStream Type>
 	struct StreamImplementation final : public str::InheritStream {
 	private:
 		str::U32Stream<Type, str::CodeError::replace> pStream;
 
 	public:
-		StreamImplementation(Type& stream) : pStream{ stream } {}
+		StreamImplementation(Type&& stream) : pStream{ std::forward<Type>(stream) } {}
 
 	public:
 		size_t read(char32_t* buffer, size_t size) override {
 			return str::CallCharLoader(pStream, buffer, size);
 		}
 	};
+	template <class Type> StreamImplementation(Type&) -> StreamImplementation<Type&>;
+	template <class Type> StreamImplementation(Type&&) -> StreamImplementation<Type>;
 
 	/* [str::IsSink] struct to buffer the data before writing them out to the sink
-	*	Note: Must not outlive the sink as it stores a reference to it */
+	*	Note: Must not outlive the sink as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSink Type>
 	struct BufferSink {
 	public:
@@ -462,11 +495,11 @@ namespace str {
 
 	private:
 		std::basic_string<ChType> pBuffer;
-		Type& pSink;
+		Type pSink;
 		size_t pContent = 0;
 
 	public:
-		constexpr BufferSink(Type& sink, size_t bufferSize) : pSink{ sink } {
+		constexpr BufferSink(Type&& sink, size_t bufferSize) : pSink{ std::forward<Type>(sink) } {
 			pBuffer.resize(bufferSize);
 		}
 		~BufferSink() {
@@ -508,18 +541,21 @@ namespace str {
 			}
 		}
 	};
+	template <class Type> BufferSink(Type&, size_t) -> BufferSink<Type&>;
+	template <class Type> BufferSink(Type&&, size_t) -> BufferSink<Type>;
 
 	/* [str::IsWire] struct to buffer the data before writing them out to the wire
-	*	Note: Must not outlive the wire as it stores a reference to it */
+	*	Note: Must not outlive the wire as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsWire Type>
 	struct BufferWire {
 	private:
 		std::vector<uint8_t> pBuffer;
-		Type& pWire;
+		Type pWire;
 		size_t pContent = 0;
 
 	public:
-		constexpr BufferWire(Type& wire, size_t bufferSize) : pWire{ wire } {
+		constexpr BufferWire(Type&& wire, size_t bufferSize) : pWire{ std::forward<Type>(wire) } {
 			pBuffer.resize(bufferSize);
 		}
 		~BufferWire() {
@@ -548,4 +584,6 @@ namespace str {
 			}
 		}
 	};
+	template <class Type> BufferWire(Type&, size_t) -> BufferWire<Type&>;
+	template <class Type> BufferWire(Type&&, size_t) -> BufferWire<Type>;
 }

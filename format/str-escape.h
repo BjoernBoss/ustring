@@ -14,7 +14,7 @@
 *		\u{hhhh} (hhhh describing a hex-number from 0-10ffff interpreted as unicode-codepoint without leading nulls)
 *
 *	Escape sequences will be encoded out as single codepoints, not as one whole unit,
-*		as each codepoint in itself is a valid codepoint enocding
+*		as each codepoint in itself is a valid codepoint encoding
 */
 namespace str {
 	namespace detail {
@@ -172,7 +172,7 @@ namespace str {
 		}
 
 		template <str::CodeError Error>
-		constexpr inline void EscapeTo(auto&& sink, char32_t cp, bool compact, size_t count) {
+		constexpr inline void EscapeTo(auto& sink, char32_t cp, bool compact, size_t count) {
 			const char32_t* escaped = 0;
 
 			/* check if the character is an escape sequence */

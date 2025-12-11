@@ -122,7 +122,7 @@ namespace str {
 				return { cp, uint32_t(len) };
 			}
 		}
-		inline bool MakeChar(auto&& sink, char32_t cp) {
+		inline bool MakeChar(auto& sink, char32_t cp) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
 				return detail::MakeUtf8<char>(sink, cp);

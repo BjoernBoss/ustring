@@ -110,7 +110,7 @@ namespace cp {
 			detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 		public:
-			constexpr CaseMapper(CollType&& collector, detail::CaseLocale locale) : pCollector{ collector }, pLocale(locale) {}
+			constexpr CaseMapper(CollType&& collector, detail::CaseLocale locale) : pCollector{ std::forward<CollType>(collector) }, pLocale(locale) {}
 
 		private:
 			constexpr Condition fAfterState(uint32_t val) const {
@@ -480,7 +480,9 @@ namespace cp {
 		};
 	}
 
-	/* [str::IsMapper] create a collector, which writes the upper-cased stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the upper-cased stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class UpperCase {
 	public:
 		template <str::IsCollector CollType>
@@ -496,12 +498,14 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
-	/* [str::IsMapper] create a collector, which writes the lower-cased stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the lower-cased stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class LowerCase {
 	public:
 		template <str::IsCollector CollType>
@@ -517,12 +521,14 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
-	/* [str::IsMapper] create a collector, which writes the title-cased stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the title-cased stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class TitleCase {
 	public:
 		template <str::IsCollector CollType>
@@ -538,12 +544,14 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
-	/* [str::IsMapper] create a collector, which writes the case-folded stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the case-folded stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class FoldCase {
 	public:
 		template <str::IsCollector CollType>
@@ -559,32 +567,32 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is upper-cased (i.e. cp::UpperCase(...) would result in the same codepoints) */
 	class TestUpperCase : public detail::TestCasing<detail::UpperMapper> {
 	public:
-		constexpr TestUpperCase(std::wstring_view locale = {}) : detail::TestCasing<detail::UpperMapper>(locale) {}
+		constexpr TestUpperCase(std::wstring_view locale = {}) : detail::TestCasing<detail::UpperMapper>{ locale } {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is lower-cased (i.e. cp::LowerCase(...) would result in the same codepoints) */
 	class TestLowerCase : public detail::TestCasing<detail::LowerMapper> {
 	public:
-		constexpr TestLowerCase(std::wstring_view locale = {}) : detail::TestCasing<detail::LowerMapper>(locale) {}
+		constexpr TestLowerCase(std::wstring_view locale = {}) : detail::TestCasing<detail::LowerMapper>{ locale } {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is title-cased (i.e. cp::TitleCase(...) would result in the same codepoints) */
 	class TestTitleCase : public detail::TestCasing<detail::TitleMapper> {
 	public:
-		constexpr TestTitleCase(std::wstring_view locale = {}) : detail::TestCasing<detail::TitleMapper>(locale) {}
+		constexpr TestTitleCase(std::wstring_view locale = {}) : detail::TestCasing<detail::TitleMapper>{ locale } {}
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is case-folded (i.e. cp::FoldCase(...) would result in the same codepoints) */
 	class TestFoldCase : public detail::TestCasing<detail::FoldingMapper> {
 	public:
-		constexpr TestFoldCase(std::wstring_view locale = {}) : detail::TestCasing<detail::FoldingMapper>(locale) {}
+		constexpr TestFoldCase(std::wstring_view locale = {}) : detail::TestCasing<detail::FoldingMapper>{ locale } {}
 	};
 }

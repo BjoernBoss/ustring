@@ -36,7 +36,7 @@ namespace str {
 			else
 				return detail::PrevUtf32<wchar_t>(begin, cur);
 		}
-		inline constexpr bool MakeWide(auto&& sink, char32_t cp) {
+		inline constexpr bool MakeWide(auto& sink, char32_t cp) {
 			if constexpr (str::WideIsUtf16)
 				return detail::MakeUtf16<wchar_t>(sink, cp);
 			else

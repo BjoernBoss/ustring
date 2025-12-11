@@ -50,7 +50,7 @@ namespace cp {
 
 		public:
 			template <class... Args>
-			constexpr BreakSingle(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ recv } {}
+			constexpr BreakSingle(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
@@ -93,7 +93,7 @@ namespace cp {
 
 		public:
 			template <class... Args>
-			constexpr BreakRanges(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ recv } {}
+			constexpr BreakRanges(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
@@ -356,7 +356,7 @@ namespace cp {
 			bool pRICountOdd = false;
 
 		public:
-			constexpr GraphemeForward(RecvType&& recv) : pRecv{ recv } {}
+			constexpr GraphemeForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
 
 		private:
 			constexpr bool fGB9cHasConsonant() const {
@@ -701,7 +701,7 @@ namespace cp {
 			bool pRICountOdd = false;
 
 		public:
-			constexpr WordForward(RecvType&& recv) : pRecv{ recv } {}
+			constexpr WordForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
 
 		private:
 			constexpr Host::Type fSkipWB4(Host::Type) const {
@@ -1047,7 +1047,7 @@ namespace cp {
 			bool pUncertain = false;
 
 		public:
-			constexpr SentenceForward(RecvType&& recv) : pRecv{ recv } {}
+			constexpr SentenceForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
 
 		private:
 			constexpr Host::Chain fGetChainState() const {
@@ -1719,7 +1719,7 @@ namespace cp {
 			cp::BreakMode pCombineValue = cp::BreakMode::none;
 
 		public:
-			constexpr PrimitiveLineForward(RecvType&& recv, bool emergencyAware) : pRecv{ recv } {
+			constexpr PrimitiveLineForward(RecvType&& recv, bool emergencyAware) : pRecv{ std::forward<RecvType>(recv) } {
 				if (emergencyAware)
 					pCombineValue = cp::BreakMode::emergency;
 			}
@@ -2053,7 +2053,7 @@ namespace cp {
 
 		public:
 			constexpr LineForward(RecvType&& recv, bool emergencyBreak, bool graphemeAware) : pGrapheme{ GrLambda{ *this } },
-				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ recv }, pGraphemes{ graphemeAware } {
+				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ std::forward<RecvType>(recv) }, pGraphemes{ graphemeAware } {
 			}
 
 		public:
@@ -2087,8 +2087,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2103,8 +2103,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2130,8 +2130,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2146,8 +2146,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2173,8 +2173,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2189,8 +2189,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv) };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
 	};
 
@@ -2223,8 +2223,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 
@@ -2246,8 +2246,8 @@ namespace cp {
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
-		constexpr Type<std::remove_cvref_t<RecvType>> operator()(RecvType&& recv) const {
-			return Type<std::remove_cvref_t<RecvType>>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+		constexpr Type<RecvType> operator()(RecvType&& recv) const {
+			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
 		}
 	};
 

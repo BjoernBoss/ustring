@@ -87,7 +87,7 @@ namespace str {
 			return { char32_t(cp), len };
 		}
 		template <class ChType>
-		inline constexpr bool MakeUtf8(auto&& sink, char32_t cp) {
+		inline constexpr bool MakeUtf8(auto& sink, char32_t cp) {
 			/* check if its a single character, which can just be pushed */
 			if (cp <= 0x7f) {
 				str::CallSink(sink, ChType(cp), 1);

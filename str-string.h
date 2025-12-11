@@ -15,14 +15,15 @@
 */
 namespace str {
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
-	*	Note: Must not outlive the sink object as it stores a reference to it */
+	*	Note: Must not outlive the sink object as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsSink SinkType>
 	struct Collect {
 	private:
-		SinkType& pSink;
+		SinkType pSink;
 
 	public:
-		constexpr Collect(SinkType& sink) : pSink{ sink } {}
+		constexpr Collect(SinkType&& sink) : pSink{ std::forward<SinkType>(sink) } {}
 
 	public:
 		constexpr void next(char32_t cp) {
@@ -30,10 +31,12 @@ namespace str {
 		}
 		constexpr void done() {}
 	};
-	template <class SinkType>
-	Collect(SinkType&) -> Collect<SinkType>;
+	template <class Type> Collect(Type&) -> Collect<Type&>;
+	template <class Type> Collect(Type&&) -> Collect<Type>;
 
-	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object */
+	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object
+	*	Note: Must not outlive the sink object as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	template <str::IsReceiver<char32_t> CallType>
 	struct ForEach {
 	private:
@@ -48,6 +51,8 @@ namespace str {
 		}
 		constexpr void done() {}
 	};
+	template <class Type> ForEach(Type&) -> ForEach<Type&>;
+	template <class Type> ForEach(Type&&) -> ForEach<Type>;
 
 	template <str::IsChar ChType, str::CodeError>
 	struct String;
@@ -66,13 +71,13 @@ namespace str {
 	public:
 		using Super::Super;
 		View(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		View(std::basic_string_view<ChType>&& v) : Super{ v } {}
+		View(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
 		View(const str::View<ChType, OError>& v) : Super{ v } {}
 		template <str::CodeError OError>
-		View(str::View<ChType, OError>&& v) : Super{ v } {}
+		View(str::View<ChType, OError>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
@@ -80,16 +85,11 @@ namespace str {
 		template <str::CodeError OError>
 		View(str::String<ChType, OError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 	};
-	template <str::IsChStr<char> Type>
-	View(Type) -> View<char, str::CodeError::replace>;
-	template <str::IsChStr<wchar_t> Type>
-	View(Type) -> View<wchar_t, str::CodeError::replace>;
-	template <str::IsChStr<char8_t> Type>
-	View(Type) -> View<char8_t, str::CodeError::replace>;
-	template <str::IsChStr<char16_t> Type>
-	View(Type) -> View<char16_t, str::CodeError::replace>;
-	template <str::IsChStr<char32_t> Type>
-	View(Type) -> View<char32_t, str::CodeError::replace>;
+	template <str::IsChStr<char> Type> View(Type) -> View<char, str::CodeError::replace>;
+	template <str::IsChStr<wchar_t> Type> View(Type) -> View<wchar_t, str::CodeError::replace>;
+	template <str::IsChStr<char8_t> Type> View(Type) -> View<char8_t, str::CodeError::replace>;
+	template <str::IsChStr<char16_t> Type> View(Type) -> View<char16_t, str::CodeError::replace>;
+	template <str::IsChStr<char32_t> Type> View(Type) -> View<char32_t, str::CodeError::replace>;
 
 	/* [str::IsStr/str::IsSink] wrap std::string to support the extended unicode-operations */
 	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
@@ -100,29 +100,24 @@ namespace str {
 	public:
 		using Super::Super;
 		explicit String(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		explicit String(std::basic_string_view<ChType>&& v) : Super{ v } {}
+		explicit String(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
 		String(const str::String<ChType, OError>& v) : Super{ v } {}
 		template <str::CodeError OError>
-		String(str::String<ChType, OError>&& v) : Super{ v } {}
+		String(str::String<ChType, OError>&& v) : Super{ std::move(v) } {}
 
 	public:
 		constexpr operator str::View<ChType, Error>() const {
 			return str::View<ChType, Error>{ *static_cast<const std::basic_string<ChType>*>(this) };
 		}
 	};
-	template <str::IsChStr<char> Type>
-	String(Type) -> String<char, str::CodeError::replace>;
-	template <str::IsChStr<wchar_t> Type>
-	String(Type) -> String<wchar_t, str::CodeError::replace>;
-	template <str::IsChStr<char8_t> Type>
-	String(Type) -> String<char8_t, str::CodeError::replace>;
-	template <str::IsChStr<char16_t> Type>
-	String(Type) -> String<char16_t, str::CodeError::replace>;
-	template <str::IsChStr<char32_t> Type>
-	String(Type) -> String<char32_t, str::CodeError::replace>;
+	template <str::IsChStr<char> Type> String(Type) -> String<char, str::CodeError::replace>;
+	template <str::IsChStr<wchar_t> Type> String(Type) -> String<wchar_t, str::CodeError::replace>;
+	template <str::IsChStr<char8_t> Type> String(Type) -> String<char8_t, str::CodeError::replace>;
+	template <str::IsChStr<char16_t> Type> String(Type) -> String<char16_t, str::CodeError::replace>;
+	template <str::IsChStr<char32_t> Type> String(Type) -> String<char32_t, str::CodeError::replace>;
 
 	namespace detail {
 		template <class ChType, class BaseType, str::CodeError Error, class SelfType>
@@ -144,7 +139,7 @@ namespace str {
 		public:
 			using BaseType::BaseType;
 			UWrapper(const BaseType& v) : BaseType{ v } {}
-			UWrapper(BaseType&& v) : BaseType{ v } {}
+			UWrapper(BaseType&& v) : BaseType{ std::move(v) } {}
 
 		private:
 			constexpr const BaseType& fBase() const {
@@ -164,25 +159,25 @@ namespace str {
 
 			/* final type of lambda for all transforms applied to the final collector */
 			template <class CollType, class... Transforms>
-			using TransType = typename TransTypeRec<std::remove_cvref_t<CollType>, std::remove_cvref_t<Transforms>...>::type;
+			using TransType = typename TransTypeRec<CollType, std::remove_cvref_t<Transforms>...>::type;
 
 			/* construct the final transform to apply all transformations and write it to the final collector */
 			template <class CollType>
 			static constexpr TransType<CollType> fTransform(CollType&& collector) {
-				return collector;
+				return std::forward<CollType>(collector);
 			}
 			template <class CollType, class Transform, class... Transforms>
-			static constexpr TransType<CollType, Transform, Transforms...> fTransform(CollType&& collector, Transform&& transform, Transforms&&... transforms) {
+			static constexpr TransType<CollType, Transform, Transforms...> fTransform(CollType&& collector, const Transform& transform, const Transforms&... transforms) {
 				if constexpr (sizeof...(Transforms) == 0)
 					return transform(std::forward<CollType>(collector));
 				else
-					return transform(fTransform<CollType, Transforms...>(std::forward<CollType>(collector), std::forward<Transforms>(transforms)...));
+					return transform(fTransform<CollType, Transforms...>(std::forward<CollType>(collector), transforms...));
 			}
 
 			/* iterate over all codepoints of the current object and apply the given transformation and collector to it */
 			template <class CollType, class... Transforms>
-			constexpr void fApply(CollType&& collector, Transforms&&... transforms) const {
-				TransType<CollType, Transforms...> transform = fTransform<CollType, Transforms...>(std::forward<CollType>(collector), std::forward<Transforms>(transforms)...);
+			constexpr void fApply(CollType&& collector, const Transforms&... transforms) const {
+				TransType<CollType, Transforms...> transform = fTransform<CollType, Transforms...>(std::forward<CollType>(collector), transforms...);
 				ItType it{ fBase() };
 
 				/* pass all codepoints into the transformation */
@@ -219,11 +214,12 @@ namespace str {
 				return true;
 			}
 
+			/* iterate over all codepoints of the two strings, apply the transformations, and check if the strings match */
 			template <class AChType, class BChType, class... Transforms>
-			static bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, Transforms&&... transforms) {
-				bool valid = true;
+			static bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, const Transforms&... transforms) {
 				detail::LocalBuffer<char32_t> buffer;
 				int8_t state = 0;
+				bool valid = true;
 
 				/* construct the two iterators to iterate across the two strings */
 				str::Iterator<AChType, Error> aIt{ a };
@@ -394,56 +390,56 @@ namespace str {
 			/* convert the string to upper-case using cp::UpperCase */
 			constexpr StrType upper(std::wstring_view locale = {}) const {
 				StrType out;
-				fApply(str::Collect(out), cp::UpperCase{ locale });
+				fApply(str::Collect{ out }, cp::UpperCase{ locale });
 				return out;
 			}
 
 			/* convert the string to lower-case using cp::LowerCase */
 			constexpr StrType lower(std::wstring_view locale = {}) const {
 				StrType out;
-				fApply(str::Collect(out), cp::LowerCase{ locale });
+				fApply(str::Collect{ out }, cp::LowerCase{ locale });
 				return out;
 			}
 
 			/* convert the string to title-case using cp::TitleCase */
 			StrType title(std::wstring_view locale = {}) const {
 				StrType out;
-				fApply(str::Collect(out), cp::TitleCase{ locale });
+				fApply(str::Collect{ out }, cp::TitleCase{ locale });
 				return out;
 			}
 
 			/* convert the string to case-folded using cp::FoldCase */
 			constexpr StrType fold(std::wstring_view locale = {}) const {
 				StrType out;
-				fApply(str::Collect(out), cp::FoldCase{ locale });
+				fApply(str::Collect{ out }, cp::FoldCase{ locale });
 				return out;
 			}
 
 			/* convert the string to its composed normalization form (NFC) using cp::Compose */
 			constexpr StrType compose() const {
 				StrType out;
-				fApply(str::Collect(out), cp::Compose{});
+				fApply(str::Collect{ out }, cp::Compose{});
 				return out;
 			}
 
 			/* convert the string to its decomposed normalization form (NFD) using cp::Decompose */
 			constexpr StrType decompose() const {
 				StrType out;
-				fApply(str::Collect(out), cp::Decompose{});
+				fApply(str::Collect{ out }, cp::Decompose{});
 				return out;
 			}
 
 			/* convert the string to its normalized form (NFD) using cp::Decompose */
 			constexpr StrType norm() const {
 				StrType out;
-				fApply(str::Collect(out), cp::Decompose{});
+				fApply(str::Collect{ out }, cp::Decompose{});
 				return out;
 			}
 
 			/* convert the string to its case-folded normalized form (NFD) using cp::NormFold */
 			constexpr StrType inorm(std::wstring_view locale = {}) const {
 				StrType out;
-				fApply(str::Collect(out), cp::NormFold{ locale });
+				fApply(str::Collect{ out }, cp::NormFold{ locale });
 				return out;
 			}
 
@@ -612,15 +608,16 @@ namespace str {
 
 		public:
 			/* apply all of the transformations in nested order and write the result to the collector */
-			constexpr void transformTo(str::IsCollector auto&& collector, const str::IsMapper auto&... mapper) {
-				fApply(collector, mapper...);
+			template <str::IsCollector CollType>
+			constexpr void transformTo(CollType&& collector, const str::IsMapper auto&... mapper) {
+				fApply(std::forward<CollType>(collector), mapper...);
 			}
 
 			/* apply all of the transformations in nested order and write the result to an object of the given type and return it */
 			template <str::IsSink SinkType>
 			constexpr SinkType transform(const str::IsMapper auto&... mapper) {
 				SinkType out{};
-				fApply(str::Collect(out), mapper...);
+				fApply(str::Collect{ out }, mapper...);
 				return out;
 			}
 

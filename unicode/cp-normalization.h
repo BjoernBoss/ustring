@@ -30,7 +30,7 @@ namespace cp {
 			CollType pCollector;
 
 		public:
-			constexpr DecompMapper(CollType&& collector) : pCollector{ collector } {}
+			constexpr DecompMapper(CollType&& collector) : pCollector{ std::forward<CollType>(collector) } {}
 
 		private:
 			constexpr void fFlush() {
@@ -132,7 +132,7 @@ namespace cp {
 			HSState pHSState = HSState::none;
 
 		public:
-			constexpr CompMapper(CollType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ collector } {}
+			constexpr CompMapper(CollType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ std::forward<CollType>(collector) } {}
 
 		private:
 			constexpr void fFlush() {
@@ -320,7 +320,9 @@ namespace cp {
 		};
 	}
 
-	/* [str::IsMapper] create a collector, which writes the decomposed-normalized (NFD) stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the decomposed-normalized (NFD) stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class Decompose {
 	public:
 		template <str::IsCollector CollType>
@@ -331,12 +333,14 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector) };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector) };
 		}
 	};
 
-	/* [str::IsMapper] create a collector, which writes the composed-normalized (NFC) stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the composed-normalized (NFC) stream to the given collector
+	*	Note: Collector must not outlive the source collector as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
 	class Compose {
 	public:
 		template <str::IsCollector CollType>
@@ -347,8 +351,8 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector) };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector) };
 		}
 	};
 
@@ -366,8 +370,8 @@ namespace cp {
 
 	public:
 		template <str::IsCollector CollType>
-		constexpr Type<std::remove_cvref_t<CollType>> operator()(CollType&& collector) const {
-			return Type<std::remove_cvref_t<CollType>>{ std::forward<CollType>(collector), pLocale };
+		constexpr Type<CollType> operator()(CollType&& collector) const {
+			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
 	};
 

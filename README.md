@@ -192,7 +192,7 @@ while (it0.valid())
 map.done();
 
 /* testing a string to be uppercase */
-auto tester = cp::TestUpperCase{ 0 };
+auto tester = cp::TestUpperCase{};
 while (it1.valid())
     tester.next(it1.next());
 bool t = tester.done();

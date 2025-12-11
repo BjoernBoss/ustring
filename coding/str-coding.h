@@ -150,7 +150,7 @@ namespace str {
 				return detail::PrevChar(begin, cur);
 		}
 		template <class ChType>
-		inline constexpr bool EncodeCodepoint(auto&& sink, char32_t cp) {
+		inline constexpr bool EncodeCodepoint(auto& sink, char32_t cp) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
 				return detail::MakeUtf8<char8_t>(sink, cp);
 			else if constexpr (std::is_same_v<ChType, char16_t>)
@@ -177,7 +177,7 @@ namespace str {
 		}
 
 		template <class ChType, str::CodeError Error>
-		inline constexpr bool EncodeSingle(auto&& sink, char32_t cp) {
+		inline constexpr bool EncodeSingle(auto& sink, char32_t cp) {
 			if (detail::EncodeCodepoint<ChType>(sink, cp))
 				return true;
 
@@ -275,7 +275,7 @@ namespace str {
 			return out;
 		}
 		template <str::CodeError Error>
-		inline constexpr void EncodeTo(auto&& sink, char32_t cp, size_t count) {
+		inline constexpr void EncodeTo(auto& sink, char32_t cp, size_t count) {
 			using ChType = str::SinkChar<decltype(sink)>;
 
 			/* check if the codepoint can directly be written to the sink */
@@ -536,7 +536,7 @@ namespace str {
 
 	namespace detail {
 		template <str::CodeError Error, bool FastMode, class SinkType, class SourceType>
-		constexpr void ConvertCodesTo(SinkType&& sink, SourceType& source) {
+		constexpr void ConvertCodesTo(SinkType& sink, SourceType& source) {
 			using SChType = str::StringChar<decltype(source)>;
 			using DChType = str::SinkChar<decltype(sink)>;
 			std::basic_string_view<SChType> view{ source };

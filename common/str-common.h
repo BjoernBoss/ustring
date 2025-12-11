@@ -126,11 +126,13 @@ namespace str {
 	};
 
 	/* codepoint-mapper must receive a collector to which it writes the mapped content
-	*	and return a collector and expose the type of the new collector as ::Type */
+	*	and return a collector and expose the type of the new collector as ::Type (must
+	*	propagate the input type forward and wrap it - if rvalue or lvalue) */
 	template <class Type>
 	concept IsMapper = requires(const Type t, detail::EmptyCollector c) {
 		typename Type::template Type<detail::EmptyCollector>;
-		{ t(c) } -> std::same_as<typename Type::template Type<detail::EmptyCollector>>;
+		{ t(std::move(c)) } -> std::same_as<typename Type::template Type<detail::EmptyCollector>>;
+		{ t(c) } -> std::same_as<typename Type::template Type<detail::EmptyCollector&>>;
 		{ t(c) } -> str::IsCollector;
 	};
 

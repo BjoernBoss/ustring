@@ -28,7 +28,7 @@ namespace str {
 			return { char32_t(val), 1 };
 		}
 		template <class ChType>
-		constexpr bool MakeUtf32(auto&& sink, char32_t cp) {
+		constexpr bool MakeUtf32(auto& sink, char32_t cp) {
 			if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
 				return false;
 			if (cp >= detail::UnicodeRange)

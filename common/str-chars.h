@@ -121,11 +121,11 @@ namespace str {
 		private:
 			std::basic_string<ChType> pBuffer;
 			std::basic_string_view<ChType> pView;
-			Type& pStream;
+			Type pStream;
 			bool pClosed = false;
 
 		public:
-			constexpr StreamLoad(Type& s) : pStream{ s } {}
+			constexpr StreamLoad(Type&& s) : pStream{ std::forward<Type>(s) } {}
 
 		private:
 			constexpr void fLoad(size_t size) {
@@ -167,6 +167,7 @@ namespace str {
 
 	/* [str::IsStream] stream-reader to interact with a char-stream
 	*	Note: Must not outlive the stream object as it may store a reference to it
+	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held
 	*	Important: Stream-object may build up state around the source-stream, which already extracts more
 	*	than requested and therefore source-streams should be passed around as str::Stream-objects
 	*	load(size_t i): load at least [i] characters, or any remaining, if [i] is larger than the stream, and return a reference to them
@@ -185,7 +186,7 @@ namespace str {
 		Impl pImpl;
 
 	public:
-		constexpr Stream(Type& s) : pImpl{ s } {}
+		constexpr Stream(Type&& s) : pImpl{ std::forward<Type>(s) } {}
 
 	public:
 		constexpr std::basic_string_view<ChType> load(size_t size) {
@@ -206,4 +207,6 @@ namespace str {
 			return pImpl.done();
 		}
 	};
+	template <class Type> Stream(Type&) -> Stream<Type&>;
+	template <class Type> Stream(Type&&) -> Stream<Type>;
 }

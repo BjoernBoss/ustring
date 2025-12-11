@@ -58,7 +58,7 @@ namespace str {
 			return { char32_t(0x10000 + ((first & 0x03ff) << 10) | (second & 0x03ff)), 2 };
 		}
 		template <class ChType>
-		inline constexpr bool MakeUtf16(auto&& sink, char32_t cp) {
+		inline constexpr bool MakeUtf16(auto& sink, char32_t cp) {
 			/* check if its a single utf16-token */
 			if (cp < 0x10000) {
 				if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
