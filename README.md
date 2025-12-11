@@ -64,6 +64,15 @@ A source for strings is anything that is convertible to an `std::basic_string_vi
 
 To further support streaming of data, `str::IsStream` exists for character streams, and `str::IsSource` for byte streams. In order to use them properly, `str::Stream` or `str::Source` exist, which wrap the type, and build up internal cached states to prevent repeated fetching of data, and allowing lookaheads.
 
+There exist various helper objects, which wrap the types, such as `str::BufferSink`. Generally speaking, the entire library is designed to either store a reference to the source object, if it is constructed with an `lvalue`, and store a move-constructed copy of the source object, if it is constructed with an `rvalue`. This allows the following two examples to compile, while retaining an expected lifetime:
+
+```C++
+str::Build(str::BufferSink{ std::fstream("/some/file"), 40 }, "abc", '-', U"def");
+std::string buffer;
+str::Build(str::BufferSink{ buffer, 60 }, "abc", '-', U"def");
+```
+
+
 ## Standard Functionality
 The standard string functionality lies in the namespace `str` for all string-related operations.
 
