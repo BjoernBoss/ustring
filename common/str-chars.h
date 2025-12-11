@@ -200,7 +200,7 @@ namespace str {
 			pImpl.consume(size);
 			return size;
 		}
-		constexpr void consume(size_t size = size_t(-1)) {
+		constexpr void consume(size_t size = std::numeric_limits<size_t>::max()) {
 			pImpl.consume(size);
 		}
 		constexpr bool done() {

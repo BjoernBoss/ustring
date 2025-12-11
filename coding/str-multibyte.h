@@ -54,9 +54,9 @@ namespace str {
 
 				/* check if the character is invalid or considered incomplete and otherwise
 				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
-				if (res == size_t(-1))
+				if (res == static_cast<size_t>(-1))
 					return { str::Invalid, 1 };
-				if (res == size_t(-2)) {
+				if (res == static_cast<size_t>(-2)) {
 					/* ensure the max character-length promise is not broken */
 					if (AllowIncomplete && size_t(end - cur) < detail::CharLen)
 						return { str::Invalid, 0 };
@@ -97,7 +97,7 @@ namespace str {
 					size_t res = std::mbrtowc(&wc, cur - len, len, &state);
 
 					/* check if the character is still considered invalid (probably not a valid start) */
-					if (res == size_t(-1)) {
+					if (res == static_cast<size_t>(-1)) {
 						if (len >= max)
 							return { str::Invalid, 1 };
 						++len;
@@ -105,7 +105,7 @@ namespace str {
 					}
 
 					/* check if the character is considered incomplete, in which case the next character must be considered invalid */
-					if (res == size_t(-2))
+					if (res == static_cast<size_t>(-2))
 						return { str::Invalid, 1 };
 
 					/* ensure that the length matches the actual length */
@@ -152,7 +152,7 @@ namespace str {
 
 				/* check if the character could not be converted or if the converted character would break the promise of
 				*	the string-conversion max encoding length in which case the codepoint is not considered encodable */
-				if (res == size_t(-1) || res > detail::CharLen)
+				if (res == static_cast<size_t>(-1) || res > detail::CharLen)
 					return false;
 
 				/* write the characters to the sink (res should never be zero) */
@@ -179,7 +179,7 @@ namespace str {
 
 				/* check if the character is invalid or considered incomplete and otherwise
 				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
-				if (res == size_t(-1) || res == size_t(-2))
+				if (res == static_cast<size_t>(-1) || res == static_cast<size_t>(-2))
 					return 0;
 				uint32_t len = (res == 0 ? 1 : uint32_t(res));
 

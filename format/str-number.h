@@ -97,7 +97,7 @@ namespace str {
 	/* valid radix range as well as radix indicating float is a hex-float */
 	static constexpr size_t MinRadix = 2;
 	static constexpr size_t MaxRadix = 36;
-	static constexpr size_t HexFloat = size_t(-1);
+	static constexpr size_t HexFloat = std::numeric_limits<size_t>::max();
 
 	/* to be used for number arguments */
 	struct ArgsParse {
