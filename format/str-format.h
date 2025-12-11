@@ -256,7 +256,7 @@ namespace str {
 	}
 
 	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting)
-	*	Note: Must not outlive the value object as it may store a reference to it */
+	*	Note: Must not outlive the value object as it stores a reference to it */
 	template <str::IsStr FmtType, str::IsFormattable Type>
 	struct As {
 	public:

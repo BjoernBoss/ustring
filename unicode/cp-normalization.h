@@ -321,8 +321,8 @@ namespace cp {
 	}
 
 	/* [str::IsMapper] create a collector, which writes the decomposed-normalized (NFD) stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class Decompose {
 	public:
 		template <str::IsCollector CollType>
@@ -339,8 +339,8 @@ namespace cp {
 	};
 
 	/* [str::IsMapper] create a collector, which writes the composed-normalized (NFC) stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class Compose {
 	public:
 		template <str::IsCollector CollType>
@@ -356,7 +356,9 @@ namespace cp {
 		}
 	};
 
-	/* [str::IsMapper] create a collector, which writes the casefolded and decomposed-normalized (NFD) stream to the given collector */
+	/* [str::IsMapper] create a collector, which writes the casefolded and decomposed-normalized (NFD) stream to the given collector
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class NormFold {
 	public:
 		template <str::IsCollector CollType>

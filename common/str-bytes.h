@@ -129,8 +129,7 @@ namespace str {
 	}
 
 	/* [str::IsSource] source-reader to interact with a byte-source
-	*	Note: Must not outlive the source object as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held
+	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source
 	*	Important: Source-object may build up state around the source, which already extracts more
 	*	than requested and therefore sources should be passed around as str::Source-objects
 	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them

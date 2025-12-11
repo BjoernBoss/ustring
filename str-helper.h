@@ -141,8 +141,7 @@ namespace str {
 	};
 
 	/* [str::IsSource] wrapper to create a source which reads at most count-number of bytes from the source
-	*	Note: Must not outlive the source as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
 	template <str::IsSource Type>
 	class LimitSource {
 	private:
@@ -163,8 +162,7 @@ namespace str {
 	template <class Type> LimitSource(Type&&, size_t) -> LimitSource<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads at most count-number of characters from the stream
-	*	Note: Must not outlive the stream as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
 	template <str::IsStream Type>
 	class LimitStream {
 	public:
@@ -188,8 +186,7 @@ namespace str {
 	template <class Type> LimitStream(Type&&, size_t) -> LimitStream<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the byte-source and passes them to a str::FromWire object
-	*	Note: Must not outlive the source as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
 	template <str::IsSource Type, str::CodeError Error = str::CodeError::replace>
 	class WireIn {
 	private:
@@ -260,8 +257,7 @@ namespace str {
 	template <class Type> WireIn(Type&&, str::WireCoding, str::BOMMode) -> WireIn<Type>;
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
-	*	Note: Must not outlive wire as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the wire is held, otherwise a reference is held and it must not outlive the wire */
 	template <str::IsWire Type, str::CodeError Error = str::CodeError::replace>
 	class WireOut {
 		friend struct CharWriter<str::WireOut<Type, Error>>;
@@ -270,7 +266,7 @@ namespace str {
 		str::ToWire<Error> pWire;
 
 	public:
-		constexpr WireOut(Type&& sink, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ std::forward<Type>(sink) }, pWire{ coding, addBOM } {}
+		constexpr WireOut(Type&& wire, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ std::forward<Type>(wire) }, pWire{ coding, addBOM } {}
 
 	public:
 		constexpr void write(std::u32string_view s) {
@@ -288,8 +284,7 @@ namespace str {
 	template <class Type> WireOut(Type&&, str::WireCoding, bool) -> WireOut<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
-	*	Note: Must not outlive the source as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
 	template <str::IsStream Type, str::CodeError Error = str::CodeError::replace>
 	struct U32Stream {
 	public:
@@ -373,8 +368,7 @@ namespace str {
 
 	/* wrapper type to create str::InheritWire from any wire-type
 	*	Note: cannot be directly used, as only str::InheritWire implements the wire-specialization
-	*	Note: Must not outlive the wire as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the wire is held, otherwise a reference is held and it must not outlive the wire */
 	template <str::IsWire Type>
 	struct WireImplementation final : public str::InheritWire {
 	private:
@@ -404,8 +398,7 @@ namespace str {
 
 	/* wrapper type to create str::InheritSink from any sink-type
 	*	Note: cannot be directly used, as only str::InheritSink implements the sink-specialization
-	*	Note: Must not outlive the sink as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the sink is held, otherwise a reference is held and it must not outlive the sink */
 	template <str::IsSink Type>
 	struct SinkImplementation final : public str::InheritSink {
 	private:
@@ -437,8 +430,7 @@ namespace str {
 
 	/* wrapper type to create str::InheritSource from any source-type
 	*	Note: cannot be directly used, as only str::InheritSource implements the source-specialization
-	*	Note: Must not outlive the wire as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the source is held, otherwise a reference is held and it must not outlive the source */
 	template <str::IsSource Type>
 	struct SourceImplementation final : public str::InheritSource {
 	private:
@@ -467,8 +459,7 @@ namespace str {
 
 	/* wrapper type to create str::InheritStream from any stream-type
 	*	Note: cannot be directly used, as only str::InheritStream implements the stream-specialization
-	*	Note: Must not outlive the stream as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream */
 	template <str::IsStream Type>
 	struct StreamImplementation final : public str::InheritStream {
 	private:
@@ -486,8 +477,7 @@ namespace str {
 	template <class Type> StreamImplementation(Type&&) -> StreamImplementation<Type>;
 
 	/* [str::IsSink] struct to buffer the data before writing them out to the sink
-	*	Note: Must not outlive the sink as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the sink is held, otherwise a reference is held and it must not outlive the sink */
 	template <str::IsSink Type>
 	struct BufferSink {
 	public:
@@ -545,8 +535,7 @@ namespace str {
 	template <class Type> BufferSink(Type&&, size_t) -> BufferSink<Type>;
 
 	/* [str::IsWire] struct to buffer the data before writing them out to the wire
-	*	Note: Must not outlive the wire as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the wire is held, otherwise a reference is held and it must not outlive the wire */
 	template <str::IsWire Type>
 	struct BufferWire {
 	private:

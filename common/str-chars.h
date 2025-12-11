@@ -166,8 +166,7 @@ namespace str {
 	}
 
 	/* [str::IsStream] stream-reader to interact with a char-stream
-	*	Note: Must not outlive the stream object as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held
+	*	Note: For rvalues, a local move-constructed value of the stream is held, otherwise a reference is held and it must not outlive the stream
 	*	Important: Stream-object may build up state around the source-stream, which already extracts more
 	*	than requested and therefore source-streams should be passed around as str::Stream-objects
 	*	load(size_t i): load at least [i] characters, or any remaining, if [i] is larger than the stream, and return a reference to them

@@ -481,8 +481,8 @@ namespace cp {
 	}
 
 	/* [str::IsMapper] create a collector, which writes the upper-cased stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class UpperCase {
 	public:
 		template <str::IsCollector CollType>
@@ -504,8 +504,8 @@ namespace cp {
 	};
 
 	/* [str::IsMapper] create a collector, which writes the lower-cased stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class LowerCase {
 	public:
 		template <str::IsCollector CollType>
@@ -527,8 +527,8 @@ namespace cp {
 	};
 
 	/* [str::IsMapper] create a collector, which writes the title-cased stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class TitleCase {
 	public:
 		template <str::IsCollector CollType>
@@ -550,8 +550,8 @@ namespace cp {
 	};
 
 	/* [str::IsMapper] create a collector, which writes the case-folded stream to the given collector
-	*	Note: Collector must not outlive the source collector as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
+	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class FoldCase {
 	public:
 		template <str::IsCollector CollType>

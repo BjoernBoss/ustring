@@ -15,8 +15,7 @@
 */
 namespace str {
 	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
-	*	Note: Must not outlive the sink object as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the sink is held, otherwise a reference is held and it must not outlive the sink */
 	template <str::IsSink SinkType>
 	struct Collect {
 	private:
@@ -35,8 +34,7 @@ namespace str {
 	template <class Type> Collect(Type&&) -> Collect<Type>;
 
 	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object
-	*	Note: Must not outlive the sink object as it may store a reference to it
-	*	Note: For rvalues, a local move-constructed value of Type is held, otherwise a reference is held */
+	*	Note: For rvalues, a local move-constructed value of the receiver is held, otherwise a reference is held and it must not outlive the receiver */
 	template <str::IsReceiver<char32_t> CallType>
 	struct ForEach {
 	private:
