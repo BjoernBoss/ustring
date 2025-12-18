@@ -311,7 +311,7 @@ namespace str {
 	public:
 		struct iterator {
 		public:
-			using iterator_category = std::input_iterator_tag;
+			using iterator_category = std::bidirectional_iterator_tag;
 			using iterator_concept = std::bidirectional_iterator_tag;
 			using value_type = const char32_t;
 			using difference_type = std::ptrdiff_t;

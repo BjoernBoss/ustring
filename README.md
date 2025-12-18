@@ -4,6 +4,15 @@
 
 Header only library written in `C++20` to add support for various unicode operations and interoperability between all string types. Simply include [`ustring.h`](ustring.h) to add the entire functionality.
 
+Core concepts: This library is not necessarily the fastest in every scenario, but it aspires to be versatile and usable for every case. This includes not making any assumptions about character encodings, supporting encoding and decoding from every character coding to every coding, while resulting in accurate decodings and encodings. This enables things such as:
+
+```C++
+std::string s = str::Build<std::string>("ab", u"cd", U"ef", L"gh", u8"ij", 50, 90.0f);
+std::string t = str::View{ s }.upper();
+std::u32string u = str::Float<std::u32string>(123.5f);
+```
+This results in `UTF` coding correct and `Unicode` based casing rules, without requiring additional libraries or such to be installed.
+
 It includes functions to perform various unicode testing, segmentation, transformations, and analysis functions. Further, it adds the ability to parse and print numbers from any string type, format strings to any string type, serialize and deserialize string types to bytes, escape strings, and convert string types to each other as correctly as possible.
 
 The library consideres any object to be convertible to a `string_view` of any type as a valid string.
