@@ -467,6 +467,9 @@ class Ranges:
 	def merge(a: list[Range], b: list[Range], conflictHandler) -> list[Range]:
 		return Ranges._setIteration(a, b, False, lambda a, b: Ranges._conflictUnionOperation(a, b, conflictHandler))
 	@staticmethod
+	def deepMerge(a: list[Range], b: list[Range], conflictHandler) -> list[Range]:
+		return Ranges._setIteration(a, b, False, conflictHandler)
+	@staticmethod
 	def union(a: list[Range], b: list[Range]) -> list[Range]:
 		return Ranges._setIteration(a, b, False, Ranges._unionOperation)
 	@staticmethod
@@ -1713,7 +1716,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		decimalRanges = unicodeData.values(lambda fs: int(fs[5]) + decimalValSub if fs[5] != '' and fs[5] in '0123456789' else None)
 		_gen: CodeGen = file.next('Decimal', 'Automatically generated from: Unicode Numeric_Type=Decimal: [0-9]')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 4
-		if 9 + decimalValSub >= 2**propertyBits:
+		if 9 + decimalValSub >= (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all values')
 		_gen.addConstInt(_type, 'PropertyDecimalOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyDecimalMask', (0x01 << propertyBits) - 1)
@@ -1732,7 +1735,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('PrintableType', 'none', ['none', 'printable', 'printSpace'])
 		_gen: CodeGen = file.next('Printable', 'Automatically generated from: Unicode General_Category is L*,M*,N*,P*,S* or optionally Zs')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
-		if len(_enum.enumValues()) > 2**propertyBits:
+		if len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyPrintableOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyPrintableMask', (0x01 << propertyBits) - 1)
@@ -1747,7 +1750,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('CaseType', 'none', ['none', 'lowerCase', 'upperCase', 'titleCase'])
 		_gen: CodeGen = file.next('Case', 'Automatically generated from: Unicode derived property Lowercase, Uppercase or General_Category Lt')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 2
-		if len(_enum.enumValues()) > 2**propertyBits:
+		if len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyCaseOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyCaseMask', (0x01 << propertyBits) - 1)
@@ -1765,7 +1768,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('CategoryType', 'cn', ['cn', 'lu', 'll', 'lt', 'lm', 'lo', 'mn', 'mc', 'me', 'nd', 'nl', 'no', 'pc', 'pd', 'ps', 'pe', 'pi', 'pf', 'po', 'sm', 'sc', 'sk', 'so', 'zs', 'zl', 'zp', 'cc', 'cf', 'cs', 'co'])
 		_gen: CodeGen = file.next('Category', 'Automatically generated from: Unicode General_Category')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
-		if len(_enum.enumValues()) > 2**propertyBits:
+		if len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyCategoryOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyCategoryMask', (0x01 << propertyBits) - 1)
@@ -1788,7 +1791,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('EmojiType', 'modBase', emojiType)
 		_gen: CodeGen = file.next('Emoji', 'Automatically generated from: Unicode Emoji/Emoji_Modifier_Base/Emoji_Modifier/Emoji_Presentation/...')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 6
-		if 2 + len(_enum.enumValues()) > 2**propertyBits:
+		if 2 + len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		flagIsEmoji = 0x01 << propertyOffset
 		flagIsEmojiPresentation = 0x02 << propertyOffset
@@ -1802,7 +1805,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		propertyRanges = Ranges.merge(Ranges.translate(emojiRanges, lambda _, v: (v[0] << propertyOffset + 2)), propertyRanges, lambda a, b: a[0]|b[0])
 		propertyDefValue = (_enum.defValue() << propertyOffset + 2) | propertyDefValue
 
-		# write the east-asian-width data to the file (https://www.unicode.org/reports/tr11)
+		# write the east-asian-width data to the file (https://www.unicode.org/reports/tr11); ensure eaRangesDef is 0, such that it will also be the de-facto default value
 		eaIdMap = { 'N': 0, 'F': 1, 'H': 2, 'W': 3, 'Na': 4, 'A': 5 }
 		eaRanges, eaRangesDef = eaWidth.singleMissing(lambda fs: eaIdMap[fs[0]])
 		if eaRangesDef != (eaIdMap['N'],):
@@ -1810,7 +1813,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('EAWidthType', 'neutral', ['neutral', 'fullWidth', 'halfWidth', 'wide', 'narrow', 'ambiguous'])
 		_gen: CodeGen = file.next('EastAsianWidth', 'Automatically generated from: Unicode East_Asian_Width')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 3
-		if len(_enum.enumValues()) > 2**propertyBits:
+		if len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyEAWidthOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyEAWidthMask', (0x01 << propertyBits) - 1)
@@ -1831,7 +1834,7 @@ def MakePropertyLookup(outPath: str, config: SystemConfig) -> None:
 		_enum: LookupType = LookupType.enumType('BidiType', 'l', ['l', 'r', 'al', 'en', 'es', 'et', 'an', 'cs', 'nsm', 'bn', 'b', 's', 'ws', 'on', 'lre', 'lro', 'rle', 'rlo', 'pdf', 'lri', 'rli', 'fsi', 'pdi', '_end'])
 		_gen: CodeGen = file.next('BidiClass', 'Automatically generated from: Bidi_Class (Currently unused)')
 		propertyOffset, propertyBits = (propertyOffset + propertyBits), 5
-		if len(_enum.enumValues()) > 2**propertyBits:
+		if len(_enum.enumValues()) > (1 << propertyBits):
 			raise RuntimeError('Too few bits to encode all enum values')
 		_gen.addConstInt(_type, 'PropertyBidiOff', propertyOffset)
 		_gen.addConstInt(_type, 'PropertyBidiMask', (0x01 << propertyBits) - 1)
@@ -2149,15 +2152,17 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		wordConflictMap = { (wordEnumMap['ALetter'], wordEnumMap['Extended_Pictographic']): wordEnumMap['ALetterExtendedPictographic'] }
 		wordRanges = Ranges.merge(wordRanges, emojiData.values(lambda fs: wordEnumMap[fs[0]] if fs[0] == 'Extended_Pictographic' else None), lambda a, b: _SegmentationMergeConflicts(a, b, wordConflictMap, 'word ranges and emoji properties'))
 
-		# write the word-ranges to the file
+		# write the word data to the file
 		_enum: LookupType = LookupType.enumType('WordType', 'other', ['other', 'cr', 'lf', 'newline', 'extend', 'zwj', 'regionalIndicator', 'format', 'katakana', 'hebrewLetter', 'aLetterDef', 'singleQuote', 'doubleQuote', 'midNumLetter', 'midLetter', 'midNum', 'numeric', 'extendNumLet', 'wSegSpace', 'extendedPictographic', 'aLetterExtendedPictographic', '_end'])
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		_gen: CodeGen = file.next('Word', 'Automatically generated from: Unicode WordBreakProperty and EmojiData')
 		_gen.addConstInt(_type8, 'WordSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(wordRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+
+		# merge the word ranges into the segmentation ranges (ensure that even a default value of non-zero is correct - will not be caught by the def-value)
+		segmentationRanges = Ranges.deepMerge(segmentationRanges, wordRanges, lambda a, b: (0 if a is None else a[0]) | ((wordRangesDef[0] if b is None else b[0]) << segmentationOffset))
 		segmentationDefValue = (wordRangesDef[0] << segmentationOffset) | segmentationDefValue
-		if len(_enum.enumValues()) > (1 << segmentationBits):
-			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		segmentationOffset += segmentationBits
 
 		# setup the grapheme-break boundary ranges (https://unicode.org/reports/tr29/#Grapheme_Cluster_Boundaries)
@@ -2177,15 +2182,17 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 			(graphemeEnumMap['ZWJ'], graphemeEnumMap['InCBExtend']): graphemeEnumMap['ZWJInCBExtend'] }
 		graphemeRanges = Ranges.merge(graphemeRanges, derivedProperties.values(lambda fs: inCBMap[fs[1]] if fs[0] == 'InCB' else None, True), lambda a, b: _SegmentationMergeConflicts(a, b, inCBConflictMap, 'grapheme ranges and InCB properties'))
 
-		# write the grapheme-ranges to the file
+		# write the grapheme data to the file
 		_enum: LookupType = LookupType.enumType('GraphemeType', 'other', ['other', 'cr', 'lf', 'control', 'extendDef', 'zwjDef', 'regionalIndicator', 'prepend', 'spaceMarking', 'l', 'v', 't', 'lv', 'lvt', 'extendedPictographic', 'inCBExtend', 'inCBConsonant', 'inCBLinker', 'extendInCBExtend', 'extendInCBLinker', 'zwjInCBExtend', '_end'])
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		_gen: CodeGen = file.next('Grapheme', 'Automatically generated from: Unicode GraphemeBreakProperty, EmojiData, and DerivedProperties')
 		_gen.addConstInt(_type8, 'GraphemeSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(graphemeRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+
+		# merge the grapheme ranges into the segmentation ranges (ensure that even a default value of non-zero is correct - will not be caught by the def-value)
+		segmentationRanges = Ranges.deepMerge(segmentationRanges, graphemeRanges, lambda a, b: (0 if a is None else a[0]) | ((graphemeRangesDef[0] if b is None else b[0]) << segmentationOffset))
 		segmentationDefValue = (graphemeRangesDef[0] << segmentationOffset) | segmentationDefValue
-		if len(_enum.enumValues()) > (1 << segmentationBits):
-			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		segmentationOffset += segmentationBits
 
 		# setup the sentence-break boundary ranges (https://unicode.org/reports/tr29/#Sentence_Boundaries)
@@ -2196,15 +2203,17 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		if sentenceRangesDef != (sentenceEnumMap['Other'],):
 			raise RuntimeError('Default break-value is expected to be [other]')
 
-		# write the sentence-ranges to the file
+		# write the sentence data to the file
 		_enum: LookupType = LookupType.enumType('SentenceType', 'other', ['other', 'cr', 'lf', 'extend', 'separator', 'format', 'space', 'lower', 'upper', 'oLetter', 'numeric', 'aTerm', 'sContinue', 'sTerm', 'close', '_end'])
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		_gen: CodeGen = file.next('Sentence', 'Automatically generated from: Unicode SentenceBreakProperty')
 		_gen.addConstInt(_type8, 'SentenceSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(sentenceRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
+
+		# merge the sentence ranges into the segmentation ranges (ensure that even a default value of non-zero is correct - will not be caught by the def-value)
+		segmentationRanges = Ranges.deepMerge(segmentationRanges, sentenceRanges, lambda a, b: (0 if a is None else a[0]) | ((sentenceRangesDef[0] if b is None else b[0]) << segmentationOffset))
 		segmentationDefValue = (sentenceRangesDef[0] << segmentationOffset) | segmentationDefValue
-		if len(_enum.enumValues()) > (1 << segmentationBits):
-			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		segmentationOffset += segmentationBits
 
 		# setup the line-break boundary ranges and list of the enum (https://www.unicode.org/reports/tr14/#Algorithm)
@@ -2233,7 +2242,7 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['AI'] else v)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['SG'] else v)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['AL'] if v[0] == lineEnumMap['XX'] else v)
-		lineRangesDef = lineEnumMap['AL']
+		lineRangesDef = (lineEnumMap['AL'],)
 		lineRanges = Ranges.translate(lineRanges, lambda _, v: lineEnumMap['NS'] if v[0] == lineEnumMap['CJ'] else v)
 		lineRanges = Ranges.modify(lineRanges, categoryMnOrMc, lambda a, _: lineEnumMap['CM'] if a[0] == lineEnumMap['SA'] else a)
 		lineRanges = Ranges.modify(lineRanges, Ranges.complement(categoryMnOrMc), lambda a, _: lineEnumMap['AL'] if a[0] == lineEnumMap['SA'] else a)
@@ -2255,15 +2264,17 @@ def MakeSegmentationLookup(outPath: str, config: SystemConfig) -> None:
 		lineEnumList.append('idCnPict')
 		lineEnumList.append('_end')
 
-		# write the line-ranges to the file
-		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef], lineEnumList)
+		# write the line data to the file
+		_enum: LookupType = LookupType.enumType('LineType', lineEnumList[lineRangesDef[0]], lineEnumList)
+		if len(_enum.enumValues()) > (1 << segmentationBits):
+			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
 		_gen: CodeGen = file.next('Line', 'Automatically generated from: Unicode LineBreak, General_Category, East-Asian-Width, EmojiData')
 		_gen.addConstInt(_type8, 'LineSegmentationOff', segmentationOffset)
 		_gen.addEnum(_enum)
-		segmentationRanges = Ranges.merge(segmentationRanges, Ranges.translate(lineRanges, lambda _, v: v[0] << segmentationOffset), lambda a, b: (a[0] | b[0],))
-		segmentationDefValue = (lineRangesDef << segmentationOffset) | segmentationDefValue
-		if len(_enum.enumValues()) > (1 << segmentationBits):
-			raise RuntimeError(f'Enum {_enum.typeName()} does not fit into {segmentationBits} bits')
+
+		# merge the line ranges into the segmentation ranges (ensure that even a default value of non-zero is correct - will not be caught by the def-value)
+		segmentationRanges = Ranges.deepMerge(segmentationRanges, lineRanges, lambda a, b: (0 if a is None else a[0]) | ((lineRangesDef[0] if b is None else b[0]) << segmentationOffset))
+		segmentationDefValue = (lineRangesDef[0] << segmentationOffset) | segmentationDefValue
 		segmentationOffset += segmentationBits
 
 		# write the east asian width out

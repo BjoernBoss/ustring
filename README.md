@@ -45,7 +45,7 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsByteLoader` Check if the type specialized the `str::ByteLoader` interface (used for byte streaming such as `str::WireIn`)
  - `str::IsSource` Check if the type fulfills `str::IsData` or `str::IsByteLoader` (used for `str::Source` and such)
  - `str::IsFormattable` Check if the type specialized the str::Formatter interface
- - `str::IsIterator` Check if the type is a codepoint iterator
+ - `str::IsCPIterator` Check if the type is an iterator over codepoints
  - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
  - `str::IsCollector<T...>` Check if the type has a `next(T...)` and `done()` method to act as recipient for transformed codepoints
  - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector<char32_t>` when receiving a `str::IsCollector<char32_t>` to write its output to
@@ -67,9 +67,9 @@ To further support streaming of data, `str::IsStream` exists for character strea
 There exist various helper objects, which wrap the types, such as `str::BufferSink`. Generally speaking, the entire library is designed to either store a reference to the source object, if it is constructed with an `lvalue`, and store a move-constructed copy of the source object, if it is constructed with an `rvalue`. This allows the following two examples to compile, while retaining an expected lifetime:
 
 ```C++
-str::Build(str::BufferSink{ std::fstream("/some/file"), 40 }, "abc", '-', U"def");
+str::BuildTo(str::BufferSink{ std::fstream("/some/file"), 40 }, "abc", '-', U"def");
 std::string buffer;
-str::Build(str::BufferSink{ buffer, 60 }, "abc", '-', U"def");
+str::BuildTo(str::BufferSink{ buffer, 60 }, "abc", '-', U"def");
 ```
 
 
@@ -156,15 +156,14 @@ The `str::U32Stream` wrapper implements a stream, which allows to create a strea
 
 Similarly, `str::InheritSource` and `str::InheritStream` exist, alongside with `str::SourceImplementation` and `str::StreamImplementation`. These allow to create virtualized sources or streams, thus preventing to use templates everywhere.
 
-### [str::Iterator](coding/str-coding.h)
-The `str::Iterator` provides a codepoint iterator, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::it`. Example of using the iterators:
+### [str::CPIterator](coding/str-coding.h)
+The `str::CPIterator` provides a codepoint iterator range, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::codepoints`. Example of using the iterators:
 
 ```C++
-auto it = str::View{ u"abc-def" }.it();
-while (it.valid())
-    foo(it.next());
+for (char32_t cp : str::View{ u"abc-def" }.codepoints())
+    foo(cp);
 ```
-Note: To ensure the iterator starts at an codepoint aligned index, use `str::IsCodepoint` or `str::View::isAligned`.
+Note: To ensure the iterator starts at an codepoint aligned index, use `str::TestCodepoint` or `str::View::isAligned`.
 
 ## [Coding Error Handling](coding/str-coding.h)
 Any encoding or decoding errors will be handled according to the `Error` template parameter. Most corresponding functions in the `str` namespace will have the `Error` parameter, which is defaulted to `str::CodeError::replace`. The following values are defined:
@@ -191,18 +190,17 @@ The objects for transforming the casing of the string all adhere to the `str::Is
 
 ```C++
 /* mapping a string to uppercase */
-auto it0 = str::View{ u"abc-def" }.it();
-auto it1 = it0;
+auto cps = str::View{ u"abc-def" }.codepoints();
 std::string out;
 auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
-while (it0.valid())
-    map.next(it0.next());
+for (char32_t cp : cps)
+    map.next(cp);
 map.done();
 
 /* testing a string to be uppercase */
 auto tester = cp::TestUpperCase{};
-while (it1.valid())
-    tester.next(it1.next());
+for (char32_t cp : cps)
+    tester.next(cp);
 bool t = tester.done();
 
 /* usage through a view */
@@ -216,9 +214,9 @@ Note: For convenience, `str::Collect` and `str::ForEach` exist as valid collecto
 Similar to the casing functionalities, the transformations to convert a stream of codepoints to the normalized composed `NFC` or decomposed versions `NFD` exist, as well as to convert the stream to a case-folded and decomposed stream.
 
 ### [Graphemes, Words, Sentences, Lines](unicode/cp-segmentation.h)
-For each of the kinds of separations, there exist three implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeIterator`.
+For each of the kinds of separations, there exist multiple implementations. For graphemes, for example: `cp::GraphemeBreak`, `cp::GraphemeRanges`, `cp::GraphemeBefore`, `cp::GraphemeAfter`, `cp::GraphemeCheck`.
 
-The Break object allows to instantiate an iterator, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
+The Break object allows to instantiate a collector, which produces the corresponding break-type between any two codepoints. The Ranges object will produce a list of ranges of break-type none, as well as the last break-type before starting the given range. Both of these work on the correspoinding stream of codepoints from front to back, but are optimized for this. They take the codepoint and corresponding index, and will reference all results using the index. This allows strings to be used, which might require more than one source-character to encode a codepoint. Example usage:
 
 ```C++
 std::u32string str = U"abc def";
@@ -228,15 +226,16 @@ auto words = cp::WordRanges{}([&](const cp::Range& r) { ranges.push_back(r); });
 for (size_t i = 0; i < str.size(); ++i)
     words.next(str[i], i);
 words.done();
+
+/* also implemented via str::View */
+std::vector<cp::Range> ranges2 = str::View{ "abc def" }.words();
 ```
 
-The Iterator object will allow to perform arbitrary iteration starting at any point and return the crossed break-type on every step, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. For convenience, the `str::View` expose functions to directly produce the iterator objects. Example usage:
+The three remaining variants (before, after, check) will allow to perform arbitrary checks starting at any point and return the break-type according to the name, but it is less efficient than the other two alternatives. It operates based on a codepoint iterator passed to it. Example usage:
 
 ```C++
-auto it = str::View{ "abc def" }.it(4);
-
-auto words = cp::WordIterator{ it };
-cp::BreakMode brk = words.prev();
+auto cps = str::View{ "abc def" }.codepoints();
+cp::BreakKind brk = cp::WordBefore(cps.begin(), cps.at(4), cps.end());
 ```
 
 ## Unicode Data and Properties

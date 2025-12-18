@@ -10,12 +10,17 @@
 #include <type_traits>
 
 namespace cp {
-	enum class BreakMode : uint8_t {
+	enum class BreakKind : uint8_t {
 		none,
 		optional,
 		emergency,
 		mandatory,
 		edge
+	};
+	enum class LineMode : uint8_t {
+		emergency,
+		grapheme,
+		basic
 	};
 
 	/* inclusive range */
@@ -23,12 +28,12 @@ namespace cp {
 	public:
 		size_t first = 0;
 		size_t last = 0;
-		cp::BreakMode breakBefore = cp::BreakMode::optional;
+		cp::BreakKind breakBefore = cp::BreakKind::optional;
 
 	public:
 		constexpr Range() = default;
-		explicit constexpr Range(size_t v, cp::BreakMode brkBefore) : first(v), last(v), breakBefore(brkBefore) {}
-		explicit constexpr Range(size_t f, size_t l, cp::BreakMode brkBefore) : first(f), last(l), breakBefore(brkBefore) {}
+		explicit constexpr Range(size_t v, cp::BreakKind brkBefore) : first(v), last(v), breakBefore(brkBefore) {}
+		explicit constexpr Range(size_t f, size_t l, cp::BreakKind brkBefore) : first(f), last(l), breakBefore(brkBefore) {}
 	};
 
 	namespace detail {
@@ -38,8 +43,8 @@ namespace cp {
 			struct Lambda {
 				detail::BreakSingle<RecvType, BreakType>& self;
 				constexpr Lambda(detail::BreakSingle<RecvType, BreakType>& s) : self{ s } {}
-				constexpr void operator()(size_t payload, cp::BreakMode mode) {
-					self.pRecv(payload, mode);
+				constexpr void operator()(size_t payload, cp::BreakKind kind) {
+					self.pRecv(payload, kind);
 				}
 			};
 
@@ -73,11 +78,11 @@ namespace cp {
 			struct Lambda {
 				detail::BreakRanges<RecvType, BreakType>& self;
 				constexpr Lambda(detail::BreakRanges<RecvType, BreakType>& s) : self{ s } {}
-				constexpr void operator()(size_t payload, cp::BreakMode mode) {
-					if (mode != cp::BreakMode::none) {
-						self.pRecv(cp::Range(self.pStart, self.pLast, self.pMode));
+				constexpr void operator()(size_t payload, cp::BreakKind kind) {
+					if (kind != cp::BreakKind::none) {
+						self.pRecv(cp::Range(self.pStart, self.pLast, self.pKind));
 						self.pStart = payload;
-						self.pMode = mode;
+						self.pKind = kind;
 					}
 					self.pLast = payload;
 				}
@@ -89,7 +94,7 @@ namespace cp {
 			size_t pStart = 0;
 			size_t pLast = 0;
 			bool pInitialized = false;
-			cp::BreakMode pMode = cp::BreakMode::edge;
+			cp::BreakKind pKind = cp::BreakKind::edge;
 
 		public:
 			template <class... Args>
@@ -110,75 +115,8 @@ namespace cp {
 			constexpr void done() {
 				if (pInitialized) {
 					pBreaker.done();
-					pRecv(cp::Range(pStart, pLast, pMode));
+					pRecv(cp::Range(pStart, pLast, pKind));
 				}
-			}
-		};
-		template <class ItType, template <class> class BreakType>
-		class BreakIterator {
-		private:
-			using State = typename BreakType<ItType>::State;
-			static constexpr bool HasState = !std::is_void_v<State>;
-
-		private:
-			ItType pNextIt{};
-			ItType pPrevIt{};
-			uint32_t pNextRaw = 0;
-			uint32_t pPrevRaw = 0;
-			std::conditional_t<HasState, State, uint8_t> pState{};
-			bool pPrevIsResult = false;
-
-		public:
-			constexpr BreakIterator(const ItType& it, std::conditional_t<HasState, State, uint8_t> state) : pNextIt{ it }, pPrevIt{ it } {
-				pPrevRaw = detail::gen::GetSegmentation(it.valid() ? it.get() : str::Invalid);
-				pNextRaw = pPrevRaw;
-				if constexpr (HasState)
-					pState = state;
-			}
-
-		private:
-			constexpr cp::BreakMode fEval() {
-				if constexpr (HasState)
-					return BreakType<ItType>::Resolve(pPrevIt, pPrevRaw, pNextIt, pNextRaw, pState);
-				else
-					return BreakType<ItType>::Resolve(pPrevIt, pPrevRaw, pNextIt, pNextRaw);
-			}
-
-		public:
-			constexpr cp::BreakMode next() {
-				/* check if the iterator can be advanced */
-				ItType it = pNextIt;
-				if (!it.valid() || !it.advance()) {
-					pPrevIsResult = false;
-					return cp::BreakMode::edge;
-				}
-
-				/* setup the new set of iterators and evaluate the break-type between them */
-				pPrevIt = pNextIt;
-				pPrevRaw = pNextRaw;
-				pNextIt = it;
-				pNextRaw = detail::gen::GetSegmentation(pNextIt.get());
-				pPrevIsResult = true;
-				return fEval();
-			}
-			constexpr cp::BreakMode prev() {
-				/* check if the iterator can be reverted */
-				ItType it = pPrevIt;
-				if (!it.valid() || !it.reverse()) {
-					pPrevIsResult = true;
-					return cp::BreakMode::edge;
-				}
-
-				/* setup the new set of iterators and evaluate the break-type between them */
-				pNextIt = pPrevIt;
-				pPrevIt = it;
-				pNextRaw = pPrevRaw;
-				pPrevRaw = detail::gen::GetSegmentation(pPrevIt.get());
-				pPrevIsResult = false;
-				return fEval();
-			}
-			constexpr const ItType& get() const {
-				return (pPrevIsResult ? pPrevIt : pNextIt);
 			}
 		};
 
@@ -281,34 +219,36 @@ namespace cp {
 		class GraphemeRandom {
 			friend struct detail::GraphemeBreak;
 			using Host = detail::GraphemeBreak;
-		public:
-			using State = void;
-
 		private:
+			const ItType& pBegin;
 			const ItType& pLeft;
+			const ItType& pEnd;
 
 		private:
-			constexpr GraphemeRandom(const ItType& l) : pLeft{ l } {}
+			constexpr GraphemeRandom(const ItType& b, const ItType& l, const ItType& e) : pBegin{ b }, pLeft{ l }, pEnd{ e } {}
 
 		private:
 			constexpr bool fGB9cHasConsonant() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				bool linkerFound = false;
-				do {
-					Host::Type type = Host::GetCP(t.get());
+				while (true) {
+					Host::Type type = Host::GetCP(*it);
 					if (type == Host::Type::inCBLinker || type == Host::Type::extendInCBLinker)
 						linkerFound = true;
 					else if (type == Host::Type::inCBConsonant)
 						return linkerFound;
 					else if (type != Host::Type::inCBExtend && type != Host::Type::extendInCBExtend && type != Host::Type::zwjInCBExtend)
 						return false;
-				} while (t.reverse());
+					if (it == pBegin)
+						break;
+					--it;
+				}
 				return false;
 			}
 			constexpr bool fGB11HasExtPicto() const {
-				ItType t = pLeft;
-				while (t.reverse()) {
-					Host::Type type = Host::GetCP(t.get());
+				ItType it{ pLeft };
+				while (it != pBegin) {
+					Host::Type type = Host::GetCP(*(--it));
 					if (type == Host::Type::extendedPictographic)
 						return true;
 					if (type != Host::Type::extendDef && type != Host::Type::extendInCBExtend && type != Host::Type::extendInCBLinker)
@@ -317,19 +257,25 @@ namespace cp {
 				return false;
 			}
 			constexpr bool fIsRIChainEven() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				size_t count = 0;
-				while (t.reverse() && Host::GetCP(t.get()) == Host::Type::regionalIndicator)
+				while (it != pBegin && Host::GetCP(*(--it)) == Host::Type::regionalIndicator)
 					++count;
 				return ((count & 0x01) == 0);
 			}
 
 		public:
-			static constexpr cp::BreakMode Resolve(const ItType& lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw) {
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end) {
+				Host::Type lType = Host::GetCP(*left), rType = Host::GetCP(*right);
+				if (Host::Test(lType, rType, detail::GraphemeRandom<ItType>{ begin, left, end }) == Host::Break::separate)
+					return cp::BreakKind::optional;
+				return cp::BreakKind::none;
+			}
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& end, uint32_t lRaw, uint32_t rRaw) {
 				Host::Type lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
-				if (Host::Test(lType, rType, detail::GraphemeRandom<ItType>{ lIt }) == Host::Break::separate)
-					return cp::BreakMode::optional;
-				return cp::BreakMode::none;
+				if (Host::Test(lType, rType, detail::GraphemeRandom<ItType>{ begin, left, end }) == Host::Break::separate)
+					return cp::BreakKind::optional;
+				return cp::BreakKind::none;
 			}
 		};
 		template <class RecvType, class PayloadType>
@@ -419,7 +365,7 @@ namespace cp {
 
 				/* check if the two values should be separated and write the result to the receiver */
 				bool separate = (Host::Test(left, right, *this) == Host::Break::separate);
-				pRecv(payload, separate ? cp::BreakMode::optional : cp::BreakMode::none);
+				pRecv(payload, separate ? cp::BreakKind::optional : cp::BreakKind::none);
 			}
 			constexpr void done() {}
 		};
@@ -575,34 +521,36 @@ namespace cp {
 		class WordRandom {
 			friend struct detail::WordBreak;
 			using Host = detail::WordBreak;
-		public:
-			using State = void;
-
 		private:
+			const ItType& pBegin;
 			const ItType& pLeft;
 			const ItType& pRight;
+			const ItType& pEnd;
 
 		private:
-			constexpr WordRandom(const ItType& l, const ItType& r) : pLeft{ l }, pRight{ r } {}
+			constexpr WordRandom(const ItType& b, const ItType& l, const ItType& r, const ItType& e) : pBegin{ b }, pLeft{ l }, pRight{ r }, pEnd{ e } {}
 
 		private:
 			Host::Type fGetPrev() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				bool firstReached = false;
-				do {
-					Host::Type type = Host::GetCP(t.get());
-					if (type == Host::Type::extend || type == Host::Type::format || type == Host::Type::zwj)
-						continue;
-					if (firstReached)
-						return type;
-					firstReached = true;
-				} while (t.reverse());
+				while (true) {
+					Host::Type type = Host::GetCP(*it);
+					if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj) {
+						if (firstReached)
+							return type;
+						firstReached = true;
+					}
+					if (it == pBegin)
+						break;
+					--it;
+				}
 				return Host::Type::other;
 			}
 			Host::Type fGetNext() const {
-				ItType t = pRight;
-				while (t.advance()) {
-					Host::Type type = Host::GetCP(t.get());
+				ItType it{ pRight };
+				while (++it != pEnd) {
+					Host::Type type = Host::GetCP(*it);
 					if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
 						return type;
 				}
@@ -611,9 +559,9 @@ namespace cp {
 
 		private:
 			constexpr Host::Type fSkipWB4(Host::Type l) const {
-				ItType t = pLeft;
-				while ((l == Host::Type::extend || l == Host::Type::format || l == Host::Type::zwj) && t.reverse())
-					l = Host::GetCP(t.get());
+				ItType it{ pLeft };
+				while ((l == Host::Type::extend || l == Host::Type::format || l == Host::Type::zwj) && it != pBegin)
+					l = Host::GetCP(*(--it));
 				return l;
 			}
 			constexpr Host::Break fWB6Check() const {
@@ -652,24 +600,27 @@ namespace cp {
 				return Host::Break::separate;
 			}
 			constexpr bool fIsLeftRIOdd() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				size_t count = 0;
-				do {
-					Host::Type type = Host::GetCP(t.get());
+				while (true) {
+					Host::Type type = Host::GetCP(*it);
 					if (type == Host::Type::regionalIndicator)
 						++count;
 					else if (type != Host::Type::extend && type != Host::Type::format && type != Host::Type::zwj)
 						break;
-				} while (t.reverse());
+					if (it == pBegin)
+						break;
+					--it;
+				}
 				return ((count & 0x01) != 0);
 			}
 
 		public:
-			static constexpr cp::BreakMode Resolve(const ItType& lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw) {
-				Host::Type lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
-				if (Host::Test(lType, rType, detail::WordRandom<ItType>{ lIt, rIt }) == Host::Break::separate)
-					return cp::BreakMode::optional;
-				return cp::BreakMode::none;
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end) {
+				Host::Type lType = Host::GetCP(*left), rType = Host::GetCP(*right);
+				if (Host::Test(lType, rType, detail::WordRandom<ItType>{ begin, left, right, end }) == Host::Break::separate)
+					return cp::BreakKind::optional;
+				return cp::BreakKind::none;
 			}
 		};
 		template <class RecvType, class PayloadType>
@@ -805,13 +756,13 @@ namespace cp {
 					pState = State::none;
 
 					/* flush the cached characters */
-					pRecv(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
+					pRecv(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
 					while (pCache.size() > 0)
-						pRecv(pCache.pop(), cp::BreakMode::none);
+						pRecv(pCache.pop(), cp::BreakKind::none);
 
 					/* check if the upcoming element can be consumed as well */
 					if (cont == Continue::combineIncludingRight) {
-						pRecv(payload, cp::BreakMode::none);
+						pRecv(payload, cp::BreakKind::none);
 						fUpdateLeft(right);
 						return;
 					}
@@ -820,10 +771,10 @@ namespace cp {
 				/* check the current values and update the state */
 				switch (Host::Test(pLastActual, right, *this)) {
 				case Host::Break::combine:
-					pRecv(payload, cp::BreakMode::none);
+					pRecv(payload, cp::BreakKind::none);
 					break;
 				case Host::Break::separate:
-					pRecv(payload, cp::BreakMode::optional);
+					pRecv(payload, cp::BreakKind::optional);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -837,9 +788,9 @@ namespace cp {
 					return;
 
 				/* flush the cached characters */
-				pRecv(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakMode::optional : cp::BreakMode::none);
+				pRecv(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
 				while (pCache.size() > 0)
-					pRecv(pCache.pop(), cp::BreakMode::none);
+					pRecv(pCache.pop(), cp::BreakKind::none);
 			}
 		};
 
@@ -950,23 +901,22 @@ namespace cp {
 		class SentenceRandom {
 			friend struct detail::SentenceBreak;
 			using Host = detail::SentenceBreak;
-		public:
-			using State = void;
-
 		private:
+			const ItType& pBegin;
 			const ItType& pLeft;
 			const ItType& pRight;
+			const ItType& pEnd;
 
 		private:
-			constexpr SentenceRandom(const ItType& l, const ItType& r) : pLeft{ l }, pRight{ r } {}
+			constexpr SentenceRandom(const ItType& b, const ItType& l, const ItType& r, const ItType& e) : pBegin{ b }, pLeft{ l }, pRight{ r }, pEnd{ e } {}
 
 		private:
 			constexpr Host::Chain fGetChainState() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				bool hasSpace = false, hasClose = false, hasATerm = false;
 
-				do {
-					switch (Host::GetCP(t.get())) {
+				while (true) {
+					switch (Host::GetCP(*it)) {
 					case Host::Type::lower:
 					case Host::Type::upper:
 						return (hasATerm ? Host::Chain::aTermLowUp : Host::Chain::lowUp);
@@ -1003,14 +953,18 @@ namespace cp {
 					default:
 						return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
 					}
-				} while (t.reverse());
+
+					if (it == pBegin)
+						break;
+					--it;
+				}
 				return (hasATerm ? Host::Chain::aTerm : Host::Chain::none);
 			}
 			constexpr Host::Break fSB8Check() const {
-				ItType t = pRight;
+				ItType it{ pRight };
 
-				while (t.advance()) {
-					Host::Type type = Host::GetCP(t.get());
+				while (++it != pEnd) {
+					Host::Type type = Host::GetCP(*it);
 					if (type == Host::Type::lower)
 						return Host::Break::combine;
 					if (type != Host::Type::other && type != Host::Type::extend && type != Host::Type::format && type != Host::Type::space &&
@@ -1021,11 +975,11 @@ namespace cp {
 			}
 
 		public:
-			static constexpr cp::BreakMode Resolve(const ItType& lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw) {
-				Host::Type lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
-				if (Host::Test(lType, rType, detail::SentenceRandom<ItType>{ lIt, rIt }) == Host::Break::separate)
-					return cp::BreakMode::optional;
-				return cp::BreakMode::none;
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end) {
+				Host::Type lType = Host::GetCP(*left), rType = Host::GetCP(*right);
+				if (Host::Test(lType, rType, detail::SentenceRandom<ItType>{ begin, left, right, end }) == Host::Break::separate)
+					return cp::BreakKind::optional;
+				return cp::BreakKind::none;
 			}
 		};
 		template <class RecvType, class PayloadType>
@@ -1112,7 +1066,7 @@ namespace cp {
 							return;
 						_break = Host::Break::separate;
 					}
-					pRecv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
+					pRecv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
 
 					/* process the next character */
 					if (pCache.size() == 0) {
@@ -1144,7 +1098,7 @@ namespace cp {
 				if (!pUncertain) {
 					Host::Break _break = Host::Test(pLast, right, *this);
 					if (_break != Host::Break::uncertain)
-						pRecv(payload, _break == Host::Break::separate ? cp::BreakMode::optional : cp::BreakMode::none);
+						pRecv(payload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
 					else {
 						pUncertainPayload = payload;
 						pUncertain = true;
@@ -1540,51 +1494,51 @@ namespace cp {
 		class PrimitiveLineRandom {
 			friend struct detail::LineBreak;
 			using Host = detail::LineBreak;
-		public:
-			using State = void;
-
 		private:
+			const ItType& pBegin;
 			const ItType& pLeft;
 			const ItType& pRight;
+			const ItType& pEnd;
 
 		private:
-			constexpr PrimitiveLineRandom(const ItType& l, const ItType& r) : pLeft{ l }, pRight{ r } {}
+			constexpr PrimitiveLineRandom(const ItType& b, const ItType& l, const ItType& r, const ItType& e) : pBegin{ b }, pLeft{ l }, pRight{ r }, pEnd{ e } {}
 
 		private:
-			constexpr std::pair<ItType, std::pair<Host::Type, bool>> fSkipIntermediate(const ItType& it, std::pair<Host::Type, bool> type, bool skipSpaces) const {
-				ItType t = it;
+			constexpr std::pair<ItType, std::pair<Host::Type, bool>> fSkipIntermediate(const ItType& left, std::pair<Host::Type, bool> type, bool skipSpaces) const {
+				ItType it{ left };
 
 				while (true) {
 					if (type.first == Host::Type::sp && skipSpaces) {
-						if (!t.reverse())
+						if (it == pBegin)
 							break;
-						type = Host::GetCP(t.get());
+						type = Host::GetCP(*(--it));
 					}
 					else if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
 						break;
 					else {
-						ItType tIt = t;
-						if (!tIt.reverse())
+						ItType tIt{ it };
+						if (tIt == pBegin)
 							break;
-						std::pair<Host::Type, bool> temp = Host::GetCP(tIt.get());
+						std::pair<Host::Type, bool> temp = Host::GetCP(*(--tIt));
 						if (temp.first == Host::Type::bk || temp.first == Host::Type::cr || temp.first == Host::Type::lf || temp.first == Host::Type::nl || temp.first == Host::Type::sp || temp.first == Host::Type::zw)
 							break;
 						type = temp;
-						t = tIt;
+						it = tIt;
 					}
 				}
-				return { t, type };
+				return { it, type };
 			}
 			constexpr std::pair<std::pair<Host::Type, bool>, bool> fGetPrev() const {
-				auto [it, type] = fSkipIntermediate(pLeft, Host::GetCP(pLeft.get()), true);
-				if (!it.reverse())
+				auto [it, type] = fSkipIntermediate(pLeft, Host::GetCP(*pLeft), true);
+				if (it == pBegin)
 					return { type, false };
-				return { fSkipIntermediate(it, Host::GetCP(it.get()), false).second, true };
+				--it;
+				return { fSkipIntermediate(it, Host::GetCP(*it), false).second, true };
 			}
 			constexpr std::pair<std::pair<Host::Type, bool>, bool> fGetNext() const {
-				ItType t = pRight;
-				while (t.advance()) {
-					std::pair<Host::Type, bool> type = Host::GetCP(t.get());
+				ItType it{ pRight };
+				while (++it != pEnd) {
+					std::pair<Host::Type, bool> type = Host::GetCP(*it);
 					if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
 						return { type, true };
 				}
@@ -1656,27 +1610,39 @@ namespace cp {
 				return (fGetNext().first.first == Host::Type::vf ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr bool fIsLeftRIOdd() const {
-				ItType t = pLeft;
+				ItType it{ pLeft };
 				size_t count = 0;
-				do {
-					std::pair<Host::Type, bool> type = Host::GetCP(t.get());
+				while (true) {
+					std::pair<Host::Type, bool> type = Host::GetCP(*it);
 					if (type.first == Host::Type::ri)
 						++count;
 					else if (type.first != Host::Type::cm && type.first != Host::Type::zwj)
 						break;
-				} while (t.reverse());
+					if (it == pBegin)
+						break;
+					--it;
+				}
 				return ((count & 0x01) != 0);
 			}
 
 		public:
-			static constexpr cp::BreakMode Resolve(const ItType& lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw) {
-				std::pair<Host::Type, bool> lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
-				Host::Break _break = Host::Test(lType.first, lType.second, rType.first, rType.second, detail::PrimitiveLineRandom<ItType>{ lIt, rIt });
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end) {
+				std::pair<Host::Type, bool> lType = Host::GetCP(*left), rType = Host::GetCP(*right);
+				Host::Break _break = Host::Test(lType.first, lType.second, rType.first, rType.second, detail::PrimitiveLineRandom<ItType>{ begin, left, right, end });
 				if (_break == Host::Break::combine)
-					return cp::BreakMode::none;
+					return cp::BreakKind::none;
 				else if (_break == Host::Break::mandatory)
-					return cp::BreakMode::mandatory;
-				return cp::BreakMode::optional;
+					return cp::BreakKind::mandatory;
+				return cp::BreakKind::optional;
+			}
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end, uint32_t lRaw, uint32_t rRaw) {
+				std::pair<Host::Type, bool> lType = Host::GetRaw(lRaw), rType = Host::GetRaw(rRaw);
+				Host::Break _break = Host::Test(lType.first, lType.second, rType.first, rType.second, detail::PrimitiveLineRandom<ItType>{ begin, left, right, end });
+				if (_break == Host::Break::combine)
+					return cp::BreakKind::none;
+				else if (_break == Host::Break::mandatory)
+					return cp::BreakKind::mandatory;
+				return cp::BreakKind::optional;
 			}
 		};
 		template <class RecvType, class PayloadType>
@@ -1703,7 +1669,7 @@ namespace cp {
 			};
 			struct Cache {
 				PayloadType payload{};
-				cp::BreakMode mode = cp::BreakMode::none;
+				cp::BreakKind kind = cp::BreakKind::none;
 			};
 
 		private:
@@ -1716,12 +1682,12 @@ namespace cp {
 			State pState = State::none;
 			bool pRICountOdd = false;
 			bool pNotFWH = false;
-			cp::BreakMode pCombineValue = cp::BreakMode::none;
+			cp::BreakKind pCombineValue = cp::BreakKind::none;
 
 		public:
 			constexpr PrimitiveLineForward(RecvType&& recv, bool emergencyAware) : pRecv{ std::forward<RecvType>(recv) } {
 				if (emergencyAware)
-					pCombineValue = cp::BreakMode::emergency;
+					pCombineValue = cp::BreakKind::emergency;
 			}
 
 		private:
@@ -1888,10 +1854,10 @@ namespace cp {
 		private:
 			constexpr void fPopQueue(bool combine) {
 				/* post all cached characters */
-				pRecv(pUncertainPayload, (combine ? pCombineValue : cp::BreakMode::optional));
+				pRecv(pUncertainPayload, (combine ? pCombineValue : cp::BreakKind::optional));
 				while (pCache.size() > 0) {
-					auto [payload, mode] = pCache.pop();
-					pRecv(payload, mode);
+					auto [payload, kind] = pCache.pop();
+					pRecv(payload, kind);
 				}
 			}
 
@@ -1917,9 +1883,9 @@ namespace cp {
 				*	write it out directly, or cache it to be processed once the cache is popped */
 				if (withinGrapheme) {
 					if (pState == State::none)
-						pRecv(payload, cp::BreakMode::none);
+						pRecv(payload, cp::BreakKind::none);
 					else
-						pCache.push({ payload, cp::BreakMode::none });
+						pCache.push({ payload, cp::BreakKind::none });
 					return;
 				}
 
@@ -1943,10 +1909,10 @@ namespace cp {
 					pRecv(payload, pCombineValue);
 					break;
 				case Host::Break::optional:
-					pRecv(payload, cp::BreakMode::optional);
+					pRecv(payload, cp::BreakKind::optional);
 					break;
 				case Host::Break::mandatory:
-					pRecv(payload, cp::BreakMode::mandatory);
+					pRecv(payload, cp::BreakKind::mandatory);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -1962,65 +1928,95 @@ namespace cp {
 		};
 		template <class ItType>
 		class LineRandom {
+			using Host = detail::LineBreak;
 		private:
+			/*
+			*	spec'ed down version, with all functionality necessary for line boundary detection
+			*
+			*	Important: No need to check for mandatory breaks before processing graphemes, as each
+			*		codepoint, which would require a mandatory break, is already implicitly a grapheme edge.
+			*/
 			struct Iterator {
-				detail::BreakIterator<ItType, detail::GraphemeRandom> iterator;
-				constexpr Iterator(const ItType& it) : iterator{ it, 0 } {}
-				constexpr char32_t next() {
-					char32_t cp = iterator.get().get();
-					iterator.next();
-					return cp;
+			private:
+				ItType pBegin;
+				ItType pStart;
+				ItType pEnd;
+				uint32_t pRaw = 0;
+
+			public:
+				constexpr Iterator(const ItType& b, const ItType& s, const ItType& e, uint32_t r) : pBegin{ b }, pStart{ s }, pEnd{ e }, pRaw{ r } {}
+				constexpr char32_t operator*() const {
+					return *pStart;
 				}
-				constexpr char32_t prev() {
-					char32_t cp = iterator.get().get();
-					iterator.prev();
-					return cp;
+				constexpr Iterator& operator--() {
+					--pStart;
+					pRaw = detail::gen::GetSegmentation(*pStart);
+
+					/* find the next valid boundary */
+					while (pStart != pBegin) {
+						ItType prev{ std::prev(pStart) };
+						uint32_t raw = detail::gen::GetSegmentation(*prev);
+						if (detail::GraphemeRandom<ItType>::Resolve(pBegin, prev, pEnd, raw, pRaw) != cp::BreakKind::none)
+							break;
+						pStart = prev;
+						pRaw = raw;
+					}
+					return *this;
 				}
-				constexpr bool advance() {
-					return (iterator.next() != cp::BreakMode::edge);
+				constexpr Iterator& operator++() {
+					while (true) {
+						ItType prev = pStart++;
+						uint32_t raw = pRaw;
+
+						/* check if the end has been reached */
+						if (pStart == pEnd) {
+							pRaw = 0;
+							break;
+						}
+
+						/* find the next boundary */
+						pRaw = detail::gen::GetSegmentation(*pStart);
+						if (detail::GraphemeRandom<ItType>::Resolve(pBegin, prev, pEnd, raw, pRaw) != cp::BreakKind::none)
+							break;
+					}
+					return *this;
 				}
-				constexpr bool reverse() {
-					return (iterator.prev() != cp::BreakMode::edge);
+				constexpr bool operator==(const Iterator& it) const {
+					return (pStart == it.pStart);
 				}
-				constexpr char32_t get() const {
-					return iterator.get().get();
+				constexpr bool operator!=(const Iterator& it) const {
+					return !(*this == it);
 				}
 			};
 
 		public:
-			struct State {
-				bool emergency = false;
-				bool graphemes = false;
-				constexpr State(bool emergencyBreak = true, bool graphemeAware = true) : emergency{ graphemeAware && emergencyBreak }, graphemes{ graphemeAware } {}
-			};
-
-		public:
-			static constexpr cp::BreakMode Resolve(ItType lIt, uint32_t lRaw, const ItType& rIt, uint32_t rRaw, const State& state) {
+			static constexpr cp::BreakKind Resolve(const ItType& begin, const ItType& left, const ItType& right, const ItType& end, cp::LineMode mode) {
 				/* check if this can immediately be passed to the line-resolver */
-				if (!state.graphemes)
-					return detail::PrimitiveLineRandom<ItType>::Resolve(lIt, lRaw, rIt, rRaw);
+				if (mode == cp::LineMode::basic)
+					return detail::PrimitiveLineRandom<ItType>::Resolve(begin, left, right, end);
 
-				/* check if the two iterators lie directly in a single grapheme cluster, in which case no line-checking needs to be done */
-				if (detail::GraphemeRandom<ItType>::Resolve(lIt, lRaw, rIt, rRaw) == cp::BreakMode::none)
-					return cp::BreakMode::none;
+				/* check if the two iterators ie directly in a single grapheme cluster, in which case no line-checking needs to be done */
+				uint32_t lRaw = detail::gen::GetSegmentation(*left), rRaw = detail::gen::GetSegmentation(*right);
+				if (detail::GraphemeRandom<ItType>::Resolve(begin, left, end, lRaw, rRaw) == cp::BreakKind::none)
+					return cp::BreakKind::none;
 
 				/* find the start of the left grapheme cluster */
-				while (true) {
-					ItType it = lIt;
-					if (!it.reverse())
+				ItType aligned = left;
+				while (aligned != begin) {
+					ItType it{ std::prev(aligned) };
+					uint32_t raw = detail::gen::GetSegmentation(*it);
+					if (detail::GraphemeRandom<ItType>::Resolve(begin, it, end, raw, lRaw) != cp::BreakKind::none)
 						break;
-					uint32_t raw = detail::gen::GetSegmentation(it.get());
-					if (detail::GraphemeRandom<ItType>::Resolve(it, raw, lIt, lRaw) != cp::BreakMode::none)
-						break;
-					lIt = it;
+					aligned = it;
 					lRaw = raw;
 				}
 
 				/* evaluate the result of the two grapheme clusters using the separate grapheme-iterators */
-				cp::BreakMode mode = detail::PrimitiveLineRandom<Iterator>::Resolve(Iterator{ lIt }, lRaw, Iterator{ rIt }, rRaw);
-				if (state.emergency && mode == cp::BreakMode::none)
-					return cp::BreakMode::emergency;
-				return mode;
+				Iterator _begin{ begin, begin, end, 0 }, _left{ begin, aligned, end, lRaw }, _right{ begin, right, end, rRaw }, _end{ begin, end, end, 0 };
+				cp::BreakKind kind = detail::PrimitiveLineRandom<Iterator>::Resolve(_begin, _left, _right, _end, lRaw, rRaw);
+				if (mode == cp::LineMode::emergency && kind == cp::BreakKind::none)
+					return cp::BreakKind::emergency;
+				return kind;
 			}
 		};
 		template <class RecvType, class PayloadType>
@@ -2033,15 +2029,15 @@ namespace cp {
 			struct GrLambda {
 				LineForward<RecvType, PayloadType>& self;
 				constexpr GrLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
-				constexpr void operator()(const GrPayload& payload, cp::BreakMode mode) {
-					self.pLine.next(payload.raw, payload.payload, (mode == cp::BreakMode::none));
+				constexpr void operator()(const GrPayload& payload, cp::BreakKind kind) {
+					self.pLine.next(payload.raw, payload.payload, (kind == cp::BreakKind::none));
 				}
 			};
 			struct LnLambda {
 				LineForward<RecvType, PayloadType>& self;
 				constexpr LnLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
-				constexpr void operator()(const PayloadType& payload, cp::BreakMode mode) {
-					self.pRecv(payload, mode);
+				constexpr void operator()(const PayloadType& payload, cp::BreakKind kind) {
+					self.pRecv(payload, kind);
 				}
 			};
 
@@ -2052,8 +2048,8 @@ namespace cp {
 			bool pGraphemes = false;
 
 		public:
-			constexpr LineForward(RecvType&& recv, bool emergencyBreak, bool graphemeAware) : pGrapheme{ GrLambda{ *this } },
-				pLine{ LnLambda{ *this }, graphemeAware && emergencyBreak }, pRecv{ std::forward<RecvType>(recv) }, pGraphemes{ graphemeAware } {
+			constexpr LineForward(RecvType&& recv, cp::LineMode mode) : pGrapheme{ GrLambda{ *this } },
+				pLine{ LnLambda{ *this }, (mode == cp::LineMode::emergency) }, pRecv{ std::forward<RecvType>(recv) }, pGraphemes{ mode != cp::LineMode::basic } {
 			}
 
 		public:
@@ -2079,14 +2075,14 @@ namespace cp {
 	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'grapheme-break-before' attribute for every
 	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakKind): insert corresponding break before codepoint at given index (only none/optional) */
 	class GraphemeBreak {
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		using Type = detail::BreakSingle<RecvType, detail::GraphemeForward>;
 
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		constexpr Type<RecvType> operator()(RecvType&& recv) const {
 			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
@@ -2108,28 +2104,43 @@ namespace cp {
 		}
 	};
 
-	/* iterator which allows iteration over codepoints and finding the corresponding grapheme breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Less efficient than cp::GraphemeBreak/cp::GraphemeRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
-	*	For invalid iterators, BreakMode::edge will be returned at all times */
-	template <str::IsIterator ItType>
-	class GraphemeIterator : public detail::BreakIterator<ItType, detail::GraphemeRandom> {
-	public:
-		constexpr GraphemeIterator(const ItType& it) : detail::BreakIterator<ItType, detail::GraphemeRandom>{ it, 0 } {}
-	};
+	/* check the grapheme break-kind after/inbetween/before the given codepoint-iterator (will only produce none/optional)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	Less efficient than cp::GraphemeBreak/cp::GraphemeRanges
+	*	Note: requires begin and end, additionally to left/right, as more than one codepoint may need to be inspected
+	*		=> Check exists, as it does not need to decode the corresponding neighboring codepoint (but caller must guarantee that they are next to each other) */
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind GraphemeAfter(ItType begin, ItType left, ItType end) {
+		ItType right{ left };
+		if (right == end || ++right == end)
+			return cp::BreakKind::edge;
+		return detail::GraphemeRandom<ItType>::Resolve(begin, left, right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind GraphemeBefore(ItType begin, ItType right, ItType end) {
+		if (begin == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::GraphemeRandom<ItType>::Resolve(begin, std::prev(right), right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind GraphemeCheck(ItType begin, ItType left, ItType right, ItType end) {
+		if (left == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::GraphemeRandom<ItType>::Resolve(begin, left, right, end);
+	}
 
 
 	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'word-break-before' attribute for every
 	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakKind): insert corresponding break before codepoint at given index (only none/optional) */
 	class WordBreak {
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		using Type = detail::BreakSingle<RecvType, detail::WordForward>;
 
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		constexpr Type<RecvType> operator()(RecvType&& recv) const {
 			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
@@ -2151,28 +2162,43 @@ namespace cp {
 		}
 	};
 
-	/* iterator which allows iteration over codepoints and finding the corresponding word breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Less efficient than cp::WordBreak/cp::WordRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
-	*	For invalid iterators, BreakMode::edge will be returned at all times */
-	template <str::IsIterator ItType>
-	class WordIterator : public detail::BreakIterator<ItType, detail::WordRandom> {
-	public:
-		constexpr WordIterator(const ItType& it) : detail::BreakIterator<ItType, detail::WordRandom>{ it, 0 } {}
-	};
+	/* check the word break-kind after/inbetween/before the given codepoint-iterator (will only produce none/optional)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	Less efficient than cp::WordBreak/cp::WordRanges
+	*	Note: requires begin and end, additionally to left/right, as more than one codepoint may need to be inspected
+	*		=> Check exists, as it does not need to decode the corresponding neighboring codepoint (but caller must guarantee that they are next to each other) */
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind WordAfter(ItType begin, ItType left, ItType end) {
+		ItType right{ left };
+		if (right == end || ++right == end)
+			return cp::BreakKind::edge;
+		return detail::WordRandom<ItType>::Resolve(begin, left, right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind WordBefore(ItType begin, ItType right, ItType end) {
+		if (begin == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::WordRandom<ItType>::Resolve(begin, std::prev(right), right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind WordCheck(ItType begin, ItType left, ItType right, ItType end) {
+		if (left == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::WordRandom<ItType>::Resolve(begin, left, right, end);
+	}
 
 
 	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'sentence-break-before' attribute for every
 	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakKind): insert corresponding break before codepoint at given index (only none/optional) */
 	class SentenceBreak {
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		using Type = detail::BreakSingle<RecvType, detail::SentenceForward>;
 
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		constexpr Type<RecvType> operator()(RecvType&& recv) const {
 			return Type<RecvType>{ std::forward<RecvType>(recv) };
 		}
@@ -2194,37 +2220,51 @@ namespace cp {
 		}
 	};
 
-	/* iterator which allows iteration over codepoints and finding the corresponding sentence breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Less efficient than cp::SentenceBreak/cp::SentenceRanges; Guaranteed by Unicode to not break grapheme-clusters
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in edge, optional, none)
-	*	For invalid iterators, BreakMode::edge will be returned at all times */
-	template <str::IsIterator ItType>
-	class SentenceIterator : public detail::BreakIterator<ItType, detail::SentenceRandom> {
-	public:
-		constexpr SentenceIterator(const ItType& it) : detail::BreakIterator<ItType, detail::SentenceRandom>{ it, 0 } {}
-	};
+	/* check the sentence break-kind after/inbetween/before the given codepoint-iterator (will only produce none/optional)
+	*	Guaranteed by Unicode to not break grapheme-clusters
+	*	Less efficient than cp::SentenceBreak/cp::SentenceRanges
+	*	Note: requires begin and end, additionally to left/right, as more than one codepoint may need to be inspected
+	*		=> Check exists, as it does not need to decode the corresponding neighboring codepoint (but caller must guarantee that they are next to each other) */
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind SentenceAfter(ItType begin, ItType left, ItType end) {
+		ItType right{ left };
+		if (right == end || ++right == end)
+			return cp::BreakKind::edge;
+		return detail::SentenceRandom<ItType>::Resolve(begin, left, right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind SentenceBefore(ItType begin, ItType right, ItType end) {
+		if (begin == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::SentenceRandom<ItType>::Resolve(begin, std::prev(right), right, end);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind SentenceCheck(ItType begin, ItType left, ItType right, ItType end) {
+		if (left == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::SentenceRandom<ItType>::Resolve(begin, left, right, end);
+	}
 
 
 	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'line-break-before' attribute for every
 	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
+	*	For receiver(size_t, cp::BreakKind): insert corresponding break before codepoint at given index (all except edge) */
 	class LineBreak {
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		using Type = detail::BreakSingle<RecvType, detail::LineForward>;
 
 	private:
-		bool pEmergency = false;
-		bool pGraphemes = false;
+		cp::LineMode pMode = cp::LineMode::basic;
 
 	public:
-		constexpr LineBreak(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
+		constexpr LineBreak(cp::LineMode mode = cp::LineMode::emergency) : pMode{ mode } {}
 
 	public:
-		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
+		template <str::IsReceiver<size_t, cp::BreakKind> RecvType>
 		constexpr Type<RecvType> operator()(RecvType&& recv) const {
-			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+			return Type<RecvType>{ std::forward<RecvType>(recv), pMode };
 		}
 	};
 
@@ -2238,27 +2278,41 @@ namespace cp {
 		using Type = detail::BreakRanges<RecvType, detail::LineForward>;
 
 	private:
-		bool pEmergency = false;
-		bool pGraphemes = false;
+		cp::LineMode pMode = cp::LineMode::basic;
 
 	public:
-		constexpr LineRanges(bool emergencyBreak = true, bool graphemeAware = true) : pEmergency{ emergencyBreak }, pGraphemes{ graphemeAware } {}
+		constexpr LineRanges(cp::LineMode mode = cp::LineMode::emergency) : pMode{ mode } {}
 
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
 		constexpr Type<RecvType> operator()(RecvType&& recv) const {
-			return Type<RecvType>{ std::forward<RecvType>(recv), pEmergency, pGraphemes };
+			return Type<RecvType>{ std::forward<RecvType>(recv), pMode };
 		}
 	};
 
-	/* iterator which allows iteration over codepoints and finding the corresponding line breaks between two codepoints, as well as query the corresponding codepoint-iterators
-	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	Less efficient than cp::LineBreak/cp::LineRanges; Specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries and perform default line-breaking
-	*	Will advance the codepoint (except for direction-changes and construction) and return the break-type between it and the next codepoint in the given direction (will result in all values)
-	*	For invalid iterators, BreakMode::edge will be returned at all times */
-	template <str::IsIterator ItType>
-	class LineIterator : public detail::BreakIterator<ItType, detail::LineRandom> {
-	public:
-		constexpr LineIterator(const ItType& it, bool emergencyBreak = true, bool graphemeAware = true) : detail::BreakIterator<ItType, detail::LineRandom>{ it, { emergencyBreak, graphemeAware } } {}
-	};
+	/* check the line break-kind after/inbetween/before the given codepoint-iterator (will produce any kind)
+	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), just respect grapheme-clusters,
+	*		or ignore grapheme-boundaries entirely and perform default line-breaking
+	*	Less efficient than cp::LineBreak/cp::LineRanges
+	*	Note: requires begin and end, additionally to left/right, as more than one codepoint may need to be inspected
+	*		=> Check exists, as it does not need to decode the corresponding neighboring codepoint (but caller must guarantee that they are next to each other) */
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind LineAfter(ItType begin, ItType left, ItType end, cp::LineMode mode = cp::LineMode::emergency) {
+		ItType right{ left };
+		if (right == end || ++right == end)
+			return cp::BreakKind::edge;
+		return detail::LineRandom<ItType>::Resolve(begin, left, right, end, mode);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind LineBefore(ItType begin, ItType right, ItType end, cp::LineMode mode = cp::LineMode::emergency) {
+		if (begin == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::LineRandom<ItType>::Resolve(begin, std::prev(right), right, end, mode);
+	}
+	template <str::IsCPIterator ItType>
+	constexpr cp::BreakKind LineCheck(ItType begin, ItType left, ItType right, ItType end, cp::LineMode mode = cp::LineMode::emergency) {
+		if (left == right || right == end)
+			return cp::BreakKind::edge;
+		return detail::LineRandom<ItType>::Resolve(begin, left, right, end, mode);
+	}
 }

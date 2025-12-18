@@ -100,18 +100,9 @@ namespace str {
 	template <class Type>
 	concept IsChar = !std::is_void_v<typename detail::TestChar<Type>::type>;
 
-	/* codepoint-iterator can be invalid (valid() return false) in which case no other operation may be performed anymore
-	*	and otherwise next()/prev() move the iterator itself, and return the codepoint of the itertor before moving it
-	*	and advance()/reverse() move the iterator itself, and return if the iterator has become invalid through the move */
+	/* codepoint-iterator is a bidirectional iterator, which iterates over char32_t */
 	template <class Type>
-	concept IsIterator = std::copyable<Type> && requires(Type t, const Type ct) {
-		{ ct.valid() } -> std::same_as<bool>;
-		{ ct.get() } -> std::same_as<char32_t>;
-		{ t.next() } -> std::same_as<char32_t>;
-		{ t.prev() } -> std::same_as<char32_t>;
-		{ t.advance() } -> std::same_as<bool>;
-		{ t.reverse() } -> std::same_as<bool>;
-	};
+	concept IsCPIterator = std::bidirectional_iterator<Type> && std::same_as<std::remove_cvref_t<typename std::iterator_traits<Type>::value_type>, char32_t>;
 
 	/* receivers receive arbitrary many values of the given value-list */
 	template <class Type, class... ValType>

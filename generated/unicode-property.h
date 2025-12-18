@@ -10,7 +10,7 @@
 *	This is an automatically generated file and should not be modified.
 *	All data are based on the lastest information provided by the unicode character database.
 *	Source URL: https://www.unicode.org/Public/UCD/latest
-*	Generated on: 2025-12-09 22:42
+*	Generated on: 2025-12-18 21:07
 *	Generated from version: 17.0.0
 */
 namespace cp::detail::gen {

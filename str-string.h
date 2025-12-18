@@ -524,7 +524,7 @@ namespace str {
 			constexpr bool isAligned(size_t index) const {
 				if (index >= fBase().size())
 					return false;
-				return str::IsCodepoint(std::basic_string_view<ChType>{ fBase() }.substr(index));
+				return str::TestCodepoint(std::basic_string_view<ChType>{ fBase() }.substr(index));
 			}
 
 			/* test if the string is non-empty and every codepoint in the string is ascii using prop::IsAscii */
@@ -670,9 +670,9 @@ namespace str {
 			}
 
 			/* receive a list of all line ranges */
-			std::vector<cp::Range> lines(bool emergencyBreak = true, bool graphemeAware = true) const {
+			std::vector<cp::Range> lines(cp::LineMode mode = cp::LineMode::emergency) const {
 				std::vector<cp::Range> collected;
-				fIndexCollect(cp::LineRanges{ emergencyBreak, graphemeAware }([&](const cp::Range& r) { collected.push_back(r); }));
+				fIndexCollect(cp::LineRanges{ mode }([&](const cp::Range& r) { collected.push_back(r); }));
 				return collected;
 			}
 		};

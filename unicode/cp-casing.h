@@ -355,8 +355,8 @@ namespace cp {
 			struct Lambda {
 				detail::TitleMapper<CollType>& self;
 				constexpr Lambda(detail::TitleMapper<CollType>& s) : self{ s } {}
-				constexpr void operator()(size_t, cp::BreakMode mode) {
-					self.fSeparate(mode != cp::BreakMode::none);
+				constexpr void operator()(size_t, cp::BreakKind mode) {
+					self.fSeparate(mode != cp::BreakKind::none);
 				}
 			};
 
