@@ -325,14 +325,14 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class Decompose {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::DecompMapper<CollType, false>;
 
 	public:
 		constexpr Decompose() {}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector) };
 		}
@@ -343,14 +343,14 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class Compose {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::CompMapper<CollType>;
 
 	public:
 		constexpr Compose() {}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector) };
 		}
@@ -361,7 +361,7 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class NormFold {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::NormFoldMapper<CollType>;
 
 	private:
@@ -371,7 +371,7 @@ namespace cp {
 		constexpr NormFold(std::wstring_view locale = {}) : pLocale{ locale } {}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}

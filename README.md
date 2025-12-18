@@ -47,8 +47,8 @@ The library defines a set of concepts, which it frequently uses.
  - `str::IsFormattable` Check if the type specialized the str::Formatter interface
  - `str::IsIterator` Check if the type is a codepoint iterator
  - `str::IsReceiver<T...>` Check if the type can receive the types through its call operator
- - `str::IsCollector` Check if the type has a `next(char32_t)` and `done()` method to act as recipient for transformed codepoints
- - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector` when receiving a `str::IsCollector` to write its output to
+ - `str::IsCollector<T...>` Check if the type has a `next(T...)` and `done()` method to act as recipient for transformed codepoints
+ - `str::IsMapper` Check if the type is a transformation and can instantiate a new `str::IsCollector<char32_t>` when receiving a `str::IsCollector<char32_t>` to write its output to
  - `str::IsAnalysis` Check if the type performs a boolean analysis on a stream of codepoints
  - `str::IsTester` Check if the type performs a boolean analysis on a single codepoint
 
@@ -172,8 +172,7 @@ Any encoding or decoding errors will be handled according to the `Error` templat
     str::CodeError::replace   Replace any invalid codepoints with the unicode replacement character or '?'
     str::CodeError::exception Throw an error if an encoding or decoding error is encountered
     str::CodeError::nothing   Return str::Invalid as codepoint if an error is encountered
-    str::CodeError::skip      Skip any invalid codepoints and ignore them
-    %any%                     Replace any invalid codepoints with the current value
+    %any%                     Replace any invalid codepoints with the value %any%
 
 ## Unicode Functionality
 The unicode related operations lie in the namespace `cp`. All codepoints are represented using `char32_t` as type.

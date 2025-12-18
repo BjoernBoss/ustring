@@ -2076,10 +2076,10 @@ namespace cp {
 		};
 	}
 
-	/* create a receiver, which receives the 'grapheme-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'grapheme-break-before' attribute for every
+	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output
-	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class GraphemeBreak {
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
@@ -2092,10 +2092,10 @@ namespace cp {
 		}
 	};
 
-	/* create a receiver, which splits the stream into ranges of grapheme-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
+	/* create a [str::IsCollector<char32_t, size_t>], which splits the stream into ranges of grapheme-clusters
+	*		and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	Out(cp::Range): range of a single grapheme-cluster (edge for first range, else optional) */
+	*	For receiver(cp::Range): range of a single grapheme-cluster (edge for first range, else optional) */
 	class GraphemeRanges {
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
@@ -2119,10 +2119,10 @@ namespace cp {
 	};
 
 
-	/* create a receiver, which receives the 'word-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'word-break-before' attribute for every
+	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output
-	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class WordBreak {
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
@@ -2135,10 +2135,10 @@ namespace cp {
 		}
 	};
 
-	/* create a receiver, which splits the stream into ranges of words and writes them to the receiver (will be produced in-order; no output if string is empty)
+	/* create a [str::IsCollector<char32_t, size_t>], which splits the stream into ranges of words
+	*		and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	Out(cp::Range): range of a single word (edge for first range, else optional) */
+	*	For receiver(cp::Range): range of a single word (edge for first range, else optional) */
 	class WordRanges {
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
@@ -2162,10 +2162,10 @@ namespace cp {
 	};
 
 
-	/* create a receiver, which receives the 'sentence-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'sentence-break-before' attribute for every
+	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output
-	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
+	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (only none/optional) */
 	class SentenceBreak {
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
@@ -2178,10 +2178,10 @@ namespace cp {
 		}
 	};
 
-	/* create a receiver, which splits the stream into ranges of sentence-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
+	/* create a [str::IsCollector<char32_t, size_t>], which splits the stream into ranges of sentence-clusters
+	*		and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Guaranteed by Unicode to not break grapheme-clusters
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	Out(cp::Range): range of a single sentence (edge for first range, else optional) */
+	*	For receiver(cp::Range): range of a single sentence (edge for first range, else optional) */
 	class SentenceRanges {
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>
@@ -2205,10 +2205,10 @@ namespace cp {
 	};
 
 
-	/* create a receiver, which receives the 'line-break-before' attribute for every codepoint except for the first codepoint (will be produced in-order)
+	/* create a [str::IsCollector<char32_t, size_t>], which feeds the 'line-break-before' attribute for every
+	*		codepoint except for the first codepoint to the receiver (will be produced in-order)
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output
-	*	Out(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
+	*	For receiver(size_t, cp::BreakMode): insert corresponding break before codepoint at given index (all except edge) */
 	class LineBreak {
 	public:
 		template <str::IsReceiver<size_t, cp::BreakMode> RecvType>
@@ -2228,10 +2228,10 @@ namespace cp {
 		}
 	};
 
-	/* create a receiver, which splits the stream into ranges of line-clusters and writes them to the receiver (will be produced in-order; no output if string is empty)
+	/* create a [str::IsCollector<char32_t, size_t>], which splits the stream into ranges of line-clusters
+	*		and writes them to the receiver (will be produced in-order; no output if string is empty)
 	*	Additionally specify whether to produce emergency-breaks (based on grapheme-clusters), or ignore grapheme-boundaries entirely and perform default line-breaking
-	*	In(char32_t, size_t): codepoint and index used to reference it in the output-ranges
-	*	Out(cp::Range): range of a single line and corresponding behavior before the range (edge for first range, else emergency/optional/mandatory, none if single step) */
+	*	For receiver(cp::Range): range of a single line and corresponding behavior before the range (edge for first range, else emergency/optional/mandatory, none if single step) */
 	class LineRanges {
 	public:
 		template <str::IsReceiver<cp::Range> RecvType>

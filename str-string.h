@@ -14,7 +14,7 @@
 *	 - Uses str::FastcodeAll<Error> by default and otherwise uses str::TranscodeAll<Error> on explicit selection
 */
 namespace str {
-	/* [str::IsCollector] collect the sequence of codepoints into the corresponding sink
+	/* [str::IsCollector<char32_t>] collect the sequence of codepoints into the corresponding sink
 	*	Note: For rvalues, a local move-constructed value of the sink is held, otherwise a reference is held and it must not outlive the sink */
 	template <str::IsSink SinkType>
 	struct Collect {
@@ -33,7 +33,7 @@ namespace str {
 	template <class Type> Collect(Type&) -> Collect<Type&>;
 	template <class Type> Collect(Type&&) -> Collect<Type>;
 
-	/* [str::IsCollector] collect the sequence of codepoints and pass them to the corresponding callable object
+	/* [str::IsCollector<char32_t>] collect the sequence of codepoints and pass them to the corresponding callable object
 	*	Note: For rvalues, a local move-constructed value of the receiver is held, otherwise a reference is held and it must not outlive the receiver */
 	template <str::IsReceiver<char32_t> CallType>
 	struct ForEach {
@@ -132,7 +132,7 @@ namespace str {
 			using StrType = str::String<ChType, Error>;
 
 			/* codepoint-iterator type of the current type */
-			using ItType = str::Iterator<ChType, Error>;
+			using ItType = str::CPIterator<ChType, Error>;
 
 		public:
 			using BaseType::BaseType;
@@ -176,11 +176,10 @@ namespace str {
 			template <class CollType, class... Transforms>
 			constexpr void fApply(CollType&& collector, const Transforms&... transforms) const {
 				TransType<CollType, Transforms...> transform = fTransform<CollType, Transforms...>(std::forward<CollType>(collector), transforms...);
-				ItType it{ fBase() };
 
 				/* pass all codepoints into the transformation */
-				while (it.valid())
-					transform.next(it.next());
+				for (char32_t cp : ItType{ fBase() })
+					transform.next(cp);
 				transform.done();
 			}
 
@@ -189,11 +188,10 @@ namespace str {
 			constexpr bool fAnalyze(AnType&& analysis) const {
 				if (fBase().empty())
 					return false;
-				ItType it{ fBase() };
 
 				/* pass all codepoints into the analysis */
-				while (it.valid())
-					analysis.next(it.next());
+				for (char32_t cp : ItType{ fBase() })
+					analysis.next(cp);
 				return analysis.done();
 			}
 
@@ -202,14 +200,23 @@ namespace str {
 			constexpr bool fTest(const TsType& tester) const {
 				if (fBase().empty())
 					return false;
-				ItType it{ fBase() };
 
 				/* pass all codepoints to the tester */
-				while (it.valid()) {
-					if (!tester(it.next()))
+				for (char32_t cp : ItType{ fBase() }) {
+					if (!tester(cp))
 						return false;
 				}
 				return true;
+			}
+
+			/* pass all codepoints and indices to the collector */
+			template <class CollType>
+			constexpr void fIndexCollect(CollType&& collector) const {
+				auto r = ItType{ fBase() };
+
+				for (auto it = r.begin(); it != r.end(); ++it)
+					collector.next(*it, it.base() - r.begin().base());
+				collector.done();
 			}
 
 			/* iterate over all codepoints of the two strings, apply the transformations, and check if the strings match */
@@ -220,8 +227,10 @@ namespace str {
 				bool valid = true;
 
 				/* construct the two iterators to iterate across the two strings */
-				str::Iterator<AChType, Error> aIt{ a };
-				str::Iterator<BChType, Error> bIt{ b };
+				str::CPIterator<AChType, Error> aRange{ a };
+				auto aIt = aRange.begin(), aEnd = aRange.end();
+				str::CPIterator<BChType, Error> bRange{ b };
+				auto bIt = bRange.begin(), bEnd = bRange.end();
 
 				/* instantiate the two transformations, which compare their produced codepoints to the cached last codepoints */
 				auto aTrans = fTransform(str::ForEach([&](char32_t cp) {
@@ -252,17 +261,18 @@ namespace str {
 					}), transforms...);
 
 				/* iterate over the codepoints and feed them to the transformation and compare the outputs */
-				while (aIt.valid()) {
-					if (!bIt.valid())
+				while (aIt != aEnd) {
+					if (bIt == bEnd)
 						return false;
-					aTrans.next(aIt.next());
-					bTrans.next(bIt.next());
+					aTrans.next(*aIt);
+					bTrans.next(*bIt);
+					++aIt; ++bIt;
 					if (!valid)
 						return false;
 				}
 
 				/* ensure that the other iterator has also reached its end and flush the transformations */
-				if (bIt.valid())
+				if (bIt != bEnd)
 					return false;
 				aTrans.done();
 				bTrans.done();
@@ -272,13 +282,12 @@ namespace str {
 			/* skip the first codepoints until the tester returns false */
 			template <class TsType>
 			constexpr ViewType fLeftStrip(const TsType& tester) const {
-				ItType it{ fBase(), 0, false };
+				auto r = ItType{ fBase() };
 
 				/* iterate over the codepoints and look for the first fail */
-				while (it.valid()) {
-					if (!tester(it.get()))
-						return ViewType{ fBase() }.substr(it.base());
-					it.advance();
+				for (auto it = r.begin(); it != r.end(); ++it) {
+					if (!tester(*it))
+						return ViewType{ fBase() }.substr(it.base() - r.begin().base());
 				}
 				return ViewType{};
 			}
@@ -286,15 +295,14 @@ namespace str {
 			/* skip the last codepoints until the tester returns false */
 			template <class TsType>
 			constexpr ViewType fRightStrip(const TsType& tester) const {
-				size_t lastEnd = fBase().size();
-				ItType it{ fBase(), lastEnd, true };
+				auto r = ItType{ fBase() };
 
-				/* iterate over the codepoints and look for the first fail */
-				while (it.valid()) {
-					if (!tester(it.get()))
-						return ViewType{ fBase() }.substr(0, lastEnd);
-					lastEnd = it.base();
-					it.reverse();
+				/* iterate over the codepoints and look for the last fail */
+				for (auto it = r.end(); it != r.begin();) {
+					auto pt = std::prev(it);
+					if (!tester(*pt))
+						return ViewType{ fBase() }.substr(0, it.base() - r.begin().base());
+					it = pt;
 				}
 				return ViewType{};
 			}
@@ -310,9 +318,9 @@ namespace str {
 				return fBase();
 			}
 
-			/* fetch the codepoint iterator for the string */
-			constexpr ItType it(size_t index = 0, bool previous = false) const {
-				return ItType{ fBase(), index, previous };
+			/* iterator range to iterate over the codepoints */
+			constexpr ItType codepoints() const {
+				return ItType{ fBase() };
 			}
 
 			/* convert the string to the corrsponding string-type as fast as possible (either fast but potentially incorrect, or slower but correct) */
@@ -444,11 +452,9 @@ namespace str {
 			/* convert the decimal digits into the string from any format to ascii 0-9 and leave the remaining characters unchanged */
 			constexpr StrType asciiDecimals() const {
 				StrType out;
-				ItType it{ fBase() };
 
 				/* iterate over the codepoints and either transform all decimal digits or simply forward the codepoints */
-				while (it.valid()) {
-					char32_t cp = it.next();
+				for (char32_t cp : ItType{ fBase() }) {
 					size_t digit = cp::prop::GetDecimal(cp);
 					if (digit == cp::prop::ErrDecimal)
 						str::CodepointTo<Error>(out, cp);
@@ -507,9 +513,8 @@ namespace str {
 		public:
 			/* test if every codepoint in the string can be decoded and is considered valid (can be empty) */
 			constexpr bool isValid() const {
-				str::Iterator<ChType, str::CodeError::nothing> it{ fBase() };
-				while (it.valid()) {
-					if (it.next() == str::Invalid)
+				for (char32_t cp : str::CPIterator<ChType, str::CodeError::nothing>{ fBase() }) {
+					if (cp == str::Invalid)
 						return false;
 				}
 				return true;
@@ -606,7 +611,7 @@ namespace str {
 
 		public:
 			/* apply all of the transformations in nested order and write the result to the collector */
-			template <str::IsCollector CollType>
+			template <str::IsCollector<char32_t> CollType>
 			constexpr void transformTo(CollType&& collector, const str::IsMapper auto&... mapper) {
 				fApply(std::forward<CollType>(collector), mapper...);
 			}
@@ -643,28 +648,32 @@ namespace str {
 			}
 
 		public:
-			/* setup a grapheme-iterator on the codepoint beneath the index */
-			constexpr cp::GraphemeIterator<ItType> graphemes(size_t index = 0) const {
-				ItType it{ fBase(), index };
-				return cp::GraphemeIterator<ItType>{ it };
+			/* receive a list of all grapheme ranges */
+			std::vector<cp::Range> graphemes() const {
+				std::vector<cp::Range> collected;
+				fIndexCollect(cp::GraphemeRanges{}([&](const cp::Range& r) { collected.push_back(r); }));
+				return collected;
 			}
 
-			/* setup a word-iterator on the codepoint beneath the index */
-			constexpr cp::WordIterator<ItType> words(size_t index = 0) const {
-				ItType it{ fBase(), index };
-				return cp::WordIterator<ItType>{ it };
+			/* receive a list of all word ranges */
+			std::vector<cp::Range> words() const {
+				std::vector<cp::Range> collected;
+				fIndexCollect(cp::WordRanges{}([&](const cp::Range& r) { collected.push_back(r); }));
+				return collected;
 			}
 
-			/* setup a sentence-iterator on the codepoint beneath the index */
-			constexpr cp::SentenceIterator<ItType> sentences(size_t index = 0) const {
-				ItType it{ fBase(), index };
-				return cp::SentenceIterator<ItType>{ it };
+			/* receive a list of all sentence ranges */
+			std::vector<cp::Range> sentences() const {
+				std::vector<cp::Range> collected;
+				fIndexCollect(cp::SentenceRanges{}([&](const cp::Range& r) { collected.push_back(r); }));
+				return collected;
 			}
 
-			/* setup a line-iterator on the codepoint beneath the index */
-			constexpr cp::LineIterator<ItType> lines(bool emergencyBreak = true, bool graphemeAware = true, size_t index = 0) const {
-				ItType it{ fBase(), index };
-				return cp::LineIterator<ItType>{ it, emergencyBreak, graphemeAware };
+			/* receive a list of all line ranges */
+			std::vector<cp::Range> lines(bool emergencyBreak = true, bool graphemeAware = true) const {
+				std::vector<cp::Range> collected;
+				fIndexCollect(cp::LineRanges{ emergencyBreak, graphemeAware }([&](const cp::Range& r) { collected.push_back(r); }));
+				return collected;
 			}
 		};
 	}

@@ -13,6 +13,7 @@
 #include <type_traits>
 #include <span>
 #include <cstring>
+#include <iterator>
 
 namespace str {
 	/* codepoint to indicate invalid decoding (guaranteed to be larger than any valid unicode-codepoint) */
@@ -79,8 +80,9 @@ namespace str {
 		template <> struct TestChar<char16_t> { using type = char16_t; };
 		template <> struct TestChar<char32_t> { using type = char32_t; };
 
+		template <class... Args>
 		struct EmptyCollector {
-			constexpr void next(char32_t) {}
+			constexpr void next(Args...) {}
 			constexpr void done() {}
 		};
 	}
@@ -119,21 +121,21 @@ namespace str {
 
 	/* valid collectors must receive zero or more valid arguments via next() and a final call to done(), after which
 	*	the object is considered burnt (undefined behavior allowed, if input does not behave well-defined) */
-	template <class Type>
-	concept IsCollector = requires(Type t, char32_t c) {
-		{ t.next(c) } -> std::same_as<void>;
+	template <class Type, class... ValType>
+	concept IsCollector = requires(Type t, ValType... v) {
+		{ t.next(v...) } -> std::same_as<void>;
 		{ t.done() } -> std::same_as<void>;
 	};
 
-	/* codepoint-mapper must receive a collector to which it writes the mapped content
-	*	and return a collector and expose the type of the new collector as ::Type (must
+	/* codepoint-mapper must receive a collector to which it writes the mapped content and
+	*	return a collector<char32_t> and expose the type of the new collector as ::Type (must
 	*	propagate the input type forward and wrap it - if rvalue or lvalue) */
 	template <class Type>
-	concept IsMapper = requires(const Type t, detail::EmptyCollector c) {
-		typename Type::template Type<detail::EmptyCollector>;
-		{ t(std::move(c)) } -> std::same_as<typename Type::template Type<detail::EmptyCollector>>;
-		{ t(c) } -> std::same_as<typename Type::template Type<detail::EmptyCollector&>>;
-		{ t(c) } -> str::IsCollector;
+	concept IsMapper = requires(const Type t, detail::EmptyCollector<char32_t> c) {
+		typename Type::template Type<detail::EmptyCollector<char32_t>>;
+		{ t(std::move(c)) } -> std::same_as<typename Type::template Type<detail::EmptyCollector<char32_t>>>;
+		{ t(c) } -> std::same_as<typename Type::template Type<detail::EmptyCollector<char32_t>&>>;
+		{ t(c) } -> str::IsCollector<char32_t>;
 	};
 
 	/* valid analysis must receive zero or more valid codepoints via next() and a final call to done(),

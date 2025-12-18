@@ -158,7 +158,7 @@ namespace str {
 			str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
 
 			/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-			if constexpr (Error != str::CodeError::skip && Error != str::CodeError::nothing) {
+			if constexpr (Error != str::CodeError::nothing) {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (Error == str::CodeError::exception)
 						throw str::CodingException(L"Escaped codepoint could not be decoded");
@@ -288,9 +288,8 @@ namespace str {
 		std::basic_string_view<ChType> view{ source };
 
 		/* iterate over the codepoints and escape them all to the sink */
-		str::Iterator<ChType, Error> it{ view };
-		while (it.next())
-			str::EscapeTo<Error>(sink, it.get(), compact, 1);
+		for (char32_t cp : str::CPIterator<ChType, Error>{ view })
+			str::EscapeTo<Error>(sink, cp, compact, 1);
 	}
 
 	/* escape the entire source-string to an object of the given sink-type using str::EscapeAllTo and return it */

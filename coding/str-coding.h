@@ -96,19 +96,12 @@ namespace str {
 		*	=> iterator: return str::Invalid */
 		nothing = char32_t(-2),
 
-		/* skip the coding error and continue to the next valid codepoint
-		*	=> encoding: write nothing to the sink
-		*	=> decoding: return str::Invalid
-		*	=> ascii: return str::Invalid
-		*	=> iterator: advance to next valid codepoint in given direction */
-		skip = char32_t(-3),
-
 		/* replace coding error with the replacement character
 		*	=> encoding: encode str::GetRepChar or throw str::CodingException if it fails as well
 		*	=> decoding: return str::RepCharUnicode
 		*	=> ascii: return str::RepCharAscii
 		*	=> iterator: return str::RepCharUnicode */
-		replace = char32_t(-4),
+		replace = char32_t(-3),
 	};
 
 	/* invalid codepoint decoding/encoding exception */
@@ -123,6 +116,7 @@ namespace str {
 			return char32_t(Error);
 		}
 
+		/* expect at least one character to be available */
 		template <class ChType, bool AllowIncomplete>
 		inline constexpr str::Decoded DecodeNext(const ChType* cur, const ChType* end) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
@@ -135,6 +129,23 @@ namespace str {
 				return detail::NextWide<AllowIncomplete>(cur, end);
 			else
 				return detail::NextChar<AllowIncomplete>(cur, end);
+		}
+		template <str::CodeError Error, class ChType, bool AllowIncomplete>
+		inline constexpr str::Decoded DecodeNextError(const ChType* cur, const ChType* end) {
+			str::Decoded dec = detail::DecodeNext<ChType, AllowIncomplete>(cur, end);
+
+			/* check if the codepoint is invalid and handle it */
+			if constexpr (Error != str::CodeError::nothing) {
+				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
+					if constexpr (Error == str::CodeError::exception)
+						throw str::CodingException(L"Codepoint could not be decoded");
+					else if constexpr (Error == str::CodeError::replace)
+						dec.cp = str::RepCharUnicode;
+					else
+						dec.cp = detail::CustomError<Error>();
+				}
+			}
+			return dec;
 		}
 		template <class ChType>
 		inline constexpr str::Decoded DecodePrev(const ChType* begin, const ChType* cur) {
@@ -149,6 +160,24 @@ namespace str {
 			else
 				return detail::PrevChar(begin, cur);
 		}
+		template <str::CodeError Error, class ChType>
+		inline constexpr str::Decoded DecodePrevError(const ChType* begin, const ChType* cur) {
+			str::Decoded dec = detail::DecodePrev<ChType>(begin, cur);
+
+			/* check if the codepoint is invalid and handle it */
+			if constexpr (Error != str::CodeError::nothing) {
+				if (dec.cp == str::Invalid) {
+					if constexpr (Error == str::CodeError::exception)
+						throw str::CodingException(L"Codepoint could not be decoded");
+					else if constexpr (Error == str::CodeError::replace)
+						dec.cp = str::RepCharUnicode;
+					else
+						dec.cp = detail::CustomError<Error>();
+				}
+			}
+			return dec;
+		}
+
 		template <class ChType>
 		inline constexpr bool EncodeCodepoint(auto& sink, char32_t cp) {
 			if constexpr (std::is_same_v<ChType, char8_t>)
@@ -175,14 +204,13 @@ namespace str {
 			else
 				return detail::EstimateChar(cur, end);
 		}
-
 		template <class ChType, str::CodeError Error>
 		inline constexpr bool EncodeSingle(auto& sink, char32_t cp) {
 			if (detail::EncodeCodepoint<ChType>(sink, cp))
 				return true;
 
 			/* check if the codepoint could not be encoded and handle the error accordingly */
-			if constexpr (Error == str::CodeError::skip || Error == str::CodeError::nothing)
+			if constexpr (Error == str::CodeError::nothing)
 				return false;
 			else if constexpr (Error == str::CodeError::exception)
 				throw str::CodingException(L"Codepoint could not be encoded");
@@ -194,33 +222,14 @@ namespace str {
 				throw str::CodingException(L"Alternative coding-error codepoint could not be encoded");
 			return true;
 		}
-		template <class ChType, str::CodeError Error, bool AllowIncomplete>
-		inline constexpr str::Decoded DecodeSingle(const std::basic_string_view<ChType>& view) {
-			if (view.empty())
-				return {};
-			str::Decoded dec = detail::DecodeNext<ChType, AllowIncomplete>(view.data(), view.data() + view.size());
-
-			/* check if an error occurred and the codepoint should either be replaced or an exception raised */
-			if constexpr (Error != str::CodeError::nothing && Error != str::CodeError::skip) {
-				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
-					if constexpr (Error == str::CodeError::exception)
-						throw str::CodingException(L"Codepoint could not be decoded");
-					else if constexpr (Error == str::CodeError::replace)
-						dec.cp = str::RepCharUnicode;
-					else
-						dec.cp = detail::CustomError<Error>();
-				}
-			}
-			return dec;
-		}
 		template <class DChType, class SChType, str::CodeError Error, bool AllowIncomplete, bool FastMode>
 		inline constexpr str::Transcoded<DChType> TranscodeSingle(const std::basic_string_view<SChType>& view) {
 			str::Transcoded<DChType> out{};
+			if (view.empty())
+				return out;
 
 			/* check if the length can just be copied */
 			if constexpr (str::EffSame<SChType, DChType> && FastMode) {
-				if (view.empty())
-					return out;
 				uint32_t len = detail::EstimateLength<SChType>(view.data(), view.data() + view.size());
 
 				/* check if a valid codepoint has been encountered and copy it out */
@@ -236,7 +245,7 @@ namespace str {
 
 				/* default-consume one character and handle the invalid/incomplete codepoint */
 				out.consumed = 1;
-				if constexpr (Error != str::CodeError::nothing && Error != str::CodeError::skip) {
+				if constexpr (Error != str::CodeError::nothing) {
 					if constexpr (Error == str::CodeError::exception)
 						throw str::CodingException(L"Codepoint could not be transcoded");
 					if constexpr (Error == str::CodeError::replace) {
@@ -253,13 +262,11 @@ namespace str {
 			*	then not be char32_t and hence valid codepoints will be ensured, Error will automatically be applied) */
 			char32_t cp = 0;
 			if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
-				if (view.empty())
-					return out;
 				out.consumed = 1;
 				cp = char32_t(view[0]);
 			}
 			else {
-				auto [_cp, len] = detail::DecodeSingle<SChType, Error, AllowIncomplete>(view);
+				auto [_cp, len] = detail::DecodeNextError<Error, SChType, AllowIncomplete>(view.data(), view.data() + view.size());
 				out.consumed = len;
 				if (_cp == str::Invalid)
 					return out;
@@ -300,7 +307,7 @@ namespace str {
 	*	Will only produce valid unicode codepoints or values based on Error
 	*	Note: depending on Error, starting within a codepoint may result in inconsistent forward and backward codepoint iteration */
 	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
-	struct Iterator {
+	struct _Iterator {
 	private:
 		const ChType* pBegin = 0;
 		const ChType* pCurrent = 0;
@@ -308,7 +315,7 @@ namespace str {
 		str::Decoded pOut{};
 
 	public:
-		constexpr Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0, bool previous = false) : pBegin{ s.data() }, pEnd{ s.data() + s.size() } {
+		constexpr _Iterator(const std::basic_string_view<ChType>& s = {}, size_t off = 0, bool previous = false) : pBegin{ s.data() }, pEnd{ s.data() + s.size() } {
 			pCurrent = std::min(pBegin + off, pEnd);
 
 			/* initialize the first codepoint */
@@ -334,9 +341,7 @@ namespace str {
 				/* check if the codepoint is invalid and needs to be corrected */
 				if constexpr (Error != str::CodeError::nothing) {
 					if (pOut.cp == str::Invalid) {
-						if constexpr (Error == str::CodeError::skip)
-							continue;
-						else if constexpr (Error == str::CodeError::exception)
+						if constexpr (Error == str::CodeError::exception)
 							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
 						else if constexpr (Error == str::CodeError::replace)
 							pOut.cp = str::RepCharUnicode;
@@ -362,9 +367,7 @@ namespace str {
 				/* check if the codepoint is invalid and needs to be corrected */
 				if constexpr (Error != str::CodeError::nothing) {
 					if (pOut.cp == str::Invalid) {
-						if constexpr (Error == str::CodeError::skip)
-							continue;
-						else if constexpr (Error == str::CodeError::exception)
+						if constexpr (Error == str::CodeError::exception)
 							throw str::CodingException(L"Invalid codepoint encountered in str::Iterator");
 						else if constexpr (Error == str::CodeError::replace)
 							pOut.cp = str::RepCharUnicode;
@@ -412,6 +415,100 @@ namespace str {
 		}
 	};
 
+
+
+
+
+	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
+	struct CPIterator {
+	public:
+		struct iterator {
+		public:
+			using iterator_category = std::input_iterator_tag;
+			using iterator_concept = std::bidirectional_iterator_tag;
+			using value_type = const char32_t;
+			using difference_type = std::ptrdiff_t;
+
+		private:
+			std::basic_string_view<ChType> pSource;
+			mutable const ChType* pPosition = nullptr;
+			mutable str::Decoded pOut{};
+
+		private:
+			void fAdvance() const {
+				/* undefined for next on last cp */
+				pPosition += pOut.consumed;
+				pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
+			}
+			void fReverse() const {
+				/* undefined for prev on first cp */
+				pOut = detail::DecodePrevError<Error, ChType>(pSource.data(), pPosition);
+				pPosition -= pOut.consumed;
+			}
+
+		public:
+			iterator() = default;
+			iterator(std::basic_string_view<ChType> s, const ChType* pos) : pSource{ s }, pPosition{ pos } {}
+
+		public:
+			value_type operator*() const noexcept {
+				if (pOut.consumed == 0)
+					fAdvance();
+				return pOut.cp;
+			}
+			iterator& operator++() noexcept {
+				fAdvance();
+				return *this;
+			}
+			iterator operator++(int) noexcept {
+				iterator it{ *this };
+				it.fAdvance();
+				return it;
+			}
+			iterator& operator--() noexcept {
+				fReverse();
+				return *this;
+			}
+			iterator operator--(int) noexcept {
+				iterator it{ *this };
+				it.fReverse();
+				return it;
+			}
+			bool operator==(const iterator& it) const noexcept {
+				return (pPosition == it.pPosition);
+			}
+			bool operator!=(const iterator& it) const noexcept {
+				return !(*this == it);
+			}
+			const ChType* base() const {
+				return pPosition;
+			}
+		};
+		using const_iterator = iterator;
+
+	private:
+		std::basic_string_view<ChType> pSource;
+
+	public:
+		constexpr CPIterator(std::basic_string_view<ChType> s) : pSource{ s } {}
+
+	public:
+		constexpr iterator begin() const {
+			return iterator{ pSource, pSource.data() };
+		}
+		constexpr iterator at(size_t index) const {
+			return iterator{ pSource, pSource.data() + index };
+		}
+		constexpr iterator end() const {
+			return iterator{ pSource, pSource.data() + pSource.size() };
+		}
+	};
+	template <str::IsChStr<char> Type> CPIterator(Type) -> CPIterator<char, str::CodeError::replace>;
+	template <str::IsChStr<wchar_t> Type> CPIterator(Type) -> CPIterator<wchar_t, str::CodeError::replace>;
+	template <str::IsChStr<char8_t> Type> CPIterator(Type) -> CPIterator<char8_t, str::CodeError::replace>;
+	template <str::IsChStr<char16_t> Type> CPIterator(Type) -> CPIterator<char16_t, str::CodeError::replace>;
+	template <str::IsChStr<char32_t> Type> CPIterator(Type) -> CPIterator<char32_t, str::CodeError::replace>;
+
 	/* decode single next codepoint from corresponding type, if its an ascii character, and return str::Invalid if the source is empty,
 	*	otherwise at least consume one character at all times and return str::Invalid on decoding-errors or if the codepoint is not ascii */
 	template <str::CodeError Error = str::CodeError::replace>
@@ -440,7 +537,7 @@ namespace str {
 			return { char32_t(std::make_unsigned_t<ChType>(view[0])), 1 };
 
 		/* handle the invalid codepoint by either raising the exception or replacing the codepoint */
-		if constexpr (Error == str::CodeError::nothing || Error == str::CodeError::skip)
+		if constexpr (Error == str::CodeError::nothing)
 			return { str::Invalid, len };
 		else if constexpr (Error == str::CodeError::exception)
 			throw str::CodingException(L"Codepoint is not a valid ascii codepoint");
@@ -473,14 +570,30 @@ namespace str {
 	constexpr str::Decoded GetCodepoint(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		return detail::DecodeSingle<ChType, Error, false>(view);
+		if (view.empty())
+			return {};
+		return detail::DecodeNextError<Error, ChType, false>(view.data(), view.data() + view.size());
+	}
+
+	/* decode a single codepoint from the end of the source and return it (return consumed null if
+	*	the source is empty and otherwise consume at all times at least one character and return
+	*	str::Invalid on errors, if CodeError does not define alternative behavior) */
+	template <str::CodeError Error = str::CodeError::replace>
+	constexpr str::Decoded LastCodepoint(const str::IsStr auto& source) {
+		using ChType = str::StringChar<decltype(source)>;
+		std::basic_string_view<ChType> view{ source };
+		if (view.empty())
+			return {};
+		return detail::DecodePrevError<Error, ChType>(view.data(), view.data() + view.size());
 	}
 
 	/* determine if the source starts with a valid codepoint (i.e. is aligned with the start of a valid codepoint) */
 	constexpr bool IsCodepoint(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		return (detail::DecodeSingle<ChType, str::CodeError::nothing, false>(view) != str::Invalid);
+		if (view.empty())
+			return false;
+		return (detail::DecodeNextError<str::CodeError::nothing, ChType, false>(view.data(), view.data() + view.size()).cp != str::Invalid);
 	}
 
 	/* decode a single codepoint from the source and return it (return consumed null if the source is empty or
@@ -491,7 +604,9 @@ namespace str {
 	constexpr str::Decoded PartialCodepoint(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
-		return detail::DecodeSingle<ChType, Error, true>(view);
+		if (view.empty())
+			return {};
+		return detail::DecodeNextError<Error, ChType, true>(view.data(), view.data() + view.size());
 	}
 
 	/* transcode the next codepoint and return it (does guarantee valid encoding, return consumed null if the source is empty and otherwise
@@ -553,17 +668,13 @@ namespace str {
 
 			/* check if the destination does not need to be encoded */
 			else if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
-				str::Iterator<SChType, Error> it{ view };
-				while (it.valid())
-					str::CallSink(sink, DChType(it.next()), 1);
+				for (char32_t cp : str::CPIterator<SChType, Error>{ view })
+					str::CallSink(sink, DChType(cp), 1);
 			}
 
 			/* iterate over the source-codepoints and transcode them */
-			else {
-				str::Iterator<SChType, Error> it{ view };
-				while (it.valid())
-					str::CodepointTo<Error>(sink, it.next(), 1);
-			}
+			else for (char32_t cp : str::CPIterator<SChType, Error>{ view })
+				str::CodepointTo<Error>(sink, cp, 1);
 		}
 	}
 

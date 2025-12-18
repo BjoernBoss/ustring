@@ -485,7 +485,7 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class UpperCase {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::UpperMapper<CollType>;
 
 	private:
@@ -497,7 +497,7 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
@@ -508,7 +508,7 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class LowerCase {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::LowerMapper<CollType>;
 
 	private:
@@ -520,7 +520,7 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
@@ -531,7 +531,7 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class TitleCase {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::TitleMapper<CollType>;
 
 	private:
@@ -543,7 +543,7 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
@@ -554,7 +554,7 @@ namespace cp {
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class FoldCase {
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		using Type = detail::FoldingMapper<CollType>;
 
 	private:
@@ -566,7 +566,7 @@ namespace cp {
 		}
 
 	public:
-		template <str::IsCollector CollType>
+		template <str::IsCollector<char32_t> CollType>
 		constexpr Type<CollType> operator()(CollType&& collector) const {
 			return Type<CollType>{ std::forward<CollType>(collector), pLocale };
 		}
