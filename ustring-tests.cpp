@@ -49,32 +49,31 @@ namespace tester {
 				return (pValid && pNext == pReference.size());
 			}
 		};
-		template <class RangeItType, class... Args>
-		constexpr str::Iterator<char32_t> PreviousEdge(str::Iterator<char32_t> it, const Args&... args) {
-			auto _it = RangeItType{ it, args... };
-			while (_it.prev() == cp::BreakMode::none);
-			return _it.get();
+		template <class BeforeCall, class... Args>
+		constexpr size_t PreviousEdge(BeforeCall bc, str::CPIterator<char32_t> range, size_t index, const Args&... args) {
+			while (bc(range.begin(), range.at(index), range.end(), args...) == cp::BreakKind::none)
+				--index;
+			return index;
 		}
-		template <class RangeItType, class... Args>
-		constexpr str::Iterator<char32_t> NextEdge(str::Iterator<char32_t> it, const Args&... args) {
-			auto _it = RangeItType{ it, args... };
-			while (_it.next() == cp::BreakMode::none);
-			return _it.get();
+		template <class AfterCall, class... Args>
+		constexpr size_t NextEdge(AfterCall ac, str::CPIterator<char32_t> range, size_t index, const Args&... args) {
+			while (ac(range.begin(), range.at(index), range.end(), args...) == cp::BreakKind::none)
+				++index;
+			return index;
 		}
-		template <class RangeItType, class... Args>
-		constexpr int8_t TestRangeIt(const str::u32::View& s, size_t index, const std::vector<std::pair<size_t, size_t>>& ranges, const Args&... args) {
+		template <class BeforeCall, class AfterCall, class... Args>
+		constexpr int8_t TestRangeIt(const str::u32::View& s, size_t index, const std::vector<std::pair<size_t, size_t>>& ranges, BeforeCall bc, AfterCall ac, const Args&... args) {
 			/* find the range the current char lies in */
 			size_t r = 0;
 			while (index > ranges[r].second)
 				++r;
 
 			/* check the previous edge */
-			str::Iterator<char32_t> _it = s.it(index);
-			if (util::PreviousEdge<RangeItType, Args...>(_it, args...).base() != ranges[r].first)
+			if (util::PreviousEdge<BeforeCall, Args...>(bc, s.codepoints(), index, args...) != ranges[r].first)
 				return -1;
 
 			/* check the next edge */
-			if (util::NextEdge<RangeItType, Args...>(_it, args...).base() != ranges[r].second)
+			if (util::NextEdge<AfterCall, Args...>(ac, s.codepoints(), index, args...) != ranges[r].second)
 				return 1;
 			return 0;
 		}
@@ -175,7 +174,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt<cp::GraphemeIterator<str::Iterator<char32_t>>>(s, j, r);
+				int8_t res = util::TestRangeIt(s, j, r, cp::GraphemeBefore<str::CPIterator<char32_t>::iterator>, cp::GraphemeAfter<str::CPIterator<char32_t>::iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -204,7 +203,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt<cp::WordIterator<str::Iterator<char32_t>>>(s, j, r);
+				int8_t res = util::TestRangeIt(s, j, r, cp::WordBefore<str::CPIterator<char32_t>::iterator>, cp::WordAfter<str::CPIterator<char32_t>::iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -233,7 +232,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt<cp::SentenceIterator<str::Iterator<char32_t>>>(s, j, r);
+				int8_t res = util::TestRangeIt(s, j, r, cp::SentenceBefore<str::CPIterator<char32_t>::iterator>, cp::SentenceAfter<str::CPIterator<char32_t>::iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -254,7 +253,7 @@ namespace tester {
 			std::vector<std::pair<size_t, size_t>> r = util::LoadRange(cp::detail::gen::test::LineRangesIndex[i], cp::detail::gen::test::LineRangesBlob);
 
 			/* test the ranges-object */
-			if (!s.analyze(util::TestRange{ cp::LineRanges{ false, false }, r })) {
+			if (!s.analyze(util::TestRange{ cp::LineRanges{ cp::LineMode::basic }, r })) {
 				str::FmtLn("Line ranges error at [{}]: [{:e}]", i, s);
 				++errors;
 				continue;
@@ -262,7 +261,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt<cp::LineIterator<str::Iterator<char32_t>>, bool, bool>(s, j, r, false, false);
+				int8_t res = util::TestRangeIt(s, j, r, cp::LineBefore<str::CPIterator<char32_t>::iterator>, cp::LineAfter<str::CPIterator<char32_t>::iterator>, cp::LineMode::basic);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -361,7 +360,7 @@ namespace compare {
 			Timer() : pStart{ std::chrono::high_resolution_clock::now() } {}
 
 		public:
-			float stop() {
+			float stop() const {
 				std::chrono::time_point stop = std::chrono::high_resolution_clock::now();
 				return (std::chrono::duration_cast<std::chrono::microseconds>(stop - pStart).count() / 1000000.0f);
 			}
