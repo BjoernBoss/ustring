@@ -321,13 +321,13 @@ namespace str {
 
 	private:
 		void fInitialized() const {
+			/* undefined for read on invalid cp */
 			if (pOut.consumed == 0)
-				fAdvance();
+				pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
 		}
 		void fAdvance() const {
-			/* undefined for next on last cp */
 			pPosition += pOut.consumed;
-			pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
+			pOut.consumed = 0;
 		}
 		void fReverse() const {
 			/* undefined for prev on first cp */
@@ -350,19 +350,18 @@ namespace str {
 			fAdvance();
 			return *this;
 		}
-		Iterator operator++(int) noexcept {
-			Iterator it{ *this };
-			it.fInitialized();
-			it.fAdvance();
-			return it;
-		}
 		Iterator& operator--() noexcept {
 			fReverse();
 			return *this;
 		}
+		Iterator operator++(int) noexcept {
+			Iterator it{ *this };
+			++(*this);
+			return it;
+		}
 		Iterator operator--(int) noexcept {
 			Iterator it{ *this };
-			it.fReverse();
+			--(*this);
 			return it;
 		}
 		bool operator==(const Iterator& it) const noexcept {
