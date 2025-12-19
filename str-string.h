@@ -131,8 +131,11 @@ namespace str {
 			/* string type of the current object */
 			using StrType = str::String<ChType, Error>;
 
+			/* codepoint-range type of the current type */
+			using RangeType = str::CPRange<ChType, Error>;
+
 			/* codepoint-iterator type of the current type */
-			using ItType = str::CPIterator<ChType, Error>;
+			using ItType = str::Iterator<ChType, Error>;
 
 		public:
 			using BaseType::BaseType;
@@ -178,7 +181,7 @@ namespace str {
 				TransType<CollType, Transforms...> transform = fTransform<CollType, Transforms...>(std::forward<CollType>(collector), transforms...);
 
 				/* pass all codepoints into the transformation */
-				for (char32_t cp : ItType{ fBase() })
+				for (char32_t cp : RangeType{ fBase() })
 					transform.next(cp);
 				transform.done();
 			}
@@ -190,7 +193,7 @@ namespace str {
 					return false;
 
 				/* pass all codepoints into the analysis */
-				for (char32_t cp : ItType{ fBase() })
+				for (char32_t cp : RangeType{ fBase() })
 					analysis.next(cp);
 				return analysis.done();
 			}
@@ -202,7 +205,7 @@ namespace str {
 					return false;
 
 				/* pass all codepoints to the tester */
-				for (char32_t cp : ItType{ fBase() }) {
+				for (char32_t cp : RangeType{ fBase() }) {
 					if (!tester(cp))
 						return false;
 				}
@@ -212,7 +215,7 @@ namespace str {
 			/* pass all codepoints and indices to the collector */
 			template <class CollType>
 			constexpr void fIndexCollect(CollType&& collector) const {
-				auto r = ItType{ fBase() };
+				auto r = RangeType{ fBase() };
 
 				for (auto it = r.begin(); it != r.end(); ++it)
 					collector.next(*it, it.base() - r.begin().base());
@@ -227,9 +230,9 @@ namespace str {
 				bool valid = true;
 
 				/* construct the two iterators to iterate across the two strings */
-				str::CPIterator<AChType, Error> aRange{ a };
+				str::CPRange<AChType, Error> aRange{ a };
 				auto aIt = aRange.begin(), aEnd = aRange.end();
-				str::CPIterator<BChType, Error> bRange{ b };
+				str::CPRange<BChType, Error> bRange{ b };
 				auto bIt = bRange.begin(), bEnd = bRange.end();
 
 				/* instantiate the two transformations, which compare their produced codepoints to the cached last codepoints */
@@ -282,7 +285,7 @@ namespace str {
 			/* skip the first codepoints until the tester returns false */
 			template <class TsType>
 			constexpr ViewType fLeftStrip(const TsType& tester) const {
-				auto r = ItType{ fBase() };
+				auto r = RangeType{ fBase() };
 
 				/* iterate over the codepoints and look for the first fail */
 				for (auto it = r.begin(); it != r.end(); ++it) {
@@ -295,7 +298,7 @@ namespace str {
 			/* skip the last codepoints until the tester returns false */
 			template <class TsType>
 			constexpr ViewType fRightStrip(const TsType& tester) const {
-				auto r = ItType{ fBase() };
+				auto r = RangeType{ fBase() };
 
 				/* iterate over the codepoints and look for the last fail */
 				for (auto it = r.end(); it != r.begin();) {
@@ -319,8 +322,18 @@ namespace str {
 			}
 
 			/* iterator range to iterate over the codepoints */
-			constexpr ItType codepoints() const {
-				return ItType{ fBase() };
+			constexpr RangeType codepoints() const {
+				return RangeType{ fBase() };
+			}
+
+			/* begin iterator over the codepoints */
+			constexpr ItType cpBegin() const {
+				return ItType{ fBase(), 0 };
+			}
+
+			/* end iterator over the codepoint s*/
+			constexpr ItType cpEnd() const {
+				return ItType{ fBase(), fBase().size() };
 			}
 
 			/* convert the string to the corrsponding string-type as fast as possible (either fast but potentially incorrect, or slower but correct) */
@@ -454,7 +467,7 @@ namespace str {
 				StrType out;
 
 				/* iterate over the codepoints and either transform all decimal digits or simply forward the codepoints */
-				for (char32_t cp : ItType{ fBase() }) {
+				for (char32_t cp : RangeType{ fBase() }) {
 					size_t digit = cp::prop::GetDecimal(cp);
 					if (digit == cp::prop::ErrDecimal)
 						str::CodepointTo<Error>(out, cp);
@@ -513,7 +526,7 @@ namespace str {
 		public:
 			/* test if every codepoint in the string can be decoded and is considered valid (can be empty) */
 			constexpr bool isValid() const {
-				for (char32_t cp : str::CPIterator<ChType, str::CodeError::nothing>{ fBase() }) {
+				for (char32_t cp : str::CPRange<ChType, str::CodeError::nothing>{ fBase() }) {
 					if (cp == str::Invalid)
 						return false;
 				}

@@ -303,87 +303,93 @@ namespace str {
 		}
 	}
 
-	/* Provides [str::IsCPIterator]'s with 'begin', 'end', 'at', for a given index (must be aligned, to not get errors), and 'aligned' to test for alignment
-	*	As iterators may read more than one source character, they always keep track of the actual begin and end.
+	/* [str::IsCPIterator] to iterate over codepoints in string (position must be codepoint aligned and within the string)
+	*	As iterators may read more than one source character, they always keep track of the source begin and end.
 	*	Note: Starting within a codepoint may result in inconsistent forward and backward codepoint iteration */
 	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
-	struct CPIterator {
+	struct Iterator {
 	public:
-		struct iterator {
-		public:
-			using iterator_category = std::bidirectional_iterator_tag;
-			using iterator_concept = std::bidirectional_iterator_tag;
-			using value_type = const char32_t;
-			using difference_type = std::ptrdiff_t;
+		using iterator_category = std::bidirectional_iterator_tag;
+		using iterator_concept = std::bidirectional_iterator_tag;
+		using value_type = const char32_t;
+		using difference_type = std::ptrdiff_t;
 
-		private:
-			std::basic_string_view<ChType> pSource;
-			mutable const ChType* pPosition = nullptr;
-			mutable str::Decoded pOut{};
+	private:
+		std::basic_string_view<ChType> pSource;
+		mutable const ChType* pPosition = nullptr;
+		mutable str::Decoded pOut{};
 
-		private:
-			void fInitialized() const {
-				if (pOut.consumed == 0)
-					fAdvance();
-			}
-			void fAdvance() const {
-				/* undefined for next on last cp */
-				pPosition += pOut.consumed;
-				pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
-			}
-			void fReverse() const {
-				/* undefined for prev on first cp */
-				pOut = detail::DecodePrevError<Error, ChType>(pSource.data(), pPosition);
-				pPosition -= pOut.consumed;
-			}
-
-		public:
-			iterator() = default;
-			iterator(std::basic_string_view<ChType> s, const ChType* pos) : pSource{ s }, pPosition{ pos } {}
-
-		public:
-			value_type operator*() const noexcept {
-				fInitialized();
-				return pOut.cp;
-			}
-			iterator& operator++() noexcept {
-				fInitialized();
+	private:
+		void fInitialized() const {
+			if (pOut.consumed == 0)
 				fAdvance();
-				return *this;
-			}
-			iterator operator++(int) noexcept {
-				iterator it{ *this };
-				it.fInitialized();
-				it.fAdvance();
-				return it;
-			}
-			iterator& operator--() noexcept {
-				fReverse();
-				return *this;
-			}
-			iterator operator--(int) noexcept {
-				iterator it{ *this };
-				it.fReverse();
-				return it;
-			}
-			bool operator==(const iterator& it) const noexcept {
-				return (pPosition == it.pPosition);
-			}
-			bool operator!=(const iterator& it) const noexcept {
-				return !(*this == it);
-			}
-			const ChType* base() const {
-				return pPosition;
-			}
-		};
-		using const_iterator = iterator;
+		}
+		void fAdvance() const {
+			/* undefined for next on last cp */
+			pPosition += pOut.consumed;
+			pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
+		}
+		void fReverse() const {
+			/* undefined for prev on first cp */
+			pOut = detail::DecodePrevError<Error, ChType>(pSource.data(), pPosition);
+			pPosition -= pOut.consumed;
+		}
+
+	public:
+		Iterator() = default;
+		Iterator(std::basic_string_view<ChType> source, const ChType* pos) : pSource{ source }, pPosition{ pos } {}
+		Iterator(std::basic_string_view<ChType> source, size_t pos) : pSource{ source }, pPosition{ source.data() + pos } {}
+
+	public:
+		value_type operator*() const noexcept {
+			fInitialized();
+			return pOut.cp;
+		}
+		Iterator& operator++() noexcept {
+			fInitialized();
+			fAdvance();
+			return *this;
+		}
+		Iterator operator++(int) noexcept {
+			Iterator it{ *this };
+			it.fInitialized();
+			it.fAdvance();
+			return it;
+		}
+		Iterator& operator--() noexcept {
+			fReverse();
+			return *this;
+		}
+		Iterator operator--(int) noexcept {
+			Iterator it{ *this };
+			it.fReverse();
+			return it;
+		}
+		bool operator==(const Iterator& it) const noexcept {
+			return (pPosition == it.pPosition);
+		}
+		bool operator!=(const Iterator& it) const noexcept {
+			return !(*this == it);
+		}
+		const ChType* base() const {
+			return pPosition;
+		}
+	};
+
+	/* provides cp-iterators's with 'begin', 'end', 'at', for a given index (must be aligned,
+	*	to not get errors), and 'aligned' to test for alignment */
+	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
+	struct CPRange {
+	public:
+		using iterator = str::Iterator<ChType, Error>;
+		using const_iterator = str::Iterator<ChType, Error>;
 
 	private:
 		std::basic_string_view<ChType> pSource;
 
 	public:
-		constexpr CPIterator() {}
-		constexpr CPIterator(std::basic_string_view<ChType> s) : pSource{ s } {}
+		constexpr CPRange() {}
+		constexpr CPRange(std::basic_string_view<ChType> s) : pSource{ s } {}
 
 	public:
 		constexpr iterator begin() const {
@@ -402,11 +408,11 @@ namespace str {
 			return iterator{ pSource, pSource.data() + pSource.size() };
 		}
 	};
-	template <str::IsChStr<char> Type> CPIterator(Type) -> CPIterator<char, str::CodeError::replace>;
-	template <str::IsChStr<wchar_t> Type> CPIterator(Type) -> CPIterator<wchar_t, str::CodeError::replace>;
-	template <str::IsChStr<char8_t> Type> CPIterator(Type) -> CPIterator<char8_t, str::CodeError::replace>;
-	template <str::IsChStr<char16_t> Type> CPIterator(Type) -> CPIterator<char16_t, str::CodeError::replace>;
-	template <str::IsChStr<char32_t> Type> CPIterator(Type) -> CPIterator<char32_t, str::CodeError::replace>;
+	template <str::IsChStr<char> Type> CPRange(Type) -> CPRange<char, str::CodeError::replace>;
+	template <str::IsChStr<wchar_t> Type> CPRange(Type) -> CPRange<wchar_t, str::CodeError::replace>;
+	template <str::IsChStr<char8_t> Type> CPRange(Type) -> CPRange<char8_t, str::CodeError::replace>;
+	template <str::IsChStr<char16_t> Type> CPRange(Type) -> CPRange<char16_t, str::CodeError::replace>;
+	template <str::IsChStr<char32_t> Type> CPRange(Type) -> CPRange<char32_t, str::CodeError::replace>;
 
 	/* decode single next codepoint from corresponding type, if its an ascii character, and return str::Invalid if the source is empty,
 	*	otherwise at least consume one character at all times and return str::Invalid on decoding-errors or if the codepoint is not ascii */
@@ -567,12 +573,12 @@ namespace str {
 
 			/* check if the destination does not need to be encoded */
 			else if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
-				for (char32_t cp : str::CPIterator<SChType, Error>{ view })
+				for (char32_t cp : str::CPRange<SChType, Error>{ view })
 					str::CallSink(sink, DChType(cp), 1);
 			}
 
 			/* iterate over the source-codepoints and transcode them */
-			else for (char32_t cp : str::CPIterator<SChType, Error>{ view })
+			else for (char32_t cp : str::CPRange<SChType, Error>{ view })
 				str::CodepointTo<Error>(sink, cp, 1);
 		}
 	}

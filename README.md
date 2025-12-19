@@ -31,7 +31,7 @@ The library does have some requirements for the underlying types, which are also
     char16_t   Must have a size of 2 bytes and use utf-16 encoding
     char32_t   Must have a size of 4 bytes and use utf-32 encoding
 
-In case of `char` using utf-8 encoding, the decoding/encoding will be performed using the internal utf-8 coding functionalities. Otherwise `std::mbrtowc` and `str::wctomb` will be used. Similarly, for `wchar_t`, it will either use the internal utf-16 or utf-32 coding functions. For further optimizations, the library tries to determine at compile time, if the multibyte `char` maps all ascii-characters correctly. It exposes these properties in code:
+In case of `char` using utf-8 encoding, the decoding / encoding will be performed using the internal utf-8 coding functionalities. Otherwise `std::mbrtowc` and `str::wctomb` will be used. Similarly, for `wchar_t`, it will either use the internal utf-16 or utf-32 coding functions. For further optimizations, the library tries to determine at compile time, if the multibyte `char` maps all ascii-characters correctly. It exposes these properties in code:
 
     str::CharIsUtf8      Does the char encoding use utf-8, otherwise an unknown multibyte encoding
     str::CharHoldsAscii  Does the char encoding match ascii for the first 128 chars
@@ -165,8 +165,8 @@ The `str::U32Stream` wrapper implements a stream, which allows to create a strea
 
 Similarly, `str::InheritSource` and `str::InheritStream` exist, alongside with `str::SourceImplementation` and `str::StreamImplementation`. These allow to create virtualized sources or streams, thus preventing to use templates everywhere.
 
-### [str::CPIterator](coding/str-coding.h)
-The `str::CPIterator` provides a codepoint iterator range, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::codepoints`. Example of using the iterators:
+### [str::Iterator, str::CPRange](coding/str-coding.h)
+The `str::Iterator` provides a codepoint iterator, and `str::CPRange` a corresponding range for it, which allows iteration both forward and backward over the encoded codepoints. The iterator can immediately be instantiated through `str::View::codepoints` or `str::View::cpBegin` / `str::View::cpEnd`. Example of using the iterators:
 
 ```C++
 for (char32_t cp : str::View{ u"abc-def" }.codepoints())

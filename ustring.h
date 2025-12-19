@@ -71,6 +71,10 @@ namespace str {
 			template <intptr_t Capacity>
 			using Local = str::Local<ChType, Capacity>;
 
+			using Iterator = str::Iterator<ChType, str::CodeError::replace>;
+
+			using CPRange = str::CPRange<ChType, str::CodeError::replace>;
+
 			using View = str::View<ChType, str::CodeError::replace>;
 
 			using String = str::String<ChType, str::CodeError::replace>;

@@ -288,7 +288,7 @@ namespace str {
 		std::basic_string_view<ChType> view{ source };
 
 		/* iterate over the codepoints and escape them all to the sink */
-		for (char32_t cp : str::CPIterator<ChType, Error>{ view })
+		for (char32_t cp : str::CPRange<ChType, Error>{ view })
 			str::EscapeTo<Error>(sink, cp, compact, 1);
 	}
 
