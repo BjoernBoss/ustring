@@ -50,13 +50,13 @@ namespace tester {
 			}
 		};
 		template <class BeforeCall, class... Args>
-		constexpr size_t PreviousEdge(BeforeCall bc, str::CPIterator<char32_t> range, size_t index, const Args&... args) {
+		constexpr size_t PreviousEdge(BeforeCall bc, str::u32::CPRange range, size_t index, const Args&... args) {
 			while (bc(range.begin(), range.at(index), range.end(), args...) == cp::BreakKind::none)
 				--index;
 			return index;
 		}
 		template <class AfterCall, class... Args>
-		constexpr size_t NextEdge(AfterCall ac, str::CPIterator<char32_t> range, size_t index, const Args&... args) {
+		constexpr size_t NextEdge(AfterCall ac, str::u32::CPRange range, size_t index, const Args&... args) {
 			while (ac(range.begin(), range.at(index), range.end(), args...) == cp::BreakKind::none)
 				++index;
 			return index;
@@ -174,7 +174,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt(s, j, r, cp::GraphemeBefore<str::CPIterator<char32_t>::iterator>, cp::GraphemeAfter<str::CPIterator<char32_t>::iterator>);
+				int8_t res = util::TestRangeIt(s, j, r, cp::GraphemeBefore<str::u32::Iterator>, cp::GraphemeAfter<str::u32::Iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -203,7 +203,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt(s, j, r, cp::WordBefore<str::CPIterator<char32_t>::iterator>, cp::WordAfter<str::CPIterator<char32_t>::iterator>);
+				int8_t res = util::TestRangeIt(s, j, r, cp::WordBefore<str::u32::Iterator>, cp::WordAfter<str::u32::Iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -232,7 +232,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt(s, j, r, cp::SentenceBefore<str::CPIterator<char32_t>::iterator>, cp::SentenceAfter<str::CPIterator<char32_t>::iterator>);
+				int8_t res = util::TestRangeIt(s, j, r, cp::SentenceBefore<str::u32::Iterator>, cp::SentenceAfter<str::u32::Iterator>);
 				if (res == 0)
 					continue;
 				if (res == -1)
@@ -261,7 +261,7 @@ namespace tester {
 
 			/* test the forward and backward iterators */
 			for (size_t j = 0; j < s.size(); ++j) {
-				int8_t res = util::TestRangeIt(s, j, r, cp::LineBefore<str::CPIterator<char32_t>::iterator>, cp::LineAfter<str::CPIterator<char32_t>::iterator>, cp::LineMode::basic);
+				int8_t res = util::TestRangeIt(s, j, r, cp::LineBefore<str::u32::Iterator>, cp::LineAfter<str::u32::Iterator>, cp::LineMode::basic);
 				if (res == 0)
 					continue;
 				if (res == -1)
