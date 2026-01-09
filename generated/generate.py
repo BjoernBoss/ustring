@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-# Copyright (c) 2024-2025 Bjoern Boss Henrichsen
+# Copyright (c) 2024-2026 Bjoern Boss Henrichsen
 import urllib.request
 import os
 import sys

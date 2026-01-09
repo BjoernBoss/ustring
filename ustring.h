@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/* Copyright (c) 2024-2025 Bjoern Boss Henrichsen */
+/* Copyright (c) 2024-2026 Bjoern Boss Henrichsen */
 #pragma once
 
 #include "common/str-local.h"
@@ -150,10 +150,4 @@ namespace str {
 	using lu16 = detail::LocConvenience<char16_t, Capacity>;
 	template <intptr_t Capacity>
 	using lu32 = detail::LocConvenience<char32_t, Capacity>;
-
-	/* default string-type for convenience [utf-16] */
-	using ustring = str::String<char16_t, str::CodeError::replace>;
-
-	/* default string-view-type for convenience [utf-16] */
-	using ustring_view = str::View<char16_t, str::CodeError::replace>;
 }
