@@ -97,8 +97,8 @@ namespace str {
 	}
 
 	/* local string-buffer overflow/underflow exception */
-	struct LocalException : public str::RuntimeException<wchar_t> {
-		LocalException(const std::wstring& s) : str::RuntimeException<wchar_t>{ s } {}
+	struct LocalException : public str::RuntimeException<char> {
+		LocalException(const std::string& s) : str::RuntimeException<char>{ s } {}
 	};
 
 	/* [str::IsStr/str::IsSink] local stack-buffered string null-terminated string, to be appended to, for intermediate/temporary value building
@@ -133,7 +133,7 @@ namespace str {
 			if constexpr (SilentErrors)
 				size = std::min<size_t>(size, ActCapacity - pSize);
 			else if (ActCapacity - pSize < size)
-				throw str::LocalException(L"str::Local capacity exceeded");
+				throw str::LocalException{ "str::Local capacity exceeded" };
 
 			/* write the data to the buffer */
 			for (size_t i = 0; i < size; ++i)
@@ -145,7 +145,7 @@ namespace str {
 			if constexpr (SilentErrors)
 				size = std::min<size_t>(size, ActCapacity - pSize);
 			else if (ActCapacity - pSize < size)
-				throw str::LocalException(L"str::Local capacity exceeded");
+				throw str::LocalException{ "str::Local capacity exceeded" };
 
 			/* write the data to the buffer */
 			for (size_t i = 0; i < size; ++i)

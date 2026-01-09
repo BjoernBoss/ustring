@@ -199,7 +199,7 @@ The objects for transforming the casing of the string all adhere to the `str::Is
 /* mapping a string to uppercase */
 auto cps = str::View{ u"abc-def" }.codepoints();
 std::string out;
-auto map = cp::UpperCase{ L"en_us" }(str::Collect(out));
+auto map = cp::UpperCase{ "en_us" }(str::Collect(out));
 for (char32_t cp : cps)
     map.next(cp);
 map.done();

@@ -161,7 +161,7 @@ namespace str {
 			if constexpr (Error != str::CodeError::nothing) {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (Error == str::CodeError::exception)
-						throw str::CodingException(L"Escaped codepoint could not be decoded");
+						throw str::CodingException{ "Escaped codepoint could not be decoded" };
 					if constexpr (Error == str::CodeError::replace)
 						dec.cp = str::RepCharUnicode;
 					else

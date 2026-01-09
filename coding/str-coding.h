@@ -105,8 +105,8 @@ namespace str {
 	};
 
 	/* invalid codepoint decoding/encoding exception */
-	struct CodingException : public str::RuntimeException<wchar_t> {
-		CodingException(const std::wstring& s) : str::RuntimeException<wchar_t>{ s } {}
+	struct CodingException : public str::RuntimeException<char> {
+		CodingException(const std::string& s) : str::RuntimeException<char>{ s } {}
 	};
 
 	namespace detail {
@@ -138,7 +138,7 @@ namespace str {
 			if constexpr (Error != str::CodeError::nothing) {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (Error == str::CodeError::exception)
-						throw str::CodingException(L"Codepoint could not be decoded");
+						throw str::CodingException{ "Codepoint could not be decoded" };
 					else if constexpr (Error == str::CodeError::replace)
 						dec.cp = str::RepCharUnicode;
 					else
@@ -168,7 +168,7 @@ namespace str {
 			if constexpr (Error != str::CodeError::nothing) {
 				if (dec.cp == str::Invalid) {
 					if constexpr (Error == str::CodeError::exception)
-						throw str::CodingException(L"Codepoint could not be decoded");
+						throw str::CodingException{ "Codepoint could not be decoded" };
 					else if constexpr (Error == str::CodeError::replace)
 						dec.cp = str::RepCharUnicode;
 					else
@@ -213,13 +213,13 @@ namespace str {
 			if constexpr (Error == str::CodeError::nothing)
 				return false;
 			else if constexpr (Error == str::CodeError::exception)
-				throw str::CodingException(L"Codepoint could not be encoded");
+				throw str::CodingException{ "Codepoint could not be encoded" };
 			else if constexpr (Error == str::CodeError::replace) {
 				if (!detail::EncodeCodepoint<ChType>(sink, str::GetRepChar<ChType>))
-					throw str::CodingException(L"Replacement character codepoint could not be encoded");
+					throw str::CodingException{ "Replacement character codepoint could not be encoded" };
 			}
 			else if (!detail::EncodeCodepoint<ChType>(sink, detail::CustomError<Error>()))
-				throw str::CodingException(L"Alternative coding-error codepoint could not be encoded");
+				throw str::CodingException{ "Alternative coding-error codepoint could not be encoded" };
 			return true;
 		}
 		template <class DChType, class SChType, str::CodeError Error, bool AllowIncomplete, bool FastMode>
@@ -247,13 +247,13 @@ namespace str {
 				out.consumed = 1;
 				if constexpr (Error != str::CodeError::nothing) {
 					if constexpr (Error == str::CodeError::exception)
-						throw str::CodingException(L"Codepoint could not be transcoded");
+						throw str::CodingException{ "Codepoint could not be transcoded" };
 					if constexpr (Error == str::CodeError::replace) {
 						if (!detail::EncodeCodepoint<DChType>(out.cp, str::GetRepChar<DChType>))
-							throw str::CodingException(L"Replacement character codepoint could not be transcoded");
+							throw str::CodingException{ "Replacement character codepoint could not be transcoded" };
 					}
 					else if (!detail::EncodeCodepoint<DChType>(out.cp, detail::CustomError<Error>()))
-						throw str::CodingException(L"Alternative coding-error codepoint could not be transcoded");
+						throw str::CodingException{ "Alternative coding-error codepoint could not be transcoded" };
 				}
 				return out;
 			}
@@ -444,11 +444,11 @@ namespace str {
 		if constexpr (Error == str::CodeError::nothing)
 			return { str::Invalid, len };
 		else if constexpr (Error == str::CodeError::exception)
-			throw str::CodingException(L"Codepoint is not a valid ascii codepoint");
+			throw str::CodingException{ "Codepoint is not a valid ascii codepoint" };
 		else if constexpr (Error == str::CodeError::replace)
 			return { str::RepCharAscii, len };
 		else if constexpr (detail::CustomError<Error>() >= detail::AsciiRange)
-			throw str::CodingException(L"Alternative coding-error codepoint is not a valid ascii codepoint");
+			throw str::CodingException{ "Alternative coding-error codepoint is not a valid ascii codepoint" };
 		else
 			return { detail::CustomError<Error>(), len };
 	}
