@@ -309,8 +309,12 @@ namespace str {
 				if constexpr (sizeof(WiType) == 1)
 					str::CallWire(sink, { reinterpret_cast<const uint8_t*>(enc.data()), enc.size() });
 				else {
-					uint8_t buf[str::MaxEncBytes<WiType>] = { 0 };
+					/* have the buffer size be one to large, as some compile
+					*	time analyzers get confused about the write-length */
+					uint8_t buf[str::MaxEncBytes<WiType> +sizeof(WiType)] = { 0 };
 					size_t off = 0;
+
+					/* perform the byteorder transformation (if necessary) */
 					for (size_t i = 0; i < enc.size(); ++i) {
 						fToBytes<WiType, LittleEndian>(buf + off, enc[i]);
 						off += sizeof(WiType);
