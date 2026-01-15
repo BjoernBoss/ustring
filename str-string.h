@@ -421,7 +421,7 @@ namespace str {
 			}
 
 			/* convert the string to title-case using cp::TitleCase */
-			StrType title(std::string_view locale = {}) const {
+			constexpr StrType title(std::string_view locale = {}) const {
 				StrType out;
 				fApply(str::Collect{ out }, cp::TitleCase{ locale });
 				return out;
