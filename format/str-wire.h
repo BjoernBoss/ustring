@@ -8,7 +8,21 @@
 #include "../format/str-escape.h"
 
 namespace str {
-	enum class WireCoding : uint8_t {
+	enum class Encoding : uint8_t {
+		utf8,
+		ascii,
+		utf16le,
+		utf16be,
+		utf32le,
+		utf32be,
+		asciiBOM,
+		utf8BOM,
+		utf16leBOM,
+		utf16beBOM,
+		utf32leBOM,
+		utf32beBOM
+	};
+	enum class Coding : uint8_t {
 		utf8,
 		ascii,
 		utf16le,
@@ -57,12 +71,12 @@ namespace str {
 	private:
 		uint8_t pBuffer[detail::MaxCodingSize] = { 0 };
 		size_t pBufSize = 0;
-		str::WireCoding pCoding = str::WireCoding::utf8;
+		str::Coding pCoding = str::Coding::utf8;
 		str::BOMMode pMode = str::BOMMode::none;
 		bool pSourceCompleted = false;
 
 	public:
-		constexpr FromWire(str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+		constexpr FromWire(str::Coding coding = str::Coding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
 			pCoding = coding;
 			pMode = mode;
 		}
@@ -76,19 +90,19 @@ namespace str {
 
 			/* check what encoding it might be (check utf32 before utf16 as utf16-BOM is a subset of utf32-BOM) */
 			size_t bomSize = 0;
-			str::WireCoding detected = str::WireCoding::ascii;
+			str::Coding detected = str::Coding::ascii;
 			if (pBufSize >= (bomSize = detail::Utf8BOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::Utf8BOM))
-				detected = str::WireCoding::utf8;
+				detected = str::Coding::utf8;
 			else if (pBufSize >= (bomSize = detail::AsciiBOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::AsciiBOM))
-				detected = str::WireCoding::ascii;
+				detected = str::Coding::ascii;
 			else if (pBufSize >= (bomSize = detail::Utf32BOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::Utf32leBOM))
-				detected = str::WireCoding::utf32le;
+				detected = str::Coding::utf32le;
 			else if (pBufSize >= (bomSize = detail::Utf32BOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::Utf32beBOM))
-				detected = str::WireCoding::utf32be;
+				detected = str::Coding::utf32be;
 			else if (pBufSize >= (bomSize = detail::Utf16BOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::Utf16leBOM))
-				detected = str::WireCoding::utf16le;
+				detected = str::Coding::utf16le;
 			else if (pBufSize >= (bomSize = detail::Utf16BOMSize) && std::equal(pBuffer, pBuffer + bomSize, detail::Utf16beBOM))
-				detected = str::WireCoding::utf16be;
+				detected = str::Coding::utf16be;
 
 			/* check if the BOM can certainly not be detected anymore (i.e. source is done or buffer already contains more than BOM-size)
 			*	in which case the default encoding can just be kept, and otherwise defer until more data are available */
@@ -105,12 +119,12 @@ namespace str {
 			}
 
 			/* check if utf16-le was detected, which is a subset of utf32-le, in which case utf32-le might still become possible */
-			if (detected == str::WireCoding::utf16le && pBufSize < detail::Utf32BOMSize && !sourceComplete && pMode != str::BOMMode::detectNoUtf32le)
+			if (detected == str::Coding::utf16le && pBufSize < detail::Utf32BOMSize && !sourceComplete && pMode != str::BOMMode::detectNoUtf32le)
 				return count;
 
 			/* check if utf32-le was detected, which might be excluded in favor of utf16-le */
-			if (detected == str::WireCoding::utf32le && pMode == str::BOMMode::detectNoUtf32le) {
-				detected = str::WireCoding::utf16le;
+			if (detected == str::Coding::utf32le && pMode == str::BOMMode::detectNoUtf32le) {
+				detected = str::Coding::utf16le;
 				bomSize = detail::Utf16BOMSize;
 			}
 
@@ -229,15 +243,15 @@ namespace str {
 			}
 
 			/* pass the data to the proper handler */
-			if (pCoding == str::WireCoding::utf8)
+			if (pCoding == str::Coding::utf8)
 				fProcess<char8_t, false, false>(sink, begin, end, sourceComplete);
-			else if (pCoding == str::WireCoding::utf16le)
+			else if (pCoding == str::Coding::utf16le)
 				fProcess<char16_t, true, false>(sink, begin, end, sourceComplete);
-			else if (pCoding == str::WireCoding::utf16be)
+			else if (pCoding == str::Coding::utf16be)
 				fProcess<char16_t, false, false>(sink, begin, end, sourceComplete);
-			else if (pCoding == str::WireCoding::utf32le)
+			else if (pCoding == str::Coding::utf32le)
 				fProcess<char32_t, true, false>(sink, begin, end, sourceComplete);
-			else if (pCoding == str::WireCoding::utf32be)
+			else if (pCoding == str::Coding::utf32be)
 				fProcess<char32_t, false, false>(sink, begin, end, sourceComplete);
 			else
 				fProcess<char8_t, false, true>(sink, begin, end, sourceComplete);
@@ -272,13 +286,14 @@ namespace str {
 	template <str::CodeError Error = str::CodeError::replace>
 	class ToWire {
 	private:
-		str::WireCoding pCoding = str::WireCoding::utf8;
+		str::Encoding pEncoding = str::Encoding::utf8BOM;
 		bool pAddBOM = false;
 
 	public:
-		constexpr ToWire(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) {
-			pCoding = coding;
-			pAddBOM = addBOM;
+		constexpr ToWire(str::Encoding encoding = str::Encoding::utf8BOM) : pEncoding{ encoding } {
+			pAddBOM = (pEncoding == str::Encoding::asciiBOM || pEncoding == str::Encoding::utf8BOM
+				|| pEncoding == str::Encoding::utf16beBOM || pEncoding == str::Encoding::utf16leBOM
+				|| pEncoding == str::Encoding::utf32beBOM || pEncoding == str::Encoding::utf32leBOM);
 		}
 
 	private:
@@ -347,15 +362,15 @@ namespace str {
 			std::basic_string_view<ChType> view{ string };
 
 			/* pass the data to the proper handler (will automatically write the BOM if necessary) */
-			if (pCoding == str::WireCoding::utf8)
+			if (pEncoding == str::Encoding::utf8 || pEncoding == str::Encoding::utf8BOM)
 				fProcess<ChType, char8_t, false, false>(sink, view);
-			else if (pCoding == str::WireCoding::utf16le)
+			else if (pEncoding == str::Encoding::utf16le || pEncoding == str::Encoding::utf16leBOM)
 				fProcess<ChType, char16_t, true, false>(sink, view);
-			else if (pCoding == str::WireCoding::utf16be)
+			else if (pEncoding == str::Encoding::utf16be || pEncoding == str::Encoding::utf16beBOM)
 				fProcess<ChType, char16_t, false, false>(sink, view);
-			else if (pCoding == str::WireCoding::utf32le)
+			else if (pEncoding == str::Encoding::utf32le || pEncoding == str::Encoding::utf32leBOM)
 				fProcess<ChType, char32_t, true, false>(sink, view);
-			else if (pCoding == str::WireCoding::utf32be)
+			else if (pEncoding == str::Encoding::utf32be || pEncoding == str::Encoding::utf32beBOM)
 				fProcess<ChType, char32_t, false, false>(sink, view);
 			else
 				fProcess<ChType, char8_t, false, true>(sink, view);
@@ -364,13 +379,13 @@ namespace str {
 
 	/* decode the entire string from the data to the given sink */
 	template <str::CodeError Error = str::CodeError::replace>
-	constexpr void DecodeTo(str::IsSink auto&& sink, const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+	constexpr void DecodeTo(str::IsSink auto&& sink, const str::IsData auto& data, str::Coding coding = str::Coding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
 		str::FromWire<Error>{ coding, mode }.lastTo(sink, data);
 	}
 
 	/* decode the entire string from the data to a sink of the given type using str::DecodeTo */
 	template <str::IsSink SinkType, str::CodeError Error = str::CodeError::replace>
-	constexpr SinkType Decode(const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+	constexpr SinkType Decode(const str::IsData auto& data, str::Coding coding = str::Coding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
 		SinkType out{};
 		str::DecodeTo<Error>(out, data, coding, mode);
 		return out;
@@ -378,15 +393,15 @@ namespace str {
 
 	/* encode the entire string to the given wire */
 	template <str::CodeError Error = str::CodeError::replace>
-	constexpr void EncodeTo(str::IsWire auto&& sink, const str::IsStr auto& string, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) {
-		str::ToWire<Error>{coding, addBOM}.write(sink, string);
+	constexpr void EncodeTo(str::IsWire auto&& sink, const str::IsStr auto& str, str::Encoding encoding = str::Encoding::utf8BOM) {
+		str::ToWire<Error>{ encoding }.write(sink, str);
 	}
 
 	/* encode the entire string to the a wire of the given type using str::EncodeTo */
 	template <str::IsWire WireType, str::CodeError Error = str::CodeError::replace>
-	constexpr WireType Encode(const str::IsStr auto& string, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) {
+	constexpr WireType Encode(const str::IsStr auto& str, str::Encoding encoding = str::Encoding::utf8BOM) {
 		WireType out{};
-		str::EncodeTo<Error>(out, string, coding, addBOM);
+		str::EncodeTo<Error>(out, str, encoding);
 		return out;
 	}
 }

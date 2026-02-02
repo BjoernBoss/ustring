@@ -662,8 +662,8 @@ namespace str {
 
 		public:
 			/* encode string to different encoding formats */
-			std::vector<uint8_t> encode(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) const {
-				return str::Encode<std::vector<uint8_t>, Error>(fBase(), coding, addBOM);
+			std::vector<uint8_t> encode(str::Encoding encoding = str::Encoding::utf8BOM) const {
+				return str::Encode<std::vector<uint8_t>, Error>(fBase(), encoding);
 			}
 
 		public:

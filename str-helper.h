@@ -202,8 +202,8 @@ namespace str {
 		bool pClosed = false;
 
 	public:
-		constexpr WireIn(const str::IsData auto& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
-		constexpr WireIn(Type&& source, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::forward<Type>(source) }, pWire{ coding, mode } {}
+		constexpr WireIn(const str::IsData auto& source, str::Coding coding = str::Coding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ source }, pWire{ coding, mode } {}
+		constexpr WireIn(Type&& source, str::Coding coding = str::Coding::utf8, str::BOMMode mode = str::BOMMode::detectAll) : pSource{ std::forward<Type>(source) }, pWire{ coding, mode } {}
 
 	private:
 		constexpr void fLoad(size_t size) {
@@ -254,10 +254,10 @@ namespace str {
 	};
 	template <class Type> WireIn(Type&) -> WireIn<str::SourceType<Type&>>;
 	template <class Type> WireIn(Type&&) -> WireIn<str::SourceType<Type>>;
-	template <class Type> WireIn(Type&, str::WireCoding) -> WireIn<str::SourceType<Type&>>;
-	template <class Type> WireIn(Type&&, str::WireCoding) -> WireIn<str::SourceType<Type>>;
-	template <class Type> WireIn(Type&, str::WireCoding, str::BOMMode) -> WireIn<str::SourceType<Type&>>;
-	template <class Type> WireIn(Type&&, str::WireCoding, str::BOMMode) -> WireIn<str::SourceType<Type>>;
+	template <class Type> WireIn(Type&, str::Coding) -> WireIn<str::SourceType<Type&>>;
+	template <class Type> WireIn(Type&&, str::Coding) -> WireIn<str::SourceType<Type>>;
+	template <class Type> WireIn(Type&, str::Coding, str::BOMMode) -> WireIn<str::SourceType<Type&>>;
+	template <class Type> WireIn(Type&&, str::Coding, str::BOMMode) -> WireIn<str::SourceType<Type>>;
 
 	/* [str::IsSink] wrapper to create a sink which immediately passes the data to the wire and out to the corresponding wire
 	*	Note: For rvalues, a local move-constructed value of the wire is held, otherwise a reference is held and it must not outlive the wire */
@@ -269,7 +269,7 @@ namespace str {
 		str::ToWire<Error> pWire;
 
 	public:
-		constexpr WireOut(Type&& wire, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) : pSink{ std::forward<Type>(wire) }, pWire{ coding, addBOM } {}
+		constexpr WireOut(Type&& wire, str::Encoding encoding = str::Encoding::utf8BOM) : pSink{ std::forward<Type>(wire) }, pWire{ encoding } {}
 
 	public:
 		constexpr void write(std::u32string_view s) {
@@ -281,10 +281,8 @@ namespace str {
 	};
 	template <class Type> WireOut(Type&) -> WireOut<Type&>;
 	template <class Type> WireOut(Type&&) -> WireOut<Type>;
-	template <class Type> WireOut(Type&, str::WireCoding) -> WireOut<Type&>;
-	template <class Type> WireOut(Type&&, str::WireCoding) -> WireOut<Type>;
-	template <class Type> WireOut(Type&, str::WireCoding, bool) -> WireOut<Type&>;
-	template <class Type> WireOut(Type&&, str::WireCoding, bool) -> WireOut<Type>;
+	template <class Type> WireOut(Type&, str::Encoding) -> WireOut<Type&>;
+	template <class Type> WireOut(Type&&, str::Encoding) -> WireOut<Type>;
 
 	/* [str::IsStream] wrapper to create a stream which reads the data from the source-stream and transcodes them to a stream of codepoints
 	*	Note: lifetime requirements of str::Stream apply */

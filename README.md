@@ -130,12 +130,12 @@ To encode or decode strings to raw bytes, the `str::ToWire` and `str::FromWire` 
 ```C++
 /* reading from a byte-source */
 uint8_t someBuffer[512] = /* ... */;
-auto x = str::FromWire{ str::WireCoding::utf8, str::BOMMode::detectAll };
+auto x = str::FromWire{ str::Coding::utf8, str::BOMMode::detectAll };
 x.read<std::string>(someBuffer);
 
 /* writing to a byte-source */
 std::ofstream someFile = /* ... */;
-auto y = str::ToWire{ str::WireCoding::utf16le, true };
+auto y = str::ToWire{ str::Encoding::utf16leBOM };
 y.write(someFile, u8"Some-String");
 y.write(someFile, U" some other string");
 ```
@@ -145,10 +145,14 @@ Note: For convenience, `str::WireOut` exists as valid sink to feed the string ou
 ```C++
 std::ofstream someFile = /* ... */;
 
-str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
+str::FormatTo(str::WireOut{ someFile, str::Encoding::utf16leBOM }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
-The wire operations can also be used directly through the `str::Encode` or `str::Decode` interfaces.
+The wire operations can also be used directly through the `str::Encode` or `str::Decode` interfaces. This is also mapped into the `str::View`.
+
+```C++
+str::View{ "abc" }.encode(str::Encoding::utf8);
+```
 
 ### [str::Stream](common/str-chars.h), [str::Source](common/str-bytes.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
