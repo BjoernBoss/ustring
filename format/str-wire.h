@@ -361,4 +361,32 @@ namespace str {
 				fProcess<ChType, char8_t, false, true>(sink, view);
 		}
 	};
+
+	/* decode the entire string from the data to the given sink */
+	template <str::CodeError Error = str::CodeError::replace>
+	constexpr void DecodeTo(str::IsSink auto&& sink, const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+		str::FromWire<Error>{ coding, mode }.lastTo(sink, data);
+	}
+
+	/* decode the entire string from the data to a sink of the given type using str::DecodeTo */
+	template <str::IsSink SinkType, str::CodeError Error = str::CodeError::replace>
+	constexpr SinkType Decode(const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+		SinkType out{};
+		str::DecodeTo<Error>(out, data, coding, mode);
+		return out;
+	}
+
+	/* encode the entire string to the given wire */
+	template <str::CodeError Error = str::CodeError::replace>
+	constexpr void EncodeTo(str::IsWire auto&& sink, const str::IsStr auto& string, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) {
+		str::ToWire<Error>{coding, addBOM}.write(sink, string);
+	}
+
+	/* encode the entire string to the a wire of the given type using str::EncodeTo */
+	template <str::IsWire WireType, str::CodeError Error = str::CodeError::replace>
+	constexpr WireType Encode(const str::IsStr auto& string, str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) {
+		WireType out{};
+		str::EncodeTo<Error>(out, string, coding, addBOM);
+		return out;
+	}
 }

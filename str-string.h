@@ -661,6 +661,12 @@ namespace str {
 			}
 
 		public:
+			/* encode string to different encoding formats */
+			std::vector<uint8_t> encode(str::WireCoding coding = str::WireCoding::utf8, bool addBOM = true) const {
+				return str::Encode<std::vector<uint8_t>, Error>(fBase(), coding, addBOM);
+			}
+
+		public:
 			/* receive a list of all grapheme ranges */
 			std::vector<cp::Range> graphemes() const {
 				std::vector<cp::Range> collected;

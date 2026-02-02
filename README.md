@@ -148,6 +148,8 @@ std::ofstream someFile = /* ... */;
 str::FormatTo(str::WireOut{ someFile, str::WireCoding::utf16le }, "abc: {:#0{}x}\n", 12345, 19);
 ```
 
+The wire operations can also be used directly through the `str::Encode` or `str::Decode` interfaces.
+
 ### [str::Stream](common/str-chars.h), [str::Source](common/str-bytes.h)
 The `str::Stream` object creates a wrapper around a type, which implements the character-source `str::IsStream`. `str::Source` does the same, but for any type, which implements the byte-source interface `str::IsSource`. Example of using the stream:
 

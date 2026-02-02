@@ -104,6 +104,9 @@ namespace str {
 			static constexpr std::basic_string<ChType> SiValue(const str::IsNumber auto& num, const str::ArgsSiValue& args = {}) {
 				return str::SiValue<std::basic_string<ChType>>(num, args);
 			}
+			static constexpr std::basic_string<ChType> Decode(const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+				return str::Decode<std::basic_string<ChType>>(data, coding, mode);
+			}
 		};
 
 		template <class ChType, intptr_t Capacity>
@@ -130,6 +133,9 @@ namespace str {
 			}
 			static constexpr str::Local<ChType, Capacity> SiValue(const str::IsNumber auto& num, const str::ArgsSiValue& args = {}) {
 				return str::SiValue<str::Local<ChType, Capacity>>(num, args);
+			}
+			static constexpr str::Local<ChType, Capacity> Decode(const str::IsData auto& data, str::WireCoding coding = str::WireCoding::utf8, str::BOMMode mode = str::BOMMode::detectAll) {
+				return str::Decode<str::Local<ChType, Capacity>>(data, coding, mode);
 			}
 		};
 	}
