@@ -581,4 +581,101 @@ namespace str {
 	};
 	template <class Type> BufferWire(Type&, size_t) -> BufferWire<Type&>;
 	template <class Type> BufferWire(Type&&, size_t) -> BufferWire<Type>;
+
+	/* [str::IsSource] wrapper to create a source which reads more bytes in advance to reduce the strain on the source
+	*	Note: lifetime requirements of str::Source apply */
+	template <str::IsSource Type>
+	class BufferSource {
+	private:
+		str::Source<Type> pSource;
+		std::vector<uint8_t> pBuffer;
+		size_t pOffset = 0;
+		size_t pEnd = 0;
+
+	public:
+		constexpr BufferSource(const str::IsData auto& source, size_t bufferSize) : pSource{ source } {
+			pBuffer.resize(bufferSize);
+		}
+		constexpr BufferSource(Type&& source, size_t bufferSize) : pSource{ std::forward<Type>(source) } {
+			pBuffer.resize(bufferSize);
+		}
+
+	public:
+		constexpr size_t read(uint8_t* buffer, size_t size) {
+			uint8_t* _start = buffer;
+
+			while (size > 0) {
+				/* check if the buffer is empty, and needs to be filled
+				*	up, and check if no more data is available */
+				if (pOffset == pEnd) {
+					pOffset = 0;
+					pEnd = pSource.read(pBuffer.data(), pBuffer.size());
+					if (pEnd == 0)
+						break;
+				}
+
+				/* consume data from the buffer */
+				size_t _count = std::min<size_t>(size, pEnd - pOffset);
+				std::copy(pBuffer.begin() + pOffset, pBuffer.begin() + pOffset + _count, buffer);
+				pOffset += _count;
+
+				/* advance the buffer */
+				buffer += _count;
+				size -= _count;
+			}
+			return (buffer - _start);
+		}
+	};
+	template <class Type> BufferSource(Type&, size_t) -> BufferSource<str::SourceType<Type&>>;
+	template <class Type> BufferSource(Type&&, size_t) -> BufferSource<str::SourceType<Type>>;
+
+	/* [str::IsStream] wrapper to create a stream which reads more characters in advance to reduce the strain on the source
+	*	Note: lifetime requirements of str::Stream apply */
+	template <str::IsStream Type>
+	class BufferStream {
+	public:
+		using ChType = str::StreamChar<Type>;
+
+	private:
+		str::Stream<Type> pStream;
+		std::basic_string<ChType> pBuffer;
+		size_t pOffset = 0;
+		size_t pEnd = 0;
+
+	public:
+		constexpr BufferStream(const str::IsStr auto& stream, size_t bufferSize) : pStream{ stream } {
+			pBuffer.resize(bufferSize);
+		}
+		constexpr BufferStream(Type&& stream, size_t bufferSize) : pStream{ std::forward<Type>(stream) } {
+			pBuffer.resize(bufferSize);
+		}
+
+	public:
+		constexpr size_t read(ChType* buffer, size_t size) {
+			ChType* _start = buffer;
+
+			while (size > 0) {
+				/* check if the buffer is empty, and needs to be filled
+				*	up, and check if no more data is available */
+				if (pOffset == pEnd) {
+					pOffset = 0;
+					pEnd = pStream.read(pBuffer.data(), pBuffer.size());
+					if (pEnd == 0)
+						break;
+				}
+
+				/* consume data from the buffer */
+				size_t _count = std::min<size_t>(size, pEnd - pOffset);
+				std::copy(pBuffer.begin() + pOffset, pBuffer.begin() + pOffset + _count, buffer);
+				pOffset += _count;
+
+				/* advance the buffer */
+				buffer += _count;
+				size -= _count;
+			}
+			return (buffer - _start);
+		}
+	};
+	template <class Type> BufferStream(Type&, size_t) -> BufferStream<str::StreamType<Type&>>;
+	template <class Type> BufferStream(Type&&, size_t) -> BufferStream<str::StreamType<Type>>;
 }

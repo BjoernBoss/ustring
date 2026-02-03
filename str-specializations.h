@@ -175,6 +175,13 @@ namespace str {
 			return src.read(buffer, size);
 		}
 	};
+	template <class Type>
+	struct CharLoader<str::BufferStream<Type>> {
+		using ChType = typename str::BufferStream<Type>::ChType;
+		constexpr size_t operator()(str::BufferStream<Type>& src, ChType* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
 	template <str::IsCharLoader Type>
 	struct CharLoader<std::unique_ptr<Type>> {
 		using ChType = str::CharLoaderChar<Type>;
@@ -310,6 +317,12 @@ namespace str {
 	template <class Type>
 	struct ByteLoader<str::LimitSource<Type>> {
 		constexpr size_t operator()(str::LimitSource<Type>& src, uint8_t* buffer, size_t size) const {
+			return src.read(buffer, size);
+		}
+	};
+	template <class Type>
+	struct ByteLoader<str::BufferSource<Type>> {
+		constexpr size_t operator()(str::BufferSource<Type>& src, uint8_t* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}
 	};

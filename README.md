@@ -69,6 +69,8 @@ A wire is defined in the same way as `str::IsWire`, and also offers `str::Bytes`
 
 For both sinks and wires `str::BufferSink` and `str::BufferWire` exist, to write the data to an intermediate buffer, before flushing them out in one go. Otherwise, expensive write operations might result in performance penalties, as sinks and wires are both used in small increments by the library (such as on a per character or per byte level).
 
+Similarily, `str::BufferStream` and `str::BufferSource` exist, to read more data in advance to an intermediate buffer, to reduce the number of operations to the lower source.
+
 A source for strings is anything that is convertible to an `std::basic_string_view`. For bytes, it is any type that fulfills `str::IsData`, for which many default specializations exist. Similarly to sinks, strings also define their source character type, which also defines their encoding used.
 
 To further support streaming of data, `str::IsStream` exists for character streams, and `str::IsSource` for byte streams. In order to use them properly, `str::Stream` or `str::Source` exist, which wrap the type, and build up internal cached states to prevent repeated fetching of data, and allowing lookaheads.
