@@ -8,6 +8,7 @@
 #include <cmath>
 #include <utility>
 #include <tuple>
+#include <optional>
 #include <cstring>
 
 /*
@@ -1688,9 +1689,9 @@ namespace str {
 	}
 
 	/* parse the entire string as integer/float using str::ParseNumTo and return the value, if the
-	*	string was fully consumed and fit into the type, and otherwise return the [otherwise] value */
+	*	string was fully consumed and fit into the type, and otherwise return std::nullopt */
 	template <str::IsNumber Type>
-	constexpr Type ParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), const str::ArgsParse& args = {}) {
+	constexpr std::optional<Type> ParseNumAll(const str::IsStr auto& source, const str::ArgsParse& args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -1701,7 +1702,7 @@ namespace str {
 		/* check if no error occurred and the entire string has been consumed */
 		if (result == str::NumResult::valid && consumed == view.size())
 			return num;
-		return otherwise;
+		return std::nullopt;
 	}
 
 	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)

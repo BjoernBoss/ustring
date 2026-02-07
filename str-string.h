@@ -666,6 +666,18 @@ namespace str {
 				return str::Encode<std::vector<uint8_t>, Error>(fBase(), encoding);
 			}
 
+			/* interpret the entire string as a number */
+			template <str::IsNumber Type>
+			constexpr std::optional<Type> number(const str::ArgsParse& args = {}) const {
+				return str::ParseNumAll<Type>(fBase(), args);
+			}
+
+			/* interpret the entire string as an si-value */
+			template <str::IsNumber Type>
+			constexpr std::optional<Type> siValue(const str::ArgsSiValue& args = {}) const {
+				return str::SiParseNumAll<Type>(fBase(), args);
+			}
+
 		public:
 			/* receive a list of all grapheme ranges */
 			std::vector<cp::Range> graphemes() const {

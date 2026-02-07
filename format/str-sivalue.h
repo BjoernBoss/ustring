@@ -253,9 +253,9 @@ namespace str {
 	}
 
 	/* parse the entire string as number using str::ParseNumTo and respect the corresponding si-scale and return the value,
-	*	if the string was fully consumed and fit into the type, and otherwise return the [otherwise] value */
+	*	if the string was fully consumed and fit into the type, and otherwise return std::nullopt */
 	template <str::IsNumber Type>
-	constexpr Type SiParseNumAll(const str::IsStr auto& source, Type otherwise = std::numeric_limits<Type>::max(), const str::ArgsSiParse& args = {}) {
+	constexpr std::optional<Type> SiParseNumAll(const str::IsStr auto& source, const str::ArgsSiParse& args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 
@@ -266,7 +266,7 @@ namespace str {
 		/* check if no error occurred and the entire string has been consumed */
 		if (result == str::NumResult::valid && consumed == view.size())
 			return num;
-		return otherwise;
+		return std::nullopt;
 	}
 
 	/* print value with optional leading [-] for the given radix with si-scale prefix to the sink and return the sink (using str::FloatTo) */
