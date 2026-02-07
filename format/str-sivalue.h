@@ -5,7 +5,9 @@
 #include "str-number.h"
 
 /*
-*	Note: While si-values respect all boundaries and rounding constraints,
+*	Si-Values are double based.
+*
+*	While si-values respect all boundaries and rounding constraints,
 *		it does not guarantee as precise conversions, as str-number does.
 *	It is not designed for accurate value handling, but rather for convenience.
 *	Specifically: normal double multiplications and divisions are used for applying the scale.
@@ -14,11 +16,6 @@
 *			str::SiParseNum(str::SiValue(x)) is not always x (for given precision)
 *		while:
 *			str::ParseNum(str::Float(x)) will always be x (for given precision)
-*
-*	str::SiParseNumTo can be used for values of highest precision, as it will check for si-scaling.
-*	If no scaling is found, it will use the default str::ParseNum functions.
-*	Only if a scale factor exists, the value will be parsed as double and converted.
-*
 *
 *	Coding-Rules:
 *	 - decoding rules of str-number
@@ -167,35 +164,32 @@ namespace str {
 		return detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
 	}
 
-	/* decode the si-scale at the string (note: unique characters are case-insensitive) */
+	/* decode the si-scale at the string (note: unique characters are case-sensitive) */
 	constexpr str::ParsedSiScale SiPeekScale(const str::IsStr auto& source, str::SiScaleMode scale = str::SiScaleMode::decimal) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		return detail::ParseSiScale<ChType>(view, scale);
 	}
 
-	/* parse the next number as a float and respect and apply the corresponding si-scale (if no si-ending is detected, it will parse the number as its
-	*	target type, which can potentially result in more details; otherwise it will be parsed as a double and converted to the destination type) */
+	/* parse the next number as a float and respect and apply the corresponding si-scale (will be parsed as a
+	*	double and converted to the destination type, while checking for value overflows and boundary issues) */
 	template <str::IsNumber Type>
 	constexpr str::ParsedNum SiParseNumTo(const str::IsStr auto& source, Type& num, str::ArgsSiParse args = {}) {
 		using ChType = str::StringChar<decltype(source)>;
 		std::basic_string_view<ChType> view{ source };
 		str::ArgsParse numArgs{ .radix = args.radix, .prefix = args.prefix };
 
-		/* check if the number actually has a prefix, and if not, simply parse it as is by itself (to preserve
-		*	as much information as possible; skip double, as the si number would be parsed as double) */
-		size_t skipped = detail::SkipNum<double>(source, numArgs);
-		str::ParsedSiScale siScale = detail::ParseSiScale<ChType>(view.substr(skipped), args.scale);
-		if (siScale.consumed == 0)
-			return str::ParseNumTo(view, num, numArgs);
-
-		/* parse the number itself */
+		/* parse the number itself (always as double, as it is written as a double,
+		*	and may contain a decimal point, or other floating point properties) */
 		double value = 0.0;
 		auto [consumed, result] = str::ParseNumTo(view, value, numArgs);
 		if (result != str::NumResult::valid && result != str::NumResult::range) {
 			num = 0;
 			return str::ParsedNum{ consumed, result };
 		}
+
+		/* parse the si scale */
+		str::ParsedSiScale siScale = detail::ParseSiScale<ChType>(view.substr(consumed), args.scale);
 		consumed += siScale.consumed;
 
 		/* check if the value cannot be represented by the corresponding type */
@@ -269,7 +263,8 @@ namespace str {
 		return std::nullopt;
 	}
 
-	/* print value with optional leading [-] for the given radix with si-scale prefix to the sink and return the sink (using str::FloatTo) */
+	/* print value with optional leading [-] for the given radix with si-scale prefix to
+	*	the sink (using str::FloatTo, as the value will internally be handled as a double) */
 	constexpr void SiValueTo(str::IsSink auto&& sink, const str::IsNumber auto& num, str::ArgsSiValue args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 

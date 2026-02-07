@@ -1552,91 +1552,6 @@ namespace str {
 				prefixParsed.prefixConsumed = 0;
 			return { prefixParsed.prefixConsumed + prefixParsed.signConsumed, true, hexFloat, prefixParsed.negative };
 		}
-
-		template <class ChType>
-		constexpr size_t SkipRawInteger(const std::basic_string_view<ChType>& view, size_t radix, str::Decoded& dec) {
-			size_t skipped = 0;
-
-			/* iterate over the digits and skip them */
-			while (dec.cp != str::Invalid) {
-				/* check if the codepoint is a valid digit */
-				if (detail::AsciiDigitMap[dec.cp] >= radix)
-					break;
-
-				/* mark the characters as consumed and decode the next character */
-				skipped += dec.consumed;
-				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped));
-			}
-			return skipped;
-		}
-
-		template <class ChType>
-		constexpr size_t SkipInteger(const std::basic_string_view<ChType>& view, size_t radix) {
-			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
-			return detail::SkipRawInteger<ChType>(view, radix, dec);
-		}
-
-		template <class ChType>
-		constexpr size_t SkipFloat(const std::basic_string_view<ChType>& view, size_t radix, bool hexFloat) {
-			/* check if the value is an inf/nan number */
-			str::Decoded dec = str::GetAscii<str::CodeError::nothing>(view);
-			detail::SpecialOut special = detail::ParseFloatSpecial<ChType>(view, radix, dec);
-			if (special.consumed > 0)
-				return special.consumed;
-
-			/* skip all digits before the fraction */
-			size_t skipped = detail::SkipRawInteger<ChType>(view, radix, dec);
-
-			/* skip the fraction */
-			bool hasDigits = (skipped > 0);
-			if (dec.cp == U'.') {
-				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
-
-				/* parse the fraction and check if at least a single digit has been found */
-				size_t fraction = detail::SkipRawInteger<ChType>(view.substr(skipped), radix, dec);
-				skipped += fraction;
-				hasDigits = (hasDigits || fraction > 0);
-			}
-
-			/* check if a non-empty mantissa has been found */
-			if (!hasDigits)
-				return skipped;
-
-			/* check if an exponent has been detected and skip it */
-			if (hexFloat ? (dec.cp == U'p' || dec.cp == U'P') : (dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
-				dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
-
-				/* skip a potential sign of the exponent */
-				if (dec.cp == U'+' || dec.cp == U'-')
-					dec = str::GetAscii<str::CodeError::nothing>(view.substr(skipped += dec.consumed));
-
-				/* skip the exponent itself */
-				skipped += detail::SkipRawInteger<ChType>(view.substr(skipped), (hexFloat ? 10 : radix), dec);
-			}
-			return skipped;
-		}
-
-		template <str::IsNumber Type>
-		constexpr size_t SkipNum(const str::IsStr auto& source, str::ArgsParse args) {
-			using ChType = str::StringChar<decltype(source)>;
-
-			/* check if the string is empty */
-			std::basic_string_view<ChType> view{ source };
-			if (view.empty())
-				return 0;
-
-			/* skip the sign and prefix and patch the args */
-			auto [consumed, valid, hexFloat, _negative] = detail::SetupParseNum<Type, ChType>(view, args);
-			if (!valid)
-				return consumed;
-
-			/* skip the integer or float and add the sign/prefix consumed characters to the overall consumed characters */
-			if constexpr (std::is_integral_v<Type>)
-				consumed += detail::SkipInteger<ChType>(view.substr(consumed), args.radix);
-			else
-				consumed += detail::SkipFloat<ChType>(view.substr(consumed), args.radix, hexFloat);
-			return consumed;
-		}
 	}
 
 	/*
@@ -1740,7 +1655,7 @@ namespace str {
 		return out;
 	}
 
-	/* print integer with optional leading [-] for the given radix to the sink and return the sink */
+	/* print integer with optional leading [-] for the given radix to the sink */
 	constexpr void IntTo(str::IsSink auto&& sink, const str::IsInteger auto& num, str::ArgsInt args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
@@ -1752,7 +1667,7 @@ namespace str {
 		detail::PrintInteger<NumType>(sink, num, args.radix, 0, addPrefix, upperCase);
 	}
 
-	/* print float with optional leading [-] for the given radix to the sink and return the sink (use str::HexFloat-radix to print hex-floats) */
+	/* print float with optional leading [-] for the given radix to the sink (use str::HexFloat-radix to print hex-floats) */
 	constexpr void FloatTo(str::IsSink auto&& sink, const str::IsFloat auto& num, str::ArgsFloat args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
