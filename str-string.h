@@ -674,7 +674,7 @@ namespace str {
 
 			/* interpret the entire string as an si-value */
 			template <str::IsNumber Type>
-			constexpr std::optional<Type> siValue(const str::ArgsSiValue& args = {}) const {
+			constexpr std::optional<Type> siValue(const str::ArgsSiParse& args = {}) const {
 				return str::SiParseNumAll<Type>(fBase(), args);
 			}
 
