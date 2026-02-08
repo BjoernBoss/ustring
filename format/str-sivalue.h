@@ -164,13 +164,6 @@ namespace str {
 		return detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
 	}
 
-	/* decode the si-scale at the string (note: unique characters are case-sensitive) */
-	constexpr str::ParsedSiScale SiPeekScale(const str::IsStr auto& source, str::SiScaleMode scale = str::SiScaleMode::decimal) {
-		using ChType = str::StringChar<decltype(source)>;
-		std::basic_string_view<ChType> view{ source };
-		return detail::ParseSiScale<ChType>(view, scale);
-	}
-
 	/* parse the next number as a float and respect and apply the corresponding si-scale (will be parsed as a
 	*	double and converted to the destination type, while checking for value overflows and boundary issues) */
 	template <str::IsNumber Type>

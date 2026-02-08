@@ -1620,22 +1620,6 @@ namespace str {
 		return std::nullopt;
 	}
 
-	/* check for the prefix on the potentially signed string (i.e. leading +/-, but - only if type permits)
-	*	and return defRadix for invalid prefixes or the radix (prefixes: [0b/0q/0o/0d/0x]) */
-	template <str::IsNumber Type = unsigned>
-	constexpr size_t PeekPrefix(const str::IsStr auto& source, size_t defRadix = 10) {
-		using ChType = str::StringChar<decltype(source)>;
-
-		/* check if the string is empty */
-		std::basic_string_view<ChType> view{ source };
-		if (view.empty())
-			return defRadix;
-
-		/* parse the sign and prefix and return the parsed radix */
-		detail::PrefixParseOut out = detail::ParseSignAndPrefix<Type, ChType>(view, false);
-		return (out.radix == 0 ? defRadix : out.radix);
-	}
-
 	/* return an empty local string or a string containg the prefix for the corresponding radix (hex-float radix will result in radix-16) */
 	constexpr str::Local<char32_t, 2> MakePrefix(size_t radix, bool upperCase = false) {
 		str::Local<char32_t, 2> out;
