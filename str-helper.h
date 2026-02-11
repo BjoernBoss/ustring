@@ -505,8 +505,11 @@ namespace str {
 
 	private:
 		void fFlush() {
-			str::CallSink(pSink, std::basic_string_view<ChType>{ pBuffer }.substr(0, pContent));
+			/* clear before writing out, to ensure exceptions dont trigger a
+			*	cleanup of this object, thereby triggering another nested flush */
+			size_t count = pContent;
 			pContent = 0;
+			str::CallSink(pSink, std::basic_string_view<ChType>{ pBuffer }.substr(0, count));
 		}
 
 	public:
@@ -536,6 +539,10 @@ namespace str {
 					fFlush();
 			}
 		}
+		constexpr void flush() {
+			if (pContent > 0)
+				fFlush();
+		}
 	};
 	template <class Type> BufferSink(Type&, size_t) -> BufferSink<Type&>;
 	template <class Type> BufferSink(Type&&, size_t) -> BufferSink<Type>;
@@ -560,8 +567,11 @@ namespace str {
 
 	private:
 		void fFlush() {
-			str::CallWire(pWire, str::Data{ pBuffer }.subspan(0, pContent));
+			/* clear before writing out, to ensure exceptions dont trigger a
+			*	cleanup of this object, thereby triggering another nested flush */
+			size_t count = pContent;
 			pContent = 0;
+			str::CallWire(pWire, str::Data{ pBuffer }.subspan(0, count));
 		}
 
 	public:
@@ -577,6 +587,10 @@ namespace str {
 				if (pContent >= pBuffer.size())
 					fFlush();
 			}
+		}
+		constexpr void flush() {
+			if (pContent > 0)
+				fFlush();
 		}
 	};
 	template <class Type> BufferWire(Type&, size_t) -> BufferWire<Type&>;

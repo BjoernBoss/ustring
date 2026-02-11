@@ -112,15 +112,14 @@ namespace str {
 
 			/* fetch the scale to use (equal to number of scales is equal to scale of 1) */
 			const double* scale = (binarySystem ? detail::SiScale2 : detail::SiScale10);
-			size_t indexToUse = 0;
+			size_t indexToUse = detail::SiNumScales;
 
 			/* check if the value is greater-equal to 1 */
 			if (value >= 1.0) {
-				indexToUse = detail::SiNumScales;
 				for (size_t i = detail::SiFirstGreater1; i < detail::SiNumScales && value >= scale[i]; ++i)
 					indexToUse = i;
 			}
-			else {
+			else if (value != 0.0) {
 				indexToUse = detail::SiFirstGreater1 - 1;
 				while (indexToUse > 0 && value < scale[indexToUse])
 					--indexToUse;
