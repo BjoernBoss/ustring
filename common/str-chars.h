@@ -90,7 +90,7 @@ namespace str {
 		str::CharWriter<std::remove_cvref_t<SinkType>>{}(sink, str);
 	}
 
-	/* wrapper to write to load chars from a char-loader */
+	/* wrapper to load chars from a char-loader */
 	template <str::IsCharLoader LoaderType>
 	constexpr size_t CallCharLoader(LoaderType&& stream, str::CharLoaderChar<LoaderType>* buffer, size_t size) {
 		return str::CharLoader<std::remove_cvref_t<LoaderType>>{}(stream, buffer, size);
@@ -175,7 +175,7 @@ namespace str {
 	*	Important: Stream-object may build up state around the source-stream, which already extracts more
 	*	than requested and therefore source-streams should be passed around as str::Stream-objects
 	*	load(size_t i): load at least [i] characters, or any remaining, if [i] is larger than the stream, and return a reference to them
-	*	read(ChType*, size_t i): read [i] characters, or the remining, if [i] is larger than the stream, into the buffer and consume them and return the number of characters
+	*	read(ChType*, size_t i): read [i] characters, or the remaining, if [i] is larger than the stream, into the buffer and consume them and return the number of characters
 	*	consume(size_t i): remove the leading [i] characters from the stream (if [i] is greater or equal to loaded size, consume everything)
 	*	done(): check if the stream contains at least one character */
 	template <str::IsStream Type, size_t MinLoadCapacity = 256>

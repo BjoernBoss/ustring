@@ -127,7 +127,7 @@ namespace str {
 			if (v == 0)
 				return 0;
 
-			/* check if the value is smaller than 32-bit and look for the value to become zeor */
+			/* check if the value is smaller than 32-bit and look for the value to become zero */
 			if (v <= std::numeric_limits<uint32_t>::max()) {
 				uint8_t bits = 1;
 				while (v >> bits)
@@ -253,7 +253,7 @@ namespace str {
 
 		/* large integer with optional dynamic capacity (Invariant: if size > 0: data[size - 1] must never be null)
 		*	- requires at least two units to be static, else dynamic capacity is used
-		*	- last data-package is considered scratch-pad and is not guaranteed to perserve any information */
+		*	- last data-package is considered scratch-pad and is not guaranteed to preserve any information */
 		template <size_t Units>
 		struct LargeInt {
 			std::conditional_t<detail::DynamicInt<Units>, std::vector<uint32_t>, uint32_t[Units]> data{};
@@ -328,7 +328,7 @@ namespace str {
 			*	would trigger a skip, which would again reduce aSize by one */
 #pragma warning(disable : 6386)
 
-			/* iterate over the elements of a and perform the mulitplication */
+			/* iterate over the elements of a and perform the multiplication */
 			for (int32_t i = 0; i < aSize; ++i) {
 				uint64_t value = uint64_t(b) * uint64_t(a.data[aOff + i]) + uint64_t(carry);
 
@@ -390,7 +390,7 @@ namespace str {
 					carry = uint32_t((oValue * uint64_t(innerData[size_t(iIndex - 1)])) >> 32);
 				}
 
-				/* iterate over the elements of a and perform the mulitplication */
+				/* iterate over the elements of a and perform the multiplication */
 				for (; iIndex < innerSize; ++iIndex) {
 					uint64_t value = oValue * uint64_t(innerData[iIndex]) + uint64_t(resData[size_t(offset + iIndex)]) + uint64_t(carry);
 

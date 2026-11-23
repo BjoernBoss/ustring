@@ -51,20 +51,20 @@ namespace str {
 	namespace detail {
 		static constexpr size_t SiFirstGreater1 = 10;
 		static constexpr size_t SiNumScales = 20;
-		static constexpr const char32_t* SiPrefixCharAscii = U"qryzafpnumkMGTPEZRQ";
-		static constexpr const char32_t* SiPrefixCharUnicode = U"qryzafpn\u00b5mkMGTPEZRQ";
+		static constexpr const char32_t* SiPrefixCharAscii = U"qryzafpnumkMGTPEZYRQ";
+		static constexpr const char32_t* SiPrefixCharUnicode = U"qryzafpn\u00b5mkMGTPEZYRQ";
 		static constexpr const char32_t SiPrefixBinaryIndicator = U'i';
-		static constexpr const char32_t SiPrefixCharDetectU[] = { U"qrYzAFPNUmKMGTPEZRQ\u039c" };
-		static constexpr const char32_t SiPrefixCharDetectL[] = { U"qryzafpnumkMgtpeZRQ\u00b5" };
+		static constexpr const char32_t SiPrefixCharDetectU[] = { U"qryzAFPNUmKMGTPEZYRQ\u039c" };
+		static constexpr const char32_t SiPrefixCharDetectL[] = { U"qryzafpnumkMgtpeZYRQ\u00b5" };
 		static constexpr const char32_t SiPrefixBinaryDetectU = U'I';
 		static constexpr const char32_t SiPrefixBinaryDetectL = U'i';
 		static constexpr double SiScale10[] = {
 			1.0e-30, 1.0e-27, 1.0e-24, 1.0e-21, 1.0e-18, 1.0e-15, 1.0e-12, 1.0e-9, 1.0e-6, 1.0e-3,
-			1.0e+3, 1.0e+6, 1.0e+9, 1.0e+12, 1.0e+15, 1.0e+18, 1.0e+21, 1.0e+24, 1.0e+27, 1.0e-6
+			1.0e+3, 1.0e+6, 1.0e+9, 1.0e+12, 1.0e+15, 1.0e+18, 1.0e+21, 1.0e+24, 1.0e+27, 1.0e+30, 1.0e-6
 		};
 		static constexpr double SiScale2[] = {
 			0x1p-100, 0x1p-90, 0x1p-80, 0x1p-70, 0x1p-60, 0x1p-50, 0x1p-40, 0x1p-30, 0x1p-20, 0x1p-10,
-			0x1p+10, 0x1p+20, 0x1p+30, 0x1p+40, 0x1p+50, 0x1p+60, 0x1p+70, 0x1p+80, 0x1p+90, 0x1p-20
+			0x1p+10, 0x1p+20, 0x1p+30, 0x1p+40, 0x1p+50, 0x1p+60, 0x1p+70, 0x1p+80, 0x1p+90, 0x1p+100, 0x1p-20
 		};
 
 		template <class ChType>

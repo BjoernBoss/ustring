@@ -29,7 +29,7 @@ namespace str {
 		}
 		template <class ChType>
 		constexpr bool MakeUtf32(auto& sink, char32_t cp) {
-			if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
+			if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateLast)
 				return false;
 			if (cp >= detail::UnicodeRange)
 				return false;

@@ -1,6 +1,6 @@
 BSD 3-Clause License
 
-Copyright (c) 2024 Bjoern Boss Henrichsen
+Copyright (c) 2024-2026 Bjoern Boss Henrichsen
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

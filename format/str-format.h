@@ -24,7 +24,7 @@ namespace str {
 	template <class Type>
 	struct Formatter;
 
-	/* type is anything that implements thr str::Formatter interface */
+	/* type is anything that implements the str::Formatter interface */
 	template <class Type>
 	concept IsFormattable = requires(const Type & val, const std::u32string_view & fmt, std::string & cs, std::wstring & ws, std::u8string & u8s, std::u16string & u16s, std::u32string & u32s) {
 		{ str::Formatter<std::remove_cvref_t<Type>>{}(cs, val, fmt) } -> std::same_as<bool>;
@@ -278,7 +278,7 @@ namespace str {
 		constexpr As(const FmtType& fmt, const Type& value) : format{ fmt }, value{ value } {}
 	};
 
-	/* type is anything that implements an forward iterator on formattable types */
+	/* type is anything that implements a forward iterator on formattable types */
 	template <class Type>
 	concept IsFmtRangeIt = std::forward_iterator<Type> && str::IsFormattable<typename std::iterator_traits<Type>::value_type>;
 
@@ -1187,7 +1187,6 @@ namespace str {
 			/* parse the separator and element formatter */
 			std::u32string _separator;
 			auto [separator, format] = detail::ParseElementFormatting(rest, _separator);
-			bool separate = false;
 
 			/* check if the string can just be appended */
 			if (padding.minimum <= 0 && padding.maximum == 0)

@@ -58,7 +58,7 @@ namespace str {
 		std::wcout << L'\n';
 	}
 
-	/* convenience to build an runtime exception */
+	/* convenience to build a runtime exception */
 	template <str::IsChar ChType>
 	struct BuildException : public str::RuntimeException<ChType> {
 		template <class... Args>

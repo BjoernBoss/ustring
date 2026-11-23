@@ -54,7 +54,7 @@ namespace str {
 		str::ByteWriter<std::remove_cvref_t<decltype(wire)>>{}(wire, data);
 	}
 
-	/* wrapper to write to load data from a byte-source */
+	/* wrapper to load data from a byte-source */
 	constexpr size_t CallByteLoader(str::IsByteLoader auto&& source, uint8_t* buffer, size_t size) {
 		return str::ByteLoader<std::remove_cvref_t<decltype(source)>>{}(source, buffer, size);
 	}
@@ -138,7 +138,7 @@ namespace str {
 	*	Important: Source-object may build up state around the source, which already extracts more
 	*	than requested and therefore sources should be passed around as str::Source-objects
 	*	load(size_t i): load at least [i] bytes, or any remaining, if [i] is larger than the source, and return a reference to them
-	*	read(uint8_t*, size_t i): read [i] bytes, or the remining, if [i] is larger than the source, into the buffer and consume them and return the number of bytes
+	*	read(uint8_t*, size_t i): read [i] bytes, or the remaining, if [i] is larger than the source, into the buffer and consume them and return the number of bytes
 	*	consume(size_t i): remove the leading [i] bytes from the source (if [i] is greater or equal to loaded size, consume everything)
 	*	done(): check if the source contains at least one byte */
 	template <str::IsSource Type, size_t MinLoadCapacity = 256>

@@ -40,7 +40,7 @@ namespace str {
 				return { str::Invalid, 1 };
 			}
 
-			/* validate the contiunation-bytes and construct the final codepoint */
+			/* validate the continuation-bytes and construct the final codepoint */
 			for (uint32_t j = 1; j < len; ++j) {
 				uint8_t n8 = uint8_t(cur[j]);
 				if ((n8 & 0xc0) != 0x80)

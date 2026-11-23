@@ -18,12 +18,12 @@
 *		wchar_t encodes utf-16 or utf-32
 *		char is either utf-8 or arbitrary multi-byte solution
 *
-*	Decoding returns std::Invalid if:
+*	Decoding returns str::Invalid if:
 *		=> source is empty => len = 0
 *		=> partial call and codepoint incomplete => len = 0
 *		=> invalid encoding => len = 1
 *
-*	All decoding functions will only produce str::Invalid or valid Codepoints as per cp::IsUnicode
+*	All decoding functions will only produce str::Invalid or valid codepoints as per cp::IsUnicode
 *
 *	All codepoints will be written as a single char/string-call to the sink
 *		=> Prevent partially encoded codepoints from being added
@@ -398,7 +398,7 @@ namespace str {
 			return iterator{ pSource, pSource.data() + index };
 		}
 		constexpr bool aligned(size_t index) const {
-			if (index + 1 >= pSource.size())
+			if (index >= pSource.size())
 				return false;
 			str::Decoded dec = detail::DecodeNextError<str::CodeError::nothing, ChType, false>(pSource.data() + index, pSource.data() + pSource.size());
 			return (dec.cp != str::Invalid);

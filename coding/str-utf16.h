@@ -61,7 +61,7 @@ namespace str {
 		inline constexpr bool MakeUtf16(auto& sink, char32_t cp) {
 			/* check if its a single utf16-token */
 			if (cp < 0x10000) {
-				if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateUpper)
+				if (cp >= detail::SurrogateFirst && cp <= detail::SurrogateLast)
 					return false;
 				str::CallSink(sink, ChType(cp), 1);
 				return true;
