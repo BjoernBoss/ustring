@@ -2097,7 +2097,7 @@ def MakeCasingLookup(outPath: str, config: SystemConfig) -> None:
 					i += 1
 			caseConditions[n] = tempConditions[k]
 
-		# write the case-mapping and enum to the file (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf, https://www.unicode.org/reports/tr44/#Casemapping)
+		# write the case-mapping and enum to the file (https://www.unicode.org/versions/latest/core-spec/chapter-3/#G33992, https://www.unicode.org/reports/tr44/#Casemapping)
 		_type: LookupType = LookupType.intType(0, 'uint32_t')
 		_gen: CodeGen = file.next('Case', 'Automatically generated from: Special-Casing, unicode-data simple case mapping')
 		_gen.addConstInt(_type, 'CaseIsNegative', flagIsNegative)
@@ -2353,7 +2353,7 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 		# parse the canonical combining class values (https://www.unicode.org/reports/tr44/#Canonical_Combining_Class)
 		cccRanges = unicodeData.values(lambda fs: _ParseCCC(fs[2]))
 
-		# parse the exclusion flags (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf#page=70)
+		# parse the exclusion flags (https://www.unicode.org/versions/latest/core-spec/chapter-3/#G50628)
 		exclusionFlag: int = 0x01 << 28
 		excludedRanges = derivedNorm.values(lambda fs: exclusionFlag if fs[0] == 'Full_Composition_Exclusion' else None)
 		excludedSet: set = set()
@@ -2361,7 +2361,7 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 			for c in range(r.first, r.last + 1):
 				excludedSet.add(c)
 
-		# parse the hangulsyllable flags (https://www.unicode.org/versions/Unicode15.0.0/ch03.pdf#page=75)
+		# parse the hangulsyllable flags (https://www.unicode.org/versions/latest/core-spec/chapter-3/#G24646)
 		hangulSylComposition: int = 0x01 << 24
 		hangulSyllableL: int = 0x01 << 25
 		hangulSyllableV: int = 0x01 << 26
