@@ -1491,8 +1491,8 @@ def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, b
 
 	# fetch the version from the read-me
 	with open('ucd/ReadMe.txt', 'r') as f:
-		fileContent = f.read()
-	version = re.findall('Version ([0-9]+(\\.[0-9]+)*) of the Unicode Standard', fileContent)
+		fileContent = f.read().replace('\r', '').replace('\n', ' ').replace('  ', ' ')
+	version = re.findall('[vV]ersion ([0-9]+(\\.[0-9]+)*) of the Unicode (Standard|Character Database)', fileContent)
 	if len(version) != 1:
 		raise RuntimeError('Unable to extract the version')
 	return (version[0][0], mapping, f'{testPath}/')
@@ -2368,7 +2368,7 @@ def MakeNormalizationLookup(outPath: str, config: SystemConfig) -> None:
 		hangulSyllableT: int = 0x01 << 27
 		hangulSylRanges = Ranges.fromConflictingRawList([
 			Range(0xac00, 0xac00 + 11172 - 1, hangulSylComposition), Range(0x1100, 0x1100 + 19 - 1, hangulSyllableL),
-			Range(0x1161, 0x1161 + 21 - 1, hangulSyllableV), Range(0x11a7, 0x11a7 + 28 - 1, hangulSyllableT)
+			Range(0x1161, 0x1161 + 21 - 1, hangulSyllableV), Range(0x11a8, 0x11a8 + 27 - 1, hangulSyllableT)
 		], lambda a, b: (a[0] | b[0],))
 
 		# fetch the decomposition mapping, but ignoring compatibility-mapping [length is guaranteed to be in 0..2] (https://www.unicode.org/reports/tr44/#Character_Decomposition_Mappings)
@@ -2441,7 +2441,7 @@ print('Hint: use --normal to generate normalization-code')
 
 # check if the files need to be downloaded and extract the version and date-time
 generatedURLOrigin = 'https://www.unicode.org/Public/UCD/latest'
-generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, (doProperty or doCase or doSegment or doSegment), doTests, generatedURLOrigin)
+generatedVersion, generatedMapping, testPath = DownloadUCDFiles(doRefresh, (doProperty or doCase or doSegment or doNormalization), doTests, generatedURLOrigin)
 generatedDateTime = datetime.datetime.today().strftime('%Y-%m-%d %H:%M')
 systemConfig = SystemConfig(generatedURLOrigin, generatedVersion, generatedDateTime, generatedMapping, ['cinttypes', 'utility', 'algorithm'])
 

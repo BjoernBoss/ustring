@@ -230,14 +230,11 @@ namespace cp {
 		private:
 			constexpr bool fGB9cHasConsonant() const {
 				ItType it{ pLeft };
-				bool linkerFound = false;
 				while (true) {
 					Host::Type type = Host::GetCP(*it);
 					if (type == Host::Type::inCBLinker || type == Host::Type::extendInCBLinker)
-						linkerFound = true;
-					else if (type == Host::Type::inCBConsonant)
-						return linkerFound;
-					else if (type != Host::Type::inCBExtend && type != Host::Type::extendInCBExtend && type != Host::Type::zwjInCBExtend)
+						return true;
+					if (type != Host::Type::inCBExtend && type != Host::Type::extendInCBExtend && type != Host::Type::zwjInCBExtend)
 						return false;
 					if (it == pBegin)
 						break;
@@ -285,7 +282,6 @@ namespace cp {
 		private:
 			enum class GB9cState : uint8_t {
 				none,
-				linker,
 				match
 			};
 			enum class GB11State : uint8_t {
@@ -318,19 +314,11 @@ namespace cp {
 
 		private:
 			constexpr GB9cState fUpdateGB9cState(Host::Type l) const {
-				if (l == Host::Type::inCBConsonant)
-					return GB9cState::linker;
+				if (l == Host::Type::inCBLinker || l == Host::Type::extendInCBLinker)
+					return GB9cState::match;
 
-				if (pGB9cState == GB9cState::linker) {
+				if (pGB9cState == GB9cState::match) {
 					if (l == Host::Type::inCBExtend || l == Host::Type::extendInCBExtend || l == Host::Type::zwjInCBExtend)
-						return GB9cState::linker;
-					if (l == Host::Type::inCBLinker || l == Host::Type::extendInCBLinker)
-						return GB9cState::match;
-				}
-				else if (pGB9cState == GB9cState::match) {
-					if (l == Host::Type::inCBExtend || l == Host::Type::extendInCBExtend || l == Host::Type::zwjInCBExtend)
-						return GB9cState::match;
-					if (l == Host::Type::inCBLinker || l == Host::Type::extendInCBLinker)
 						return GB9cState::match;
 				}
 				return GB9cState::none;
@@ -1037,7 +1025,7 @@ namespace cp {
 				case Host::Type::space:
 					if (pChain == Host::Chain::sTerm || pChain == Host::Chain::sClose || pChain == Host::Chain::sSpace)
 						return Host::Chain::sSpace;
-					else if (pChain != Host::Chain::none)
+					else if (pChain == Host::Chain::aTerm || pChain == Host::Chain::aTermLowUp || pChain == Host::Chain::aClose || pChain == Host::Chain::aSpace)
 						return Host::Chain::aSpace;
 					break;
 				default:
@@ -1164,11 +1152,7 @@ namespace cp {
 					if (l == Type::zw)
 						return Break::optional;
 
-					/* LB15c/LB15d */
-					if (r == Type::is)
-						return self.fLB15cCheck();
-
-					/* LB11/LB13/LB14 */
+					/* LB11/LB13 */
 					if (r == Type::wj || r == Type::cl || r == Type::cp || r == Type::ex || r == Type::sy)
 						return Break::combine;
 
@@ -1177,8 +1161,12 @@ namespace cp {
 						return Break::combine;
 
 					/* LB15a */
-					if (l == Type::quPi)
-						return self.fLB15aCheck();
+					if (l == Type::quPi && self.fLB15aCheck() == Break::combine)
+						return Break::combine;
+
+					/* LB15c/LB15d */
+					if (r == Type::is)
+						return self.fLB15cCheck();
 
 					/* LB15b */
 					if (r == Type::quPf)
@@ -1216,7 +1204,7 @@ namespace cp {
 					return Break::combine;
 				case Type::gl:
 					/* LB12a */
-					if (l != Type::ba && l != Type::hh && l != Type::hy)
+					if (l != Type::hh && l != Type::hy)
 						return Break::combine;
 					break;
 				case Type::cl:
@@ -1241,9 +1229,25 @@ namespace cp {
 					/* LB19 */
 					return Break::combine;
 				case Type::quPi:
+					/* LB11/LB12/LB14 */
+					if (l == Type::wj || l == Type::gl || l == Type::op)
+						return Break::combine;
+
+					/* LB19 */
+					if (l == Type::quNoPiPf || l == Type::quPi)
+						return Break::combine;
+
 					/* LB19a */
 					if (!lFWH)
 						return Break::combine;
+					if (l == Type::quPf && (!rFWH || self.fLB19aCheckLeft() == Break::combine))
+						return Break::combine;
+
+					/* LB21 */
+					if (l == Type::bb)
+						return Break::combine;
+
+					/* LB19a */
 					return self.fLB19aCheckRight();
 				case Type::cb:
 					/* LB11/LB12/LB14 */
@@ -1407,7 +1411,7 @@ namespace cp {
 					/* LB25 */
 					if (r == Type::nu)
 						return Break::combine;
-					if (r == Type::op || r == Type::hy)
+					if (r == Type::op)
 						return self.fLB25CheckRight();
 					break;
 				case Type::jl:
@@ -1594,11 +1598,33 @@ namespace cp {
 				return ((exists && type.first == Host::Type::hl) ? Host::Break::combine : Host::Break::optional);
 			}
 			constexpr Host::Break fLB25CheckLeft() const {
-				auto [type, exists] = fGetPrev();
-				return ((exists && type.first == Host::Type::nu) ? Host::Break::combine : Host::Break::optional);
+				ItType it{ pLeft };
+				while (true) {
+					it = fSkipIntermediate(it, Host::GetCP(*it), false).first;
+					if (it == pBegin)
+						return Host::Break::optional;
+					--it;
+					Host::Type type = fSkipIntermediate(it, Host::GetCP(*it), false).second.first;
+					if (type == Host::Type::nu)
+						return Host::Break::combine;
+					if (type != Host::Type::sy && type != Host::Type::is)
+						return Host::Break::optional;
+				}
 			}
 			constexpr Host::Break fLB25CheckRight() const {
-				return (fGetNext().first.first == Host::Type::nu ? Host::Break::combine : Host::Break::optional);
+				ItType it{ pRight };
+				bool hasIs = false;
+				while (++it != pEnd) {
+					Host::Type type = Host::GetCP(*it).first;
+					if (type == Host::Type::cm || type == Host::Type::zwj)
+						continue;
+					if (type == Host::Type::nu)
+						return Host::Break::combine;
+					if (type != Host::Type::is || hasIs)
+						break;
+					hasIs = true;
+				}
+				return Host::Break::optional;
 			}
 			constexpr Host::Break fLB28a2Check() const {
 				auto [type, exists] = fGetPrev();
@@ -1656,6 +1682,7 @@ namespace cp {
 				lb15c,
 				lb19a,
 				lb25,
+				lb25Is,
 				lb28a3
 			};
 			enum class Chain : uint8_t {
@@ -1776,7 +1803,7 @@ namespace cp {
 						pChain = Chain::none;
 					break;
 				case Host::Type::vi:
-					if (pLast.first == Host::Type::ak || pLast.first == Host::Type::alDotCircle || pLast.first == Host::Type::as)
+					if (pActual.first != Host::Type::sp && (pLast.first == Host::Type::ak || pLast.first == Host::Type::alDotCircle || pLast.first == Host::Type::as))
 						pChain = Chain::lb28a2Match;
 					else
 						pChain = Chain::none;
@@ -1794,23 +1821,24 @@ namespace cp {
 				}
 
 				/* check if the value before the last space can be updated */
+				Host::Type prev = pActual.first;
 				pActual = r;
 				if (r.first == Host::Type::sp) {
 					pRICountOdd = false;
 					return;
 				}
 
-				/* update the LB19a fwh-state */
-				pNotFWH = !pLast.second;
-
-				/* skip the invisible types and update the last value and ri-parity */
-				if ((r.first == Host::Type::cm || r.first == Host::Type::zwj) && pLast.first != Host::Type::bk && pLast.first != Host::Type::cr &&
-					pLast.first != Host::Type::lf && pLast.first != Host::Type::nl && pLast.first != Host::Type::sp && pLast.first != Host::Type::zw)
+				/* skip the invisible LB9 types, if they are attached to the actual previous character (otherwise own characters as LB10) */
+				if ((r.first == Host::Type::cm || r.first == Host::Type::zwj) && prev != Host::Type::bk && prev != Host::Type::cr &&
+					prev != Host::Type::lf && prev != Host::Type::nl && prev != Host::Type::sp && prev != Host::Type::zw)
 					return;
+
+				/* update the LB19a fwh-state and the last value and parity */
+				pNotFWH = (prev == Host::Type::sp || !pLast.second);
 				pRICountOdd = (r.first == Host::Type::ri ? !pRICountOdd : false);
 				pLast = r;
 			}
-			constexpr Host::Break fCheckState(std::pair<Host::Type, bool> r) const {
+			constexpr Host::Break fCheckState(std::pair<Host::Type, bool> r) {
 				/* check if the character does not close the state */
 				if (r.first == Host::Type::cm || r.first == Host::Type::zwj)
 					return Host::Break::uncertain;
@@ -1838,11 +1866,14 @@ namespace cp {
 					return Host::Break::optional;
 				}
 
-				/* LB25 */
-				if (pState == State::lb25) {
+				/* LB25 (followed by [nu] or [is nu]) */
+				if (pState == State::lb25 || pState == State::lb25Is) {
 					if (r.first == Host::Type::nu)
 						return Host::Break::combine;
-					return Host::Break::optional;
+					if (r.first != Host::Type::is || pState == State::lb25Is)
+						return Host::Break::optional;
+					pState = State::lb25Is;
+					return Host::Break::uncertain;
 				}
 
 				/* LB28a */
