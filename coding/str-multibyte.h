@@ -21,7 +21,11 @@
 #endif
 
 namespace str {
+#ifdef __GNUC_EXECUTION_CHARSET_NAME
+	static constexpr bool CharIsUtf8 = (std::string_view{ __GNUC_EXECUTION_CHARSET_NAME } == "UTF-8");
+#else
 	static constexpr bool CharIsUtf8 = detail::IsUtf8("\U0000007f\U0000ff00\U00010000");
+#endif
 	static constexpr bool CharHoldsAscii = (str::CharIsUtf8 || detail::HoldSameValues(
 		U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
 		U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
@@ -87,47 +91,43 @@ namespace str {
 			if constexpr (str::CharIsUtf8)
 				return detail::PrevUtf8<char>(begin, cur);
 			else {
-				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint8_t(cur[-1]) < detail::AsciiRange)
+				/* fast-path for ascii-characters (only if every character is a single byte) */
+				if (str::CharHoldsAscii && uint8_t(cur[-1]) < detail::AsciiRange && MB_CUR_MAX == 1)
 					return { char32_t(uint8_t(cur[-1])), 1 };
 
 				/* first decode multi-byte to wide-chars (as the standard libraries functions
 				*	to utf32 only work for utf8 inputs, at least on some msvc versions) */
 				wchar_t wc = 0;
 
-				/* iteratively increase the length until a valid codepoint is encountered */
-				size_t len = 1, max = std::min<size_t>(detail::CharLen, size_t(cur - begin));
-				while (true) {
+				/* find the longest valid chain of characters, which decodes correctly */
+				size_t len = std::min<size_t>({ detail::CharLen, size_t(cur - begin), size_t(MB_CUR_MAX) });
+				for (; len > 0; --len) {
 					std::mbstate_t state{};
 					size_t res = std::mbrtowc(&wc, cur - len, len, &state);
 
 					/* check if the character is still considered invalid (probably not a valid start) */
-					if (res == static_cast<size_t>(-1)) {
-						if (len >= max)
-							return { str::Invalid, 1 };
-						++len;
+					if (res == static_cast<size_t>(-1))
 						continue;
-					}
 
 					/* check if the character is considered incomplete, in which case the next character must be considered invalid */
 					if (res == static_cast<size_t>(-2))
-						return { str::Invalid, 1 };
+						continue;
 
-					/* ensure that the length matches the actual length */
+					/* ensure that the length matches the actual length (otherwise probably not a valid start) */
 					if (len != (res == 0 ? 1 : res))
-						return { str::Invalid, 1 };
-					break;
-				}
+						continue;
 
-				/* convert the wide-character to the final codepoint (consumed can
-				*	be discarded as it will either be 1 or 0 and str::Invalid returned) */
-				char32_t cp = detail::NextWide<false>(&wc, &wc + 1).cp;
-				if (cp == str::Invalid)
-					return { str::Invalid, 1 };
-				return { cp, uint32_t(len) };
+					/* convert the wide-character to the final codepoint (consumed can
+					*	be discarded as it will either be 1 or 0 and str::Invalid returned) */
+					char32_t cp = detail::NextWide<false>(&wc, &wc + 1).cp;
+					if (cp == str::Invalid)
+						return { str::Invalid, 1 };
+					return { cp, uint32_t(len) };
+				}
+				return { str::Invalid, 1 };
 			}
 		}
-		inline bool MakeChar(auto& sink, char32_t cp) {
+		inline constexpr bool MakeChar(auto& sink, char32_t cp) {
 			/* utf-8 path */
 			if constexpr (str::CharIsUtf8)
 				return detail::MakeUtf8<char>(sink, cp);

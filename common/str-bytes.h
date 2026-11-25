@@ -83,47 +83,53 @@ namespace str {
 		class SourceLoad {
 		private:
 			std::vector<uint8_t> pBuffer;
-			str::Data pData;
+			size_t pOffset = 0;
+			size_t pAvailable = 0;
 			Type pSource;
 			bool pClosed = false;
 
 		public:
 			constexpr SourceLoad(Type&& d) : pSource{ std::forward<Type>(d) } {}
+			constexpr SourceLoad(SourceLoad&&) = default;
+			constexpr SourceLoad& operator=(SourceLoad&&) = default;
+			SourceLoad(const SourceLoad&) = delete;
+			SourceLoad& operator=(const SourceLoad&) = delete;
 
 		private:
 			constexpr void fLoad(size_t size) {
-				size = std::max<size_t>(size, MinLoadCapacity);
+				size = std::max<size_t>({ size, MinLoadCapacity, 1 });
 
 				/* check if the cache should be reset and reset it to have enough capacity */
-				size_t offset = (pData.empty() ? 0 : size_t(pData.data() - pBuffer.data()));
-				if (offset >= pData.size()) {
-					std::move(pData.begin(), pData.end(), pBuffer.begin());
-					offset = 0;
+				if (pOffset >= pAvailable) {
+					std::move(pBuffer.begin() + ptrdiff_t(pOffset), pBuffer.begin() + ptrdiff_t(pOffset + pAvailable), pBuffer.begin());
+					pOffset = 0;
 				}
-				size_t endOfData = offset + pData.size();
+				size_t endOfData = pOffset + pAvailable;
 				pBuffer.resize(endOfData + size);
 
 				/* setup the data-object and read the actual data from the stream */
 				size_t loaded = str::CallByteLoader(pSource, pBuffer.data() + endOfData, size);
-				pData = { pBuffer.data() + offset, pData.size() + loaded };
+				pAvailable += loaded;
 				pClosed = (loaded < size);
 			}
 
 		public:
 			constexpr str::Data load(size_t size) {
-				if (size > pData.size() && !pClosed)
-					fLoad(size - pData.size());
-				return pData;
+				if (size > pAvailable && !pClosed)
+					fLoad(size - pAvailable);
+				return str::Data{ pBuffer.data() + pOffset, pAvailable };
 			}
 			constexpr void consume(size_t size) {
-				pData = pData.subspan(std::min<size_t>(pData.size(), size));
+				size = std::min<size_t>(pAvailable, size);
+				pOffset += size;
+				pAvailable -= size;
 			}
 			constexpr bool done() {
 				/* check if the view is currently empty, in which case there might still
 				*	be more data available - fetch them to get an accurate close-state */
-				if (pData.empty() && !pClosed)
+				if (pAvailable == 0 && !pClosed)
 					fLoad(0);
-				return (pData.empty() && pClosed);
+				return (pAvailable == 0 && pClosed);
 			}
 		};
 	}

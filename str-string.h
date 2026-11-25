@@ -6,8 +6,12 @@
 #include "unicode/cp-normalization.h"
 #include "unicode/cp-property.h"
 #include "unicode/cp-segmentation.h"
+#include "common/str-local.h"
 #include "coding/str-coding.h"
 #include "format/str-escape.h"
+#include "format/str-number.h"
+#include "format/str-sivalue.h"
+#include "format/str-wire.h"
 
 /*
 *	Coding-Rules:
@@ -329,7 +333,7 @@ namespace str {
 
 			/* begin iterator over the codepoints */
 			constexpr ItType cpBegin() const {
-				return ItType{ fBase(), 0 };
+				return ItType{ fBase(), size_t(0) };
 			}
 
 			/* end iterator over the codepoint s*/
@@ -386,22 +390,22 @@ namespace str {
 				return SelfType{ fLeftStrip(tester) };
 			}
 
-			/* strip any trailing characters, which fulfill [prop::IsSpace] */
+			/* strip any trailing characters, which fulfill [prop::IsSpace] (decodes backwards, which may be inconsistent; see str::Iterator) */
 			constexpr SelfType rstrip() const {
 				return SelfType{ fRightStrip(cp::prop::IsSpace) };
 			}
 
-			/* strip any trailing characters, which fulfill the tester */
+			/* strip any trailing characters, which fulfill the tester (decodes backwards, which may be inconsistent; see str::Iterator) */
 			constexpr SelfType rstrip(const str::IsTester auto& tester) const {
 				return SelfType{ fRightStrip(tester) };
 			}
 
-			/* strip any leading or trailing characters, which fulfill [prop::IsSpace] */
+			/* strip any leading or trailing characters, which fulfill [prop::IsSpace] (decodes backwards, which may be inconsistent; see str::Iterator) */
 			constexpr SelfType strip() const {
 				return SelfType{ fLeftStrip(cp::prop::IsSpace).fRightStrip(cp::prop::IsSpace) };
 			}
 
-			/* strip any leading or trailing characters, which fulfill the tester */
+			/* strip any leading or trailing characters, which fulfill the tester (decodes backwards, which may be inconsistent; see str::Iterator) */
 			constexpr SelfType strip(const str::IsTester auto& tester) const {
 				return SelfType{ fLeftStrip(tester).fRightStrip(tester) };
 			}

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-local.h"
 #include "cp-segmentation.h"
 
 #include "../generated/unicode-casing.h"
@@ -249,7 +250,8 @@ namespace cp {
 					if (cond == Condition::incomplete) {
 						if constexpr (!IsCleanup)
 							return;
-						cond = fAfterEnd();
+						else
+							cond = fAfterEnd();
 					}
 
 					/* check if the condition has not been satisfied and advance the current state
@@ -290,7 +292,7 @@ namespace cp {
 					}
 
 					/* feed all remaining cached entries into the condition and check if it can be satisfied */
-					for (size_t i = 1; cond == Condition::incomplete && i < pCached.size(); ++i)
+					for (size_t i = 0; cond == Condition::incomplete && i < pCached.size(); ++i)
 						cond = fAfterState(pCached.get(i).data[0]);
 				}
 			}
@@ -402,27 +404,25 @@ namespace cp {
 
 		public:
 			constexpr void next(char32_t cp) {
-				/* feed the codepoint to the word-separator, which will produce the break-kind before each codepoint (except for the first) */
+				size_t processed = 0;
+
+				/* feed the codepoint to the word-separator, which will produce the break-kind before each codepoint (except
+				*	for the first), and count the codepoints, for which it is known now, which can then be fed to the caser */
 				uint32_t raw = detail::gen::GetSegmentation(cp);
 				if (pInitialized)
-					pSeparator.next(raw, 0, [this](size_t, cp::BreakKind kind) { fSeparate(kind != cp::BreakKind::none); });
+					pSeparator.next(raw, 0, [&](size_t, cp::BreakKind kind) { fSeparate(kind != cp::BreakKind::none); ++processed; });
 				else {
 					pInitialized = true;
 					pSeparator.first(raw);
-				}
-
-				/* fast-path of no characters being cached and characters being immediately processable */
-				if (pChars.size() == 0) {
-					Super::next(cp);
-					return;
+					processed = 1;
 				}
 
 				/* flush as many of the cached characters as possible */
-				while (pWords.size() > 0 && pChars.size() > 0)
+				for (; processed > 0 && pChars.size() > 0; --processed)
 					Super::next(pChars.pop());
 
 				/* process the current most-recent codepoint */
-				if (pWords.size() > 0)
+				if (processed > 0)
 					Super::next(cp);
 				else
 					pChars.push(cp);

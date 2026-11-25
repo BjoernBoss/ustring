@@ -149,7 +149,8 @@ namespace str {
 			/* the string was empty or the escape-sequence was incomplete */
 			if constexpr (AllowIncomplete)
 				return { str::Invalid, 0 };
-			return { str::Invalid, out.consumed };
+			else
+				return { str::Invalid, out.consumed };
 		}
 
 		template <class ChType, str::CodeError Error, bool AllowIncomplete>
@@ -163,7 +164,7 @@ namespace str {
 				if (dec.cp == str::Invalid && (!AllowIncomplete || dec.consumed > 0)) {
 					if constexpr (Error == str::CodeError::exception)
 						throw str::CodingException{ "Escaped codepoint could not be decoded" };
-					if constexpr (Error == str::CodeError::replace)
+					else if constexpr (Error == str::CodeError::replace)
 						dec.cp = str::RepCharUnicode;
 					else
 						dec.cp = detail::CustomError<Error>();

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-chars.h"
 
 namespace str {
 	/* check expected assumptions */
@@ -27,7 +28,8 @@ namespace str {
 			if (end - cur < 2) {
 				if constexpr (AllowIncomplete)
 					return { str::Invalid, 0 };
-				return { str::Invalid, 1 };
+				else
+					return { str::Invalid, 1 };
 			}
 
 			/* extract and validate the second token */

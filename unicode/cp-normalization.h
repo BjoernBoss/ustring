@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-local.h"
 #include "cp-casing.h"
 
 #include "../generated/unicode-normalization.h"
@@ -261,17 +262,18 @@ namespace cp {
 			}
 		};
 
+		/* canonical caseless mapping is NFD(casefold(NFD(x))) */
 		template <class CollType>
 		class NormFoldMapper {
 		private:
-			detail::FoldingMapper<detail::DecompMapper<CollType>> pMapper;
+			detail::DecompMapper<detail::FoldingMapper<detail::DecompMapper<CollType>>> pMapper;
 
 		public:
-			constexpr NormFoldMapper(CollType&& collector, std::string_view locale) : pMapper{ detail::DecompMapper<CollType>{ std::forward<CollType>(collector) }, detail::ParseCaseLocale(locale) } {}
+			constexpr NormFoldMapper(CollType&& collector, detail::CaseLocale locale) : pMapper{ detail::FoldingMapper<detail::DecompMapper<CollType>>{ detail::DecompMapper<CollType>{ std::forward<CollType>(collector) }, locale } } {}
 
 		public:
 			constexpr std::remove_reference_t<CollType>& collector() {
-				return pMapper.collector().collector();
+				return pMapper.collector().collector().collector();
 			}
 			constexpr void next(char32_t cp) {
 				pMapper.next(cp);
@@ -343,6 +345,7 @@ namespace cp {
 	};
 
 	/* [str::IsMapper] create a collector, which writes the casefolded and decomposed-normalized (NFD) stream to the given collector
+	*	(Creates canonical caseless mapping, which produces identical streams for canonically equivalent strings)
 	*	Note: For rvalues, a local move-constructed value of the collector is held by the mapper,
 	*	otherwise a reference is held and the mapper must not outlive the collector */
 	class NormFold {
@@ -351,10 +354,12 @@ namespace cp {
 		using Type = detail::NormFoldMapper<CollType>;
 
 	private:
-		std::string_view pLocale = {};
+		detail::CaseLocale pLocale = detail::CaseLocale::none;
 
 	public:
-		constexpr NormFold(std::string_view locale = {}) : pLocale{ locale } {}
+		constexpr NormFold(std::string_view locale = {}) {
+			pLocale = detail::ParseCaseLocale(locale);
+		}
 
 	public:
 		template <str::IsCollector<char32_t> CollType>
@@ -376,8 +381,8 @@ namespace cp {
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is casefolded and decomposed-normalized (NFD) (i.e. cp::NormFold(...) would result in the same codepoints) */
-	class TestNormFold : public detail::TestNormalization<detail::NormFoldMapper, std::string_view> {
+	class TestNormFold : public detail::TestNormalization<detail::NormFoldMapper, detail::CaseLocale> {
 	public:
-		constexpr TestNormFold(std::string_view locale = {}) : detail::TestNormalization<detail::NormFoldMapper, std::string_view>{ locale } {}
+		constexpr TestNormFold(std::string_view locale = {}) : detail::TestNormalization<detail::NormFoldMapper, detail::CaseLocale>{ detail::ParseCaseLocale(locale) } {}
 	};
 }

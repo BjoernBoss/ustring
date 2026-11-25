@@ -116,8 +116,8 @@ namespace str {
 			if (detected == str::Coding::utf16le && pBufSize < detail::Utf32BOMSize && !sourceComplete && (pMode == str::BOMMode::detectAll || (pMode == str::BOMMode::optional && pCoding == str::Coding::utf32le)))
 				return count;
 
-			/* check if utf32-le was detected, which might be excluded in favor of utf16-le */
-			if (detected == str::Coding::utf32le && pMode == str::BOMMode::detectNoUtf32le) {
+			/* check if utf32-le was detected, which might be excluded in favor of utf16-le, or not be expected at all */
+			if (detected == str::Coding::utf32le && (pMode == str::BOMMode::detectNoUtf32le || (pMode == str::BOMMode::optional && pCoding == str::Coding::utf16le))) {
 				detected = str::Coding::utf16le;
 				bomSize = detail::Utf16BOMSize;
 			}

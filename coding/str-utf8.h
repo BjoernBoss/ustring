@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-chars.h"
 
 namespace str {
 	/* check expected assumptions */
@@ -35,10 +36,11 @@ namespace str {
 			uint32_t cp = uint32_t(c8 & detail::InitCharCodeBits[c8 >> 3]);
 
 			/* validate the buffer has capacity enough */
-			if (uint32_t(end - cur) < len) {
+			if (size_t(end - cur) < len) {
 				if constexpr (AllowIncomplete)
 					return { str::Invalid, 0 };
-				return { str::Invalid, 1 };
+				else
+					return { str::Invalid, 1 };
 			}
 
 			/* validate the continuation-bytes and construct the final codepoint */
@@ -77,8 +79,7 @@ namespace str {
 
 			/* validate the starting-byte and update the final codepoint-value (byte must exist, as the loop would
 			*	otherwise have returned an invalid codepoint; will also catch act of 0, as len will never be 0) */
-			uint32_t act = detail::InitCharLength[c8 >> 3];
-			if (act != len)
+			if (detail::InitCharLength[c8 >> 3] != len)
 				return { str::Invalid, 1 };
 			cp |= (uint32_t(c8 & detail::InitCharCodeBits[c8 >> 3]) << shift);
 

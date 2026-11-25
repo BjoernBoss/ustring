@@ -55,11 +55,11 @@ namespace str {
 			}
 
 		private:
-			Type* fGetBase() {
+			constexpr Type* fGetBase() {
 				return (std::holds_alternative<Static>(pBuffer) ? std::get<Static>(pBuffer).buffer : std::get<Dynamic>(pBuffer).data());
 			}
-			size_t fGetOffset() {
-				return (pStart - fGetBase());
+			constexpr size_t fGetOffset() const {
+				return size_t(pStart - const_cast<LocalQueue*>(this)->fGetBase());
 			}
 
 		public:
@@ -74,9 +74,10 @@ namespace str {
 						pStart = s.buffer;
 					else if (size_t(pStart - s.buffer) + pSize == BufferSize) {
 						Dynamic d; d.reserve(2 * BufferSize);
-						d.assign(pStart, pStart + pBuffer);
+						d.assign(pStart, pStart + pSize);
 						d.resize(2 * BufferSize);
-						pStart = (pBuffer = std::move(d)).data();
+						pBuffer = std::move(d);
+						pStart = std::get<Dynamic>(pBuffer).data();
 					}
 				}
 				else {
@@ -84,8 +85,9 @@ namespace str {
 					if (pSize == 0)
 						pStart = d.data();
 					else if (size_t off = size_t(pStart - d.data()); off + pSize == d.size()) {
+						d.erase(d.begin(), d.begin() + ptrdiff_t(off));
 						d.resize(pSize + BufferSize);
-						pStart = d.data() + off;
+						pStart = d.data();
 					}
 				}
 
@@ -282,6 +284,7 @@ namespace str {
 		}
 		constexpr void clear() {
 			pSize = 0;
+			pBuffer[0] = 0;
 		}
 		constexpr const ChType* c_str() const {
 			return pBuffer;

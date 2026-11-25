@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-chars.h"
 
 namespace str {
 	/* check expected assumptions */

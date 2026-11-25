@@ -120,47 +120,53 @@ namespace str {
 		class StreamLoad {
 		private:
 			std::basic_string<ChType> pBuffer;
-			std::basic_string_view<ChType> pView;
+			size_t pOffset = 0;
+			size_t pAvailable = 0;
 			Type pStream;
 			bool pClosed = false;
 
 		public:
 			constexpr StreamLoad(Type&& s) : pStream{ std::forward<Type>(s) } {}
+			constexpr StreamLoad(StreamLoad&&) = default;
+			constexpr StreamLoad& operator=(StreamLoad&&) = default;
+			StreamLoad(const StreamLoad&) = delete;
+			StreamLoad& operator=(const StreamLoad&) = delete;
 
 		private:
 			constexpr void fLoad(size_t size) {
-				size = std::max<size_t>(size, MinLoadCapacity);
+				size = std::max<size_t>({ size, MinLoadCapacity, 1 });
 
 				/* check if the cache should be reset and reset it to have enough capacity */
-				size_t offset = (pView.empty() ? 0 : size_t(pView.data() - pBuffer.data()));
-				if (offset >= pView.size()) {
-					std::move(pView.begin(), pView.end(), pBuffer.begin());
-					offset = 0;
+				if (pOffset >= pAvailable) {
+					std::move(pBuffer.begin() + ptrdiff_t(pOffset), pBuffer.begin() + ptrdiff_t(pOffset + pAvailable), pBuffer.begin());
+					pOffset = 0;
 				}
-				size_t endOfData = offset + pView.size();
+				size_t endOfData = pOffset + pAvailable;
 				pBuffer.resize(endOfData + size);
 
 				/* setup the data-object and read the actual data from the stream */
 				size_t loaded = str::CallCharLoader(pStream, pBuffer.data() + endOfData, size);
-				pView = { pBuffer.data() + offset, pView.size() + loaded };
+				pAvailable += loaded;
 				pClosed = (loaded < size);
 			}
 
 		public:
 			constexpr std::basic_string_view<ChType> load(size_t size) {
-				if (size > pView.size() && !pClosed)
-					fLoad(size - pView.size());
-				return pView;
+				if (size > pAvailable && !pClosed)
+					fLoad(size - pAvailable);
+				return std::basic_string_view<ChType>{ pBuffer.data() + pOffset, pAvailable };
 			}
 			constexpr void consume(size_t size) {
-				pView = pView.substr(std::min<size_t>(pView.size(), size));
+				size = std::min<size_t>(pAvailable, size);
+				pOffset += size;
+				pAvailable -= size;
 			}
 			constexpr bool done() {
 				/* check if the view is currently empty, in which case there might still
 				*	be more data available - fetch them to get an accurate close-state */
-				if (pView.empty() && !pClosed)
+				if (pAvailable == 0 && !pClosed)
 					fLoad(0);
-				return (pView.empty() && pClosed);
+				return (pAvailable == 0 && pClosed);
 			}
 		};
 	}

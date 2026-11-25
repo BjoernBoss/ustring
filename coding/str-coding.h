@@ -217,12 +217,13 @@ namespace str {
 			else if constexpr (Error == str::CodeError::replace) {
 				if (!detail::EncodeCodepoint<ChType>(sink, str::GetRepChar<ChType>))
 					throw str::CodingException{ "Replacement character codepoint could not be encoded" };
+				return true;
 			}
 			else {
 				if (!detail::EncodeCodepoint<ChType>(sink, detail::CustomError<Error>()))
 					throw str::CodingException{ "Alternative coding-error codepoint could not be encoded" };
+				return true;
 			}
-			return true;
 		}
 		template <class DChType, class SChType, str::CodeError Error, bool AllowIncomplete, bool FastMode>
 		inline constexpr str::Transcoded<DChType> TranscodeSingle(const std::basic_string_view<SChType>& view) {
@@ -250,7 +251,7 @@ namespace str {
 				if constexpr (Error != str::CodeError::nothing) {
 					if constexpr (Error == str::CodeError::exception)
 						throw str::CodingException{ "Codepoint could not be transcoded" };
-					if constexpr (Error == str::CodeError::replace) {
+					else if constexpr (Error == str::CodeError::replace) {
 						if (!detail::EncodeCodepoint<DChType>(out.cp, str::GetRepChar<DChType>))
 							throw str::CodingException{ "Replacement character codepoint could not be transcoded" };
 					}
@@ -307,7 +308,8 @@ namespace str {
 
 	/* [str::IsCPIterator] to iterate over codepoints in string (position must be codepoint aligned and within the string)
 	*	As iterators may read more than one source character, they always keep track of the source begin and end.
-	*	Note: Starting within a codepoint may result in inconsistent forward and backward codepoint iteration */
+	*	Note: Starting within a codepoint may result in inconsistent forward and backward codepoint iteration
+	*	Note: Backward iteration for unconventional codings may be inconsistent compared to forward iteration */
 	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
 	struct Iterator {
 	private:
@@ -486,7 +488,8 @@ namespace str {
 
 	/* decode a single codepoint from the end of the source and return it (return consumed null if
 	*	the source is empty and otherwise consume at all times at least one character and return
-	*	str::Invalid on errors, if CodeError does not define alternative behavior) */
+	*	str::Invalid on errors, if CodeError does not define alternative behavior)
+	*	Note: Backward tracking for unconventional codings may be inconsistent compared to forward tracking */
 	template <str::CodeError Error = str::CodeError::replace>
 	constexpr str::Decoded LastCodepoint(const str::IsStr auto& source) {
 		using ChType = str::StringChar<decltype(source)>;
@@ -577,8 +580,10 @@ namespace str {
 
 			/* check if the destination does not need to be encoded */
 			else if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>) {
-				for (char32_t cp : str::CPRange<SChType, Error>{ view })
-					str::CallSink(sink, DChType(cp), 1);
+				for (char32_t cp : str::CPRange<SChType, Error>{ view }) {
+					if (cp != str::Invalid)
+						str::CallSink(sink, DChType(cp), 1);
+				}
 			}
 
 			/* iterate over the source-codepoints and transcode them */

@@ -14,6 +14,9 @@
 #include <span>
 #include <cstring>
 #include <iterator>
+#include <utility>
+#include <optional>
+#include <cstdlib>
 
 namespace str {
 	/* codepoint to indicate invalid decoding (guaranteed to be larger than any valid unicode-codepoint) */

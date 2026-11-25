@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../common/str-common.h"
+#include "../common/str-local.h"
 
 #include "../generated/unicode-segmentation.h"
 
@@ -505,7 +506,7 @@ namespace cp {
 			constexpr WordRandom(const ItType& b, const ItType& l, const ItType& r, const ItType& e) : pBegin{ b }, pLeft{ l }, pRight{ r }, pEnd{ e } {}
 
 		private:
-			Host::Type fGetPrev() const {
+			constexpr Host::Type fGetPrev() const {
 				ItType it{ pLeft };
 				bool firstReached = false;
 				while (true) {
@@ -521,7 +522,7 @@ namespace cp {
 				}
 				return Host::Type::other;
 			}
-			Host::Type fGetNext() const {
+			constexpr Host::Type fGetNext() const {
 				ItType it{ pRight };
 				while (++it != pEnd) {
 					Host::Type type = Host::GetCP(*it);
@@ -1036,7 +1037,8 @@ namespace cp {
 					if (_break == Host::Break::uncertain) {
 						if constexpr (!IsCleanup)
 							return;
-						_break = Host::Break::separate;
+						else
+							_break = Host::Break::separate;
 					}
 					recv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
 

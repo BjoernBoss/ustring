@@ -120,7 +120,7 @@ namespace str {
 		}
 
 		template <class Type>
-		str::SiScale GetSiScale(const Type& num, bool asciiOnly, bool binarySystem) {
+		str::SiScale GetSiScale(const Type& num, bool asciiOnly, bool binarySystem, size_t precision, size_t radix) {
 			/* check if the value is invalid */
 			if constexpr (str::IsFloat<Type>) {
 				if (!std::isfinite(num))
@@ -145,6 +145,26 @@ namespace str {
 					--indexToUse;
 			}
 
+			/* sanitize the radix and the precision (a double cannot hold more digits than its
+			*	mantissa has bits, and more digits can therefore not affect the value anymore) */
+			if (radix < str::MinRadix || radix > str::MaxRadix)
+				radix = 10;
+			precision = std::min<size_t>(precision, std::numeric_limits<double>::digits);
+
+			/* check if the value, rounded to the precision, reaches the next scale, and use it in this case */
+			if (precision > 0 && indexToUse != detail::SiNumScales - 1) {
+				size_t nextIndex = (indexToUse == detail::SiNumScales ? detail::SiFirstGreater1 : (indexToUse + 1 == detail::SiFirstGreater1 ? detail::SiNumScales : indexToUse + 1));
+				double scaled = value / (nextIndex == detail::SiNumScales ? 1.0 : scale[nextIndex]), limit = 1.0;
+
+				/* check if the scaled value (up to the precision) will be rounded up to the next scale */
+				if (scaled * double(radix) >= 1.0) {
+					for (size_t i = 0; i < precision; ++i)
+						limit *= double(radix);
+					if (std::nearbyint(scaled * limit) >= limit)
+						indexToUse = nextIndex;
+				}
+			}
+
 			/* setup the prefix type */
 			if (indexToUse == detail::SiNumScales)
 				return str::SiScale{};
@@ -156,10 +176,12 @@ namespace str {
 		}
 	}
 
-	/* to be used for si-value arguments */
+	/* to be used for si-value arguments (scaled to the precision, if given) */
 	struct ArgsSiMake {
 		bool asciiOnly = false;
 		bool binarySystem = false;
+		size_t precision = 0;
+		size_t radix = 10;
 	};
 	struct ArgsSiParse {
 		size_t radix = 10;
@@ -180,7 +202,7 @@ namespace str {
 	*	instead of U+00b5; if binary-system, use [2^10, 2^20, ...], otherwise use normal scale [10^3, 10^6, ...]) */
 	constexpr str::SiScale SiMakeScale(const str::IsNumber auto& num, str::ArgsSiMake args = {}) {
 		using NumType = std::remove_cvref_t<decltype(num)>;
-		return detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
+		return detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem, args.precision, args.radix);
 	}
 
 	/* parse the next number as a float and respect and apply the corresponding si-scale (will be parsed as a
@@ -281,7 +303,7 @@ namespace str {
 		using NumType = std::remove_cvref_t<decltype(num)>;
 
 		/* setup the scale to be used */
-		str::SiScale scale = detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem);
+		str::SiScale scale = detail::GetSiScale<NumType>(num, args.asciiOnly, args.binarySystem, args.precision, args.radix);
 
 		/* write the actual value out and append the si-scale */
 		str::FloatTo(sink, static_cast<double>(num) / scale.scale, { .precision = args.precision, .radix = args.radix, .fltStyle = args.fltStyle, .numStyle = args.numStyle });

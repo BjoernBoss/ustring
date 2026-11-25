@@ -5,6 +5,7 @@
 #include "common/str-common.h"
 #include "format/str-wire.h"
 #include "coding/str-coding.h"
+#include "str-helper.h"
 #include "str-string.h"
 
 #include <memory>
@@ -147,10 +148,10 @@ namespace str {
 	};
 
 	/* specializations for character streams */
-	template <class Type>
-	struct CharLoader<str::Stream<Type>> {
+	template <class Type, size_t Capacity>
+	struct CharLoader<str::Stream<Type, Capacity>> {
 		using ChType = str::StreamChar<Type>;
-		constexpr size_t operator()(str::Stream<Type>& src, ChType* buffer, size_t size) const {
+		constexpr size_t operator()(str::Stream<Type, Capacity>& src, ChType* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}
 	};
@@ -302,9 +303,9 @@ namespace str {
 	};
 
 	/* specializations for byte streams */
-	template <class Type>
-	struct ByteLoader<str::Source<Type>> {
-		constexpr size_t operator()(str::Source<Type>& src, uint8_t* buffer, size_t size) const {
+	template <class Type, size_t Capacity>
+	struct ByteLoader<str::Source<Type, Capacity>> {
+		constexpr size_t operator()(str::Source<Type, Capacity>& src, uint8_t* buffer, size_t size) const {
 			return src.read(buffer, size);
 		}
 	};

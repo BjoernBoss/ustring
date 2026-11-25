@@ -203,7 +203,7 @@ namespace str {
 		str::Source<Type> pSource;
 		str::FromWire<Error> pWire;
 		std::u32string pBuffer;
-		std::u32string_view pView;
+		size_t pOffset = 0;
 		bool pClosed = false;
 
 	public:
@@ -213,18 +213,11 @@ namespace str {
 	private:
 		constexpr void fLoad(size_t size) {
 			/* check if the offset should be reset */
-			size_t offset = 0;
-			if (pView.empty())
-				pBuffer.clear();
-			else {
-				offset = size_t(pView.data() - pBuffer.data());
-				if (offset >= pView.size()) {
-					pBuffer = pBuffer.substr(offset);
-					offset = 0;
-				}
-				else
-					size += offset;
+			if (pOffset >= pBuffer.size() - pOffset) {
+				pBuffer.erase(0, pOffset);
+				pOffset = 0;
 			}
+			size += pOffset;
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
 			while (pBuffer.size() < size) {
@@ -241,19 +234,18 @@ namespace str {
 				pClosed = true;
 				break;
 			}
-			pView = std::u32string_view{ pBuffer }.substr(offset);
 		}
 
 	public:
 		constexpr size_t read(char32_t* buffer, size_t size) {
 			/* check if the capacity is not yet available */
-			if (size > pView.size() && !pClosed)
+			if (size > pBuffer.size() - pOffset && !pClosed)
 				fLoad(size);
 
 			/* copy the data out */
-			size = std::min<size_t>(size, pView.size());
-			std::copy(pView.data(), pView.data() + size, buffer);
-			pView = pView.substr(size);
+			size = std::min<size_t>(size, pBuffer.size() - pOffset);
+			std::copy(pBuffer.data() + pOffset, pBuffer.data() + pOffset + size, buffer);
+			pOffset += size;
 			return size;
 		}
 	};
@@ -303,7 +295,7 @@ namespace str {
 	private:
 		str::Stream<Type> pStream;
 		std::u32string pBuffer;
-		std::u32string_view pView;
+		size_t pOffset = 0;
 		bool pClosed = false;
 
 	public:
@@ -312,53 +304,42 @@ namespace str {
 
 	private:
 		constexpr void fLoad(size_t size) {
-			size = std::max<size_t>(size, CharsPerIteration + pView.size());
+			size = std::max<size_t>(size, CharsPerIteration + (pBuffer.size() - pOffset));
 
 			/* check if the offset should be reset */
-			size_t offset = 0;
-			if (pView.empty())
-				pBuffer.clear();
-			else {
-				offset = size_t(pView.data() - pBuffer.data());
-				if (offset >= pView.size()) {
-					pBuffer = pBuffer.substr(offset);
-					offset = 0;
-				}
-				else
-					size += offset;
+			if (pOffset >= pBuffer.size() - pOffset) {
+				pBuffer.erase(0, pOffset);
+				pOffset = 0;
 			}
+			size += pOffset;
 
 			/* iterate until the given number of characters has been produced or until the end has been reached */
 			while (pBuffer.size() < size) {
-				auto [cp, consumed] = str::PartialCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
+				str::Decoded dec = str::PartialCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
 
-				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
-				if (consumed == 0) {
-					auto [lastCp, lastConsumed] = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
-					pStream.consume(lastConsumed);
-					if (lastConsumed > 0)
-						pBuffer.push_back(lastCp);
+				/* check if the end has been reached, and decode the remaining incomplete characters to ensure proper error-handling */
+				if (dec.consumed == 0 && (dec = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>))).consumed == 0) {
 					pClosed = true;
 					break;
 				}
 
 				/* write the actual codepoint out to the buffer and consume it */
-				pStream.consume(consumed);
-				pBuffer.push_back(cp);
+				pStream.consume(dec.consumed);
+				if (dec.cp != str::Invalid)
+					pBuffer.push_back(dec.cp);
 			}
-			pView = std::u32string_view{ pBuffer }.substr(offset);
 		}
 
 	public:
 		constexpr size_t read(char32_t* buffer, size_t size) {
 			/* check if the capacity is not yet available */
-			if (size > pView.size() && !pClosed)
+			if (size > pBuffer.size() - pOffset && !pClosed)
 				fLoad(size);
 
 			/* copy the data out */
-			size = std::min<size_t>(size, pView.size());
-			std::copy(pView.data(), pView.data() + size, buffer);
-			pView = pView.substr(size);
+			size = std::min<size_t>(size, pBuffer.size() - pOffset);
+			std::copy(pBuffer.data() + pOffset, pBuffer.data() + pOffset + size, buffer);
+			pOffset += size;
 			return size;
 		}
 	};

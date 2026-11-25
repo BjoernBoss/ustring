@@ -4,6 +4,7 @@
 
 #include "../unicode/cp-property.h"
 #include "../coding/str-coding.h"
+#include "../str-specializations.h"
 #include "str-number.h"
 #include "str-sivalue.h"
 #include "str-escape.h"
@@ -255,15 +256,14 @@ namespace str {
 		return sink;
 	}
 
-	/* format a value using si-units */
-	template <str::IsNumber NumType, str::IsStr UnitType>
+	/* format a value using si-prefixes */
+	template <str::IsNumber NumType>
 	struct Si {
 	public:
-		std::basic_string_view<str::StringChar<UnitType>> unit;
 		NumType value = 0;
 
 	public:
-		constexpr Si(NumType val, const UnitType& u) : unit{ u }, value{ val } {}
+		constexpr Si(NumType val) : value{ val } {}
 	};
 
 	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting)
@@ -708,15 +708,14 @@ namespace str {
 			return buffer;
 		}
 
-		constexpr void SiEpilogueInto(auto& sink, const str::Local<char32_t, 2>& prefix, const auto& unit, bool space, bool always, bool two) {
+		constexpr void SiEpilogueInto(auto& sink, const str::Local<char32_t, 2>& prefix, bool space, bool always, bool two) {
 			/* write the space out */
 			if (space)
 				str::CodepointTo<str::CodeError::replace>(sink, U' ', 1);
 
-			/* write the prefix out and unit out */
+			/* write the prefix out */
 			if (!prefix.empty())
 				str::FastcodeAllTo<str::CodeError::replace>(sink, prefix);
-			str::FastcodeAllTo<str::CodeError::replace>(sink, unit);
 
 			/* check if spaces should be appended */
 			if (prefix.empty() && always)
@@ -996,6 +995,16 @@ namespace str {
 			return str::Formatter<const void*>{}(sink, val, fmt);
 		}
 	};
+	template <class Type> requires(!str::IsStr<Type*>) struct Formatter<Type*> {
+		bool operator()(str::IsSink auto& sink, Type* val, std::u32string_view fmt) const {
+			return str::Formatter<const void*>{}(sink, reinterpret_cast<const void*>(reinterpret_cast<uintptr_t>(val)), fmt);
+		}
+	};
+	template <> struct Formatter<std::nullptr_t> {
+		constexpr bool operator()(str::IsSink auto& sink, std::nullptr_t, std::u32string_view fmt) const {
+			return str::Formatter<const void*>{}(sink, nullptr, fmt);
+		}
+	};
 
 	/*	Normal padding
 	*	[sS]: as string (true/false vs True/False) */
@@ -1112,12 +1121,12 @@ namespace str {
 	};
 
 	/*	Float formatting
-	*	[_]: use space between value and unit
+	*	[_]: use space between value and si-prefix
 	*	[s]: use simple si-prefixes (i.e. ascii-only)
 	*	[2]: use binary-system instead of normal decimal-system for the si-prefix
 	*	[!]: append spaces for equal sizes, if no si-prefix is necessary */
-	template <class NumType, class UnitType> struct Formatter<str::Si<NumType, UnitType>> {
-		constexpr bool operator()(str::IsSink auto& sink, const str::Si<NumType, UnitType>& val, std::u32string_view fmt) const {
+	template <class NumType> struct Formatter<str::Si<NumType>> {
+		constexpr bool operator()(str::IsSink auto& sink, const str::Si<NumType>& val, std::u32string_view fmt) const {
 			/* parse the float formatting */
 			detail::FltFormat flt = detail::ParseFltFormatting(fmt);
 			fmt = fmt.substr(flt.consumed);
@@ -1153,7 +1162,7 @@ namespace str {
 			};
 
 			/* compute the actual value to be formatted */
-			str::SiScale scale = str::SiMakeScale(val.value, { .asciiOnly = simple, .binarySystem = two });
+			str::SiScale scale = str::SiMakeScale(val.value, { .asciiOnly = simple, .binarySystem = two, .precision = flt.precision, .radix = flt.radix });
 			double number = static_cast<double>(val.value) / scale.scale;
 
 			/* split the value into its sign and absolute value (use the
@@ -1166,13 +1175,13 @@ namespace str {
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
 				detail::NumPreambleInto(sink, negative, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
 				str::FloatTo(sink, number, floatArgs);
-				detail::SiEpilogueInto(sink, scale.prefix, val.unit, space, always, two);
+				detail::SiEpilogueInto(sink, scale.prefix, space, always, two);
 				return true;
 			}
 
 			/* write the value to the buffer and format it padded out */
 			std::u32string buffer = detail::WriteFltBuffered(flt, number, negative, floatArgs);
-			detail::SiEpilogueInto(buffer, scale.prefix, val.unit, space, always, two);
+			detail::SiEpilogueInto(buffer, scale.prefix, space, always, two);
 			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
 		}
