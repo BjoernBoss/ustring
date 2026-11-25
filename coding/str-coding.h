@@ -218,8 +218,10 @@ namespace str {
 				if (!detail::EncodeCodepoint<ChType>(sink, str::GetRepChar<ChType>))
 					throw str::CodingException{ "Replacement character codepoint could not be encoded" };
 			}
-			else if (!detail::EncodeCodepoint<ChType>(sink, detail::CustomError<Error>()))
-				throw str::CodingException{ "Alternative coding-error codepoint could not be encoded" };
+			else {
+				if (!detail::EncodeCodepoint<ChType>(sink, detail::CustomError<Error>()))
+					throw str::CodingException{ "Alternative coding-error codepoint could not be encoded" };
+			}
 			return true;
 		}
 		template <class DChType, class SChType, str::CodeError Error, bool AllowIncomplete, bool FastMode>
@@ -258,10 +260,10 @@ namespace str {
 				return out;
 			}
 
-			/* decode the next codepoint as efficient as possible (no need to validate on char32_t, as the destination must
-			*	then not be char32_t and hence valid codepoints will be ensured, Error will automatically be applied) */
+			/* decode the next codepoint as efficient as possible (no need to validate on char32_t, if the destination is not
+			*	char32_t as well, as valid codepoints will be ensured by the encoding, Error will automatically be applied) */
 			char32_t cp = 0;
-			if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t>) {
+			if constexpr (std::is_same_v<str::EffChar<SChType>, char32_t> && !std::is_same_v<str::EffChar<DChType>, char32_t>) {
 				out.consumed = 1;
 				cp = char32_t(view[0]);
 			}
@@ -273,10 +275,10 @@ namespace str {
 				cp = _cp;
 			}
 
-			/* encode the codepoint as efficient as possible (no need to validate the codepoint, as it must have already
-			*	been verified by reading as it cannot have been a source char32_t, Error will automatically be applied) */
+			/* encode the codepoint as efficient as possible (no need to validate the codepoint, as
+			*	it must have already been verified by decoding, Error will automatically be applied) */
 			if constexpr (std::is_same_v<str::EffChar<DChType>, char32_t>)
-				out.cp.push_back(cp);
+				out.cp.push_back(DChType(cp));
 			else
 				detail::EncodeSingle<DChType, Error>(out.cp, cp);
 			return out;
@@ -308,10 +310,13 @@ namespace str {
 	*	Note: Starting within a codepoint may result in inconsistent forward and backward codepoint iteration */
 	template <str::IsChar ChType, str::CodeError Error = str::CodeError::replace>
 	struct Iterator {
+	private:
+		static constexpr bool NoThrow = (Error != str::CodeError::exception);
+
 	public:
 		using iterator_category = std::bidirectional_iterator_tag;
 		using iterator_concept = std::bidirectional_iterator_tag;
-		using value_type = const char32_t;
+		using value_type = char32_t;
 		using difference_type = std::ptrdiff_t;
 
 	private:
@@ -320,57 +325,57 @@ namespace str {
 		mutable str::Decoded pOut{};
 
 	private:
-		void fInitialized() const {
+		constexpr void fInitialized() const {
 			/* undefined for read on invalid cp */
 			if (pOut.consumed == 0)
 				pOut = detail::DecodeNextError<Error, ChType, false>(pPosition, pSource.data() + pSource.size());
 		}
-		void fAdvance() const {
+		constexpr void fAdvance() const {
 			pPosition += pOut.consumed;
 			pOut.consumed = 0;
 		}
-		void fReverse() const {
+		constexpr void fReverse() const {
 			/* undefined for prev on first cp */
 			pOut = detail::DecodePrevError<Error, ChType>(pSource.data(), pPosition);
 			pPosition -= pOut.consumed;
 		}
 
 	public:
-		Iterator() = default;
-		Iterator(std::basic_string_view<ChType> source, const ChType* pos) : pSource{ source }, pPosition{ pos } {}
-		Iterator(std::basic_string_view<ChType> source, size_t pos) : pSource{ source }, pPosition{ source.data() + pos } {}
+		constexpr Iterator() = default;
+		constexpr Iterator(std::basic_string_view<ChType> source, const ChType* pos) : pSource{ source }, pPosition{ pos } {}
+		constexpr Iterator(std::basic_string_view<ChType> source, size_t pos) : pSource{ source }, pPosition{ source.data() + pos } {}
 
 	public:
-		value_type operator*() const noexcept {
+		constexpr char32_t operator*() const noexcept(NoThrow) {
 			fInitialized();
 			return pOut.cp;
 		}
-		Iterator& operator++() noexcept {
+		constexpr Iterator& operator++() noexcept(NoThrow) {
 			fInitialized();
 			fAdvance();
 			return *this;
 		}
-		Iterator& operator--() noexcept {
+		constexpr Iterator& operator--() noexcept(NoThrow) {
 			fReverse();
 			return *this;
 		}
-		Iterator operator++(int) noexcept {
+		constexpr Iterator operator++(int) noexcept(NoThrow) {
 			Iterator it{ *this };
 			++(*this);
 			return it;
 		}
-		Iterator operator--(int) noexcept {
+		constexpr Iterator operator--(int) noexcept(NoThrow) {
 			Iterator it{ *this };
 			--(*this);
 			return it;
 		}
-		bool operator==(const Iterator& it) const noexcept {
+		constexpr bool operator==(const Iterator& it) const noexcept {
 			return (pPosition == it.pPosition);
 		}
-		bool operator!=(const Iterator& it) const noexcept {
+		constexpr bool operator!=(const Iterator& it) const noexcept {
 			return !(*this == it);
 		}
-		const ChType* base() const {
+		constexpr const ChType* base() const noexcept {
 			return pPosition;
 		}
 	};
@@ -426,7 +431,7 @@ namespace str {
 		*	decoded (all other types are guaranteed to use unicode and therefore encode ascii) */
 		uint32_t len = 0;
 		if constexpr (std::is_same_v<ChType, char> && !str::CharHoldsAscii) {
-			str::Decoded dec = detail::NextChar(view.data(), view.data() + view.size());
+			str::Decoded dec = detail::NextChar<false>(view.data(), view.data() + view.size());
 			if (dec.cp < detail::AsciiRange)
 				return dec;
 			len = dec.consumed;

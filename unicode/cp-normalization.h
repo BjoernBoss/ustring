@@ -12,11 +12,11 @@
 
 namespace cp {
 	namespace detail {
-		template <class CollType, bool WithData>
-		class DecompMapper {
+		template <bool WithData>
+		class Decomposer {
 		private:
 			struct CharData {
-				const uint32_t* data = 0;
+				const uint32_t* data = nullptr;
 				char32_t cp = 0;
 				uint32_t ccc = 0;
 			};
@@ -26,14 +26,13 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<std::conditional_t<WithData, CharData, Char>> pChars;
-			CollType pCollector;
+			str::detail::LocalQueue<std::conditional_t<WithData, CharData, Char>> pChars;
 
 		public:
-			constexpr DecompMapper(CollType&& collector) : pCollector{ std::forward<CollType>(collector) } {}
+			constexpr Decomposer() = default;
 
 		private:
-			constexpr void fFlush() {
+			constexpr void fFlush(auto&& recv) {
 				if (pChars.size() == 0)
 					return;
 
@@ -44,13 +43,13 @@ namespace cp {
 				while (pChars.size() > 0) {
 					if constexpr (WithData) {
 						auto [data, cp, _] = pChars.pop();
-						pCollector.next(data, cp);
+						recv(data, cp);
 					}
 					else
-						pCollector.next(pChars.pop().cp);
+						recv(pChars.pop().cp);
 				}
 			}
-			constexpr void fDecomposed(char32_t cp, const uint32_t* data) {
+			constexpr void fDecomposed(char32_t cp, const uint32_t* data, auto&& recv) {
 				uint32_t ccc = (data[0] & detail::gen::NormCCCMask);
 
 				/* check if the character needs to be queued for sorting or if it is a starter and can immediately be written out */
@@ -61,14 +60,14 @@ namespace cp {
 						pChars.push({ cp, ccc });
 				}
 				else {
-					fFlush();
+					fFlush(recv);
 					if constexpr (WithData)
-						pCollector.next(data, cp);
+						recv(data, cp);
 					else
-						pCollector.next(cp);
+						recv(cp);
 				}
 			}
-			constexpr void fNext(char32_t cp) {
+			constexpr void fNext(char32_t cp, auto&& recv) {
 				const uint32_t* data = detail::gen::GetNormalization(cp);
 
 				/* check if the character is a hangul-syllable composition and decompose it programmatically */
@@ -77,28 +76,49 @@ namespace cp {
 					uint32_t lIndex = (sIndex / detail::gen::NormHSNCount);
 					uint32_t vIndex = (sIndex % detail::gen::NormHSNCount) / detail::gen::NormHSTCount;
 					uint32_t tIndex = (sIndex % detail::gen::NormHSTCount);
-					fNext(char32_t(detail::gen::NormHSLBase + lIndex));
-					fNext(char32_t(detail::gen::NormHSVBase + vIndex));
+					fNext(char32_t(detail::gen::NormHSLBase + lIndex), recv);
+					fNext(char32_t(detail::gen::NormHSVBase + vIndex), recv);
 					if (tIndex > 0)
-						fNext(char32_t(detail::gen::NormHSTBase + tIndex));
+						fNext(char32_t(detail::gen::NormHSTBase + tIndex), recv);
 					return;
 				}
 
 				/* check if a decomposition exists for the character and either recursively decompose them further or handle them as fully decomposed */
 				uint32_t decomp = ((data[0] >> detail::gen::NormDecompShift) & detail::gen::NormDecompMask);
 				if (decomp == detail::gen::NormDecompNone)
-					fDecomposed(cp, data);
+					fDecomposed(cp, data, recv);
 				else for (uint32_t i = 0; i < decomp; ++i)
-					fNext(data[1 + i]);
+					fNext(char32_t(data[1 + i]), recv);
 			}
 
 		public:
+			constexpr void next(char32_t cp, auto&& recv) {
+				fNext(cp, recv);
+			}
+			constexpr void done(auto&& recv) {
+				/* flush any remaining cached characters */
+				fFlush(recv);
+			}
+		};
+
+		template <class CollType>
+		class DecompMapper {
+		private:
+			detail::Decomposer<false> pDecompose;
+			CollType pCollector;
+
+		public:
+			constexpr DecompMapper(CollType&& collector) : pCollector{ std::forward<CollType>(collector) } {}
+
+		public:
+			constexpr std::remove_reference_t<CollType>& collector() {
+				return pCollector;
+			}
 			constexpr void next(char32_t cp) {
-				fNext(cp);
+				pDecompose.next(cp, [this](char32_t c) { pCollector.next(c); });
 			}
 			constexpr void done() {
-				/* flush any remaining cached characters */
-				fFlush();
+				pDecompose.done([this](char32_t c) { pCollector.next(c); });
 				pCollector.done();
 			}
 		};
@@ -106,14 +126,6 @@ namespace cp {
 		template <class CollType>
 		class CompMapper {
 		private:
-			struct Lambda {
-				detail::CompMapper<CollType>& self;
-				constexpr Lambda(detail::CompMapper<CollType>& s) : self{ s } {}
-				constexpr void next(const uint32_t* data, char32_t cp) {
-					self.fNext(data, cp);
-				}
-				constexpr void done() {}
-			};
 			enum class HSState : uint8_t {
 				none,
 				lAdded,
@@ -121,18 +133,18 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<char32_t> pChars;
-			detail::DecompMapper<Lambda, true> pDecompose;
+			str::detail::LocalQueue<char32_t> pChars;
+			detail::Decomposer<true> pDecompose;
 			CollType pCollector;
 			struct {
-				const uint32_t* data = 0;
+				const uint32_t* data = nullptr;
 				size_t count = 0;
 				uint32_t ccc = 0;
 			} pStarter;
 			HSState pHSState = HSState::none;
 
 		public:
-			constexpr CompMapper(CollType&& collector) : pDecompose{ Lambda{ *this } }, pCollector{ std::forward<CollType>(collector) } {}
+			constexpr CompMapper(CollType&& collector) : pCollector{ std::forward<CollType>(collector) } {}
 
 		private:
 			constexpr void fFlush() {
@@ -185,12 +197,12 @@ namespace cp {
 						continue;
 
 					/* update the starter and also the starter state (must be a starter, but may potentially not contain any compositions anymore) */
-					pChars.front() = pStarter.data[i * 2 + 1];
+					pChars.front() = char32_t(pStarter.data[i * 2 + 1]);
 					data = detail::gen::GetNormalization(pChars.front());
 					size_t count = ((data[0] >> detail::gen::NormCompShift) & detail::gen::NormCompMask);
 					if (count == 0) {
 						fFlush();
-						pStarter = { 0, 0, 0 };
+						pStarter = { nullptr, 0, 0 };
 					}
 					else
 						pStarter = { data + 1 + ((data[0] >> detail::gen::NormDecompShift) & detail::gen::NormDecompMask), count, pStarter.ccc };
@@ -215,7 +227,7 @@ namespace cp {
 
 				/* check if its a hangul-syllable */
 				if (hsStarter) {
-					pStarter = { 0, 0, 0 };
+					pStarter = { nullptr, 0, 0 };
 					pChars.push(cp);
 					pHSState = HSState::lAdded;
 					return;
@@ -228,17 +240,20 @@ namespace cp {
 					pChars.push(cp);
 				}
 				else {
-					pStarter = { 0, 0, 0 };
+					pStarter = { nullptr, 0, 0 };
 					pCollector.next(cp);
 				}
 			}
 
 		public:
+			constexpr std::remove_reference_t<CollType>& collector() {
+				return pCollector;
+			}
 			constexpr void next(char32_t cp) {
-				pDecompose.next(cp);
+				pDecompose.next(cp, [this](const uint32_t* data, char32_t c) { fNext(data, c); });
 			}
 			constexpr void done() {
-				pDecompose.done();
+				pDecompose.done([this](const uint32_t* data, char32_t c) { fNext(data, c); });
 
 				/* will automatically flush, if no hangul-syllable state exists */
 				fCompleteHS(0, 0);
@@ -249,73 +264,44 @@ namespace cp {
 		template <class CollType>
 		class NormFoldMapper {
 		private:
-			struct Lambda {
-				detail::NormFoldMapper<CollType>& self;
-				constexpr Lambda(detail::NormFoldMapper<CollType>& s) : self{ s } {}
-				constexpr void next(char32_t cp) {
-					self.pDecompose.next(cp);
-				}
-				constexpr void done() {
-					self.pDecompose.done();
-				}
-			};
-
-		private:
-			cp::FoldCase::Type<Lambda> pCaseFold;
-			detail::DecompMapper<CollType, false> pDecompose;
+			detail::FoldingMapper<detail::DecompMapper<CollType>> pMapper;
 
 		public:
-			constexpr NormFoldMapper(CollType&& collector, std::string_view locale) : pCaseFold{ cp::FoldCase{ locale }(Lambda{ *this }) }, pDecompose{ std::forward<CollType>(collector) } {}
+			constexpr NormFoldMapper(CollType&& collector, std::string_view locale) : pMapper{ detail::DecompMapper<CollType>{ std::forward<CollType>(collector) }, detail::ParseCaseLocale(locale) } {}
 
 		public:
+			constexpr std::remove_reference_t<CollType>& collector() {
+				return pMapper.collector().collector();
+			}
 			constexpr void next(char32_t cp) {
-				pCaseFold.next(cp);
+				pMapper.next(cp);
 			}
 			constexpr void done() {
-				pCaseFold.done();
+				pMapper.done();
 			}
 		};
-
-		template <class CollType>
-		using NoDataDecompMapper = detail::DecompMapper<CollType, false>;
 
 		template <template<class> class MapType, class... Args>
 		class TestNormalization {
 		private:
-			struct Lambda {
-				detail::TestNormalization<MapType, Args...>& self;
-				constexpr Lambda(detail::TestNormalization<MapType, Args...>& s) : self{ s } {}
-				constexpr void next(char32_t cp) {
-					self.fNext(cp);
-				}
-				constexpr void done() {}
-			};
-
-		private:
-			MapType<Lambda> pMapper;
-			str::detail::LocalBuffer<char32_t> pChars;
-			bool pMatches = true;
+			MapType<str::detail::MatchCollector> pMapper;
 
 		public:
-			constexpr TestNormalization(Args... args) : pMapper{ Lambda{ *this }, args... } {}
-
-		private:
-			constexpr void fNext(char32_t cp) {
-				if (pChars.size() == 0 || pChars.pop() != cp)
-					pMatches = false;
-			}
+			constexpr TestNormalization(Args... args) : pMapper{ str::detail::MatchCollector{}, args... } {}
 
 		public:
 			constexpr void next(char32_t cp) {
-				if (pMatches) {
-					pChars.push(cp);
+				str::detail::MatchCollector& match = pMapper.collector();
+				if (match.matches) {
+					match.expected.push(cp);
 					pMapper.next(cp);
 				}
 			}
 			constexpr bool done() {
-				if (pMatches)
+				str::detail::MatchCollector& match = pMapper.collector();
+				if (match.matches)
 					pMapper.done();
-				return pMatches;
+				return match.completed();
 			}
 		};
 	}
@@ -326,7 +312,7 @@ namespace cp {
 	class Decompose {
 	public:
 		template <str::IsCollector<char32_t> CollType>
-		using Type = detail::DecompMapper<CollType, false>;
+		using Type = detail::DecompMapper<CollType>;
 
 	public:
 		constexpr Decompose() {}
@@ -378,7 +364,7 @@ namespace cp {
 	};
 
 	/* [str::IsAnalysis] check if the entire stream of codepoints is decomposed-normalized (NFD) (i.e. cp::Decompose(...) would result in the same codepoints) */
-	class TestDecompose : public detail::TestNormalization<detail::NoDataDecompMapper> {
+	class TestDecompose : public detail::TestNormalization<detail::DecompMapper> {
 	public:
 		constexpr TestDecompose() = default;
 	};

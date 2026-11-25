@@ -69,7 +69,7 @@ namespace str {
 			constexpr SourceConst(const Type& d) : pData{ str::CallData(d) } {}
 
 		public:
-			constexpr str::Data load(size_t size) {
+			constexpr str::Data load(size_t) {
 				return pData;
 			}
 			constexpr void consume(size_t size) {
@@ -95,7 +95,7 @@ namespace str {
 				size = std::max<size_t>(size, MinLoadCapacity);
 
 				/* check if the cache should be reset and reset it to have enough capacity */
-				size_t offset = (pData.empty() ? 0 : pData.data() - pBuffer.data());
+				size_t offset = (pData.empty() ? 0 : size_t(pData.data() - pBuffer.data()));
 				if (offset >= pData.size()) {
 					std::move(pData.begin(), pData.end(), pBuffer.begin());
 					offset = 0;
@@ -161,7 +161,7 @@ namespace str {
 			str::Data data = pImpl.load(size);
 			size = std::min<size_t>(data.size(), size);
 
-			std::copy(data.begin(), data.begin() + size, buffer);
+			std::copy(data.data(), data.data() + size, buffer);
 			pImpl.consume(size);
 			return size;
 		}

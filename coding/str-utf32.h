@@ -14,14 +14,14 @@ namespace str {
 
 		/* expect: begin != end; consumed always greater than zero */
 		template <class ChType>
-		inline constexpr str::Decoded NextUtf32(const ChType* cur, const ChType* end) {
+		inline constexpr str::Decoded NextUtf32(const ChType* cur, const ChType*) {
 			uint32_t val = uint32_t(cur[0]);
 			if ((val >= detail::SurrogateFirst && val <= detail::SurrogateLast) || val >= detail::UnicodeRange)
 				return { str::Invalid, 1 };
 			return { char32_t(val), 1 };
 		}
 		template <class ChType>
-		inline constexpr str::Decoded PrevUtf32(const ChType* begin, const ChType* cur) {
+		inline constexpr str::Decoded PrevUtf32(const ChType*, const ChType* cur) {
 			uint32_t val = uint32_t(cur[-1]);
 			if ((val >= detail::SurrogateFirst && val <= detail::SurrogateLast) || val >= detail::UnicodeRange)
 				return { str::Invalid, 1 };
@@ -37,7 +37,7 @@ namespace str {
 			return true;
 		}
 		template <class ChType>
-		inline constexpr uint32_t EstimateUtf32(const ChType* cur, const ChType* end) {
+		inline constexpr uint32_t EstimateUtf32(const ChType*, const ChType*) {
 			return 1;
 		}
 	}

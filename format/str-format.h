@@ -41,7 +41,7 @@ namespace str {
 
 	namespace detail {
 		template <class ChType>
-		constexpr int8_t FormatIndex(auto& sink, size_t index, std::u32string_view fmt) {
+		constexpr int8_t FormatIndex(auto&, size_t, std::u32string_view) {
 			return -1;
 		}
 
@@ -263,7 +263,7 @@ namespace str {
 		NumType value = 0;
 
 	public:
-		constexpr Si(NumType value, const UnitType& unit) : value{ value }, unit{ unit } {}
+		constexpr Si(NumType val, const UnitType& u) : unit{ u }, value{ val } {}
 	};
 
 	/* bind the given value to be formatted using the given formatting-string, which is useful to format build-output (no own formatting)
@@ -275,7 +275,7 @@ namespace str {
 		const Type& value;
 
 	public:
-		constexpr As(const FmtType& fmt, const Type& value) : format{ fmt }, value{ value } {}
+		constexpr As(const FmtType& fmt, const Type& val) : format{ fmt }, value{ val } {}
 	};
 
 	/* type is anything that implements a forward iterator on formattable types */
@@ -299,7 +299,7 @@ namespace str {
 		ItType end;
 
 	public:
-		constexpr Range(ItType begin, ItType end) : begin{ begin }, end{ end } {}
+		constexpr Range(ItType b, ItType e) : begin{ b }, end{ e } {}
 		constexpr Range(const str::IsFmtRange auto& val) : begin{ val.begin() }, end{ val.end() } {}
 	};
 	template <class Type>
@@ -313,7 +313,7 @@ namespace str {
 		size_t count = 0;
 
 	public:
-		constexpr Repeat(const Type& value, size_t count = 1) : value{ value }, count{ count } {}
+		constexpr Repeat(const Type& val, size_t cnt = 1) : value{ val }, count{ cnt } {}
 	};
 
 	/*	Normal padding: in Order; all optional
@@ -535,13 +535,19 @@ namespace str {
 		}
 
 		template <class Type>
-		constexpr void NumPreambleInto(auto& sink, Type& val, char32_t signChar, size_t radix, bool upperCase, bool prefix) {
-			/* check if a sign-character needs to be added */
-			if (val < 0) {
-				if constexpr (std::is_signed_v<Type>)
-					val = -val;
-				str::CodepointTo<str::CodeError::replace>(sink, U'-');
+		constexpr std::pair<std::make_unsigned_t<Type>, bool> NumSplitSign(Type val) {
+			using UType = std::make_unsigned_t<Type>;
+			if constexpr (std::is_signed_v<Type>) {
+				if (val < 0)
+					return { UType(UType(0) - UType(val)), true };
 			}
+			return { UType(val), false };
+		}
+
+		constexpr void NumPreambleInto(auto& sink, bool negative, char32_t signChar, size_t radix, bool upperCase, bool prefix) {
+			/* check if a sign-character needs to be added */
+			if (negative)
+				str::CodepointTo<str::CodeError::replace>(sink, U'-');
 			else if (signChar != U'-' && signChar != 0)
 				str::CodepointTo<str::CodeError::replace>(sink, signChar);
 
@@ -679,11 +685,11 @@ namespace str {
 		}
 
 		template <class Type>
-		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val, const str::ArgsFloat& floatArgs) {
+		std::u32string WriteFltBuffered(const detail::FltFormat& fmt, Type val, bool negative, const str::ArgsFloat& floatArgs) {
 			std::u32string buffer;
 
-			/* write the prefix to be used to the buffer */
-			detail::NumPreambleInto<Type>(buffer, val, fmt.signChar, fmt.radix, fmt.upperCase, fmt.prefix);
+			/* write the prefix to be used to the buffer (value is expected to already be positive) */
+			detail::NumPreambleInto(buffer, negative, fmt.signChar, fmt.radix, fmt.upperCase, fmt.prefix);
 
 			/* check if the number can just be written out */
 			if (!fmt.nullPadding) {
@@ -814,22 +820,25 @@ namespace str {
 				return false;
 			str::ArgsInt intArgs = { .radix = radix, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) };
 
+			/* split the value into its sign and absolute value */
+			auto [absolute, negative] = detail::NumSplitSign<Type>(val);
+
 			/* check if the number can just be written out */
 			if (padding.minimum <= 1 && padding.maximum == 0) {
-				detail::NumPreambleInto<Type>(sink, val, signChar, radix, upperCase, prefix);
-				str::IntTo(sink, val, intArgs);
+				detail::NumPreambleInto(sink, negative, signChar, radix, upperCase, prefix);
+				str::IntTo(sink, absolute, intArgs);
 				return true;
 			}
 
 			/* write the prefix to be used to the buffer */
 			std::u32string buffer;
-			detail::NumPreambleInto<Type>(buffer, val, signChar, radix, upperCase, prefix);
+			detail::NumPreambleInto(buffer, negative, signChar, radix, upperCase, prefix);
 
 			/* check if the number is to be null-padded */
 			if (nullPadding) {
 				/* write the number to an intermediate buffer to estimate its size */
 				std::u32string temp;
-				str::IntTo(temp, val, intArgs);
+				str::IntTo(temp, absolute, intArgs);
 
 				/* write the nulls to the buffer and write the number itself to the buffer */
 				if (buffer.size() + temp.size() < padding.minimum)
@@ -839,7 +848,7 @@ namespace str {
 
 			/* write the number to an intermediate buffer */
 			else
-				str::IntTo(buffer, val, intArgs);
+				str::IntTo(buffer, absolute, intArgs);
 
 			/* write the padded string to the sink */
 			fmt::WritePadded(sink, buffer, padding);
@@ -874,15 +883,21 @@ namespace str {
 				.numStyle = (flt.upperCase ? str::NumStyle::upper : str::NumStyle::lower)
 			};
 
+			/* split the value into its sign and absolute value (use the
+			*	sign-bit to also detect negative zero and negative nan) */
+			bool negative = std::signbit(val);
+			if (negative)
+				val = -val;
+
 			/* check if the number can just be written out */
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
-				detail::NumPreambleInto<Type>(sink, val, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
+				detail::NumPreambleInto(sink, negative, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
 				str::FloatTo(sink, val, floatArgs);
 				return true;
 			}
 
 			/* write the float to the buffer and format it padded out */
-			std::u32string buffer = detail::WriteFltBuffered(flt, val, floatArgs);
+			std::u32string buffer = detail::WriteFltBuffered(flt, val, negative, floatArgs);
 			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;
 		}
@@ -963,11 +978,11 @@ namespace str {
 			if (!rest.empty())
 				return false;
 
-			/* construct the output-string */
+			/* construct the output-string (leave a space as at least one character will always be added) */
 			str::Local<char32_t, sizeof(void*) * 2 + 2> buffer;
 			if (prefix)
 				buffer.append(str::MakePrefix(16, upperCase));
-			for (size_t i = sizeof(void*) * 2; i > 0 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
+			for (size_t i = sizeof(void*) * 2; i > 1 && (uintptr_t(val) >> (i - 1) * 4) == 0; --i)
 				buffer.push_back(U'0');
 			str::IntTo(buffer, uintptr_t(val), { .radix = 16, .style = (upperCase ? str::NumStyle::upper : str::NumStyle::lower) });
 
@@ -1141,16 +1156,22 @@ namespace str {
 			str::SiScale scale = str::SiMakeScale(val.value, { .asciiOnly = simple, .binarySystem = two });
 			double number = static_cast<double>(val.value) / scale.scale;
 
+			/* split the value into its sign and absolute value (use the
+			*	sign-bit to also detect negative zero and negative nan) */
+			bool negative = std::signbit(number);
+			if (negative)
+				number = -number;
+
 			/* check if the number can just be written out */
 			if (flt.padding.minimum <= 1 && flt.padding.maximum == 0) {
-				detail::NumPreambleInto<double>(sink, number, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
+				detail::NumPreambleInto(sink, negative, flt.signChar, flt.radix, flt.upperCase, flt.prefix);
 				str::FloatTo(sink, number, floatArgs);
 				detail::SiEpilogueInto(sink, scale.prefix, val.unit, space, always, two);
 				return true;
 			}
 
 			/* write the value to the buffer and format it padded out */
-			std::u32string buffer = detail::WriteFltBuffered(flt, number, floatArgs);
+			std::u32string buffer = detail::WriteFltBuffered(flt, number, negative, floatArgs);
 			detail::SiEpilogueInto(buffer, scale.prefix, val.unit, space, always, two);
 			fmt::WritePadded(sink, buffer, flt.padding);
 			return true;

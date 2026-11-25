@@ -19,11 +19,11 @@ namespace cp {
 		};
 		inline constexpr detail::CaseLocale ParseCaseLocale(std::string_view localeView) {
 			detail::CaseLocale out = detail::CaseLocale::none;
-			if (localeView.empty())
+			if (localeView.size() < 2)
 				return out;
 			const char* locale = localeView.data();
 
-			/* fast way out for empty/english/chinese */
+			/* fast way out for english/chinese */
 			if (*locale == 'e' || *locale == 'z')
 				return out;
 
@@ -32,7 +32,7 @@ namespace cp {
 				out = detail::CaseLocale::lt;
 				++locale;
 
-				if (*locale == 'i' || *locale == 'I')
+				if (localeView.size() > 2 && (*locale == 'i' || *locale == 'I'))
 					++locale;
 				if (*locale != 't' && *locale != 'T')
 					return detail::CaseLocale::none;
@@ -44,7 +44,7 @@ namespace cp {
 				out = detail::CaseLocale::tr;
 				++locale;
 
-				if (*locale == 'u' || *locale == 'U')
+				if (localeView.size() > 2 && (*locale == 'u' || *locale == 'U'))
 					++locale;
 				if (*locale != 'r' && *locale != 'R')
 					return detail::CaseLocale::none;
@@ -59,14 +59,14 @@ namespace cp {
 				if (*locale != 'z' && *locale != 'Z')
 					return detail::CaseLocale::none;
 				++locale;
-				if (*locale == 'e' || *locale == 'E')
+				if (localeView.size() > 2 && (*locale == 'e' || *locale == 'E'))
 					++locale;
 			}
 			else
 				return detail::CaseLocale::none;
 
 			/* check for a valid separator */
-			if (*locale == 0 || *locale == '-' || *locale == '_')
+			if (locale == localeView.data() + localeView.size() || *locale == '\0' || *locale == '-' || *locale == '_')
 				return out;
 			return detail::CaseLocale::none;
 		}
@@ -84,17 +84,17 @@ namespace cp {
 				failed
 			};
 			struct Cache {
-				const uint32_t* data = 0;
+				const uint32_t* data = nullptr;
 				size_t size = 0;
 				char32_t cp = 0;
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache> pCached;
+			str::detail::LocalQueue<Cache> pCached;
 			CollType pCollector;
 			struct {
-				const uint32_t* begin = 0;
-				const uint32_t* end = 0;
+				const uint32_t* begin = nullptr;
+				const uint32_t* end = nullptr;
 				char32_t cp = 0;
 				uint32_t first = 0;
 			} pActive;
@@ -111,6 +111,11 @@ namespace cp {
 
 		public:
 			constexpr CaseMapper(CollType&& collector, detail::CaseLocale locale) : pCollector{ std::forward<CollType>(collector) }, pLocale(locale) {}
+
+		public:
+			constexpr std::remove_reference_t<CollType>& collector() {
+				return pCollector;
+			}
 
 		private:
 			constexpr Condition fAfterState(uint32_t val) const {
@@ -134,6 +139,11 @@ namespace cp {
 						return Condition::incomplete;
 					return ((val & detail::gen::CaseIs0307) != 0 ? Condition::failed : Condition::match);
 				}
+			}
+			constexpr Condition fAfterEnd() const {
+				/* as no more characters will follow, 'finalSigma: After C' is satisfied, as it must not be followed by a cased letter, 'beforeDot: After C'
+				*	is satisifed (as it is always tracked as inverted), and 'moreAbove: After C' is failed, as it requires a terminating character */
+				return (pAfter.testCombClass ? Condition::failed : Condition::match);
 			}
 			constexpr Condition fSetupCondition() {
 				pAfter = { false, false };
@@ -235,11 +245,11 @@ namespace cp {
 			constexpr void fProcessQueue(Condition cond) {
 				while (true) {
 					/* check if the condition is incomplete and either return, as nothing can be done
-					*	anymore, or mark it as failed, as no more characters will be encountered */
+					*	anymore, or resolve it, as no more characters will be encountered */
 					if (cond == Condition::incomplete) {
 						if constexpr (!IsCleanup)
 							return;
-						cond = Condition::failed;
+						cond = fAfterEnd();
 					}
 
 					/* check if the condition has not been satisfied and advance the current state
@@ -250,9 +260,9 @@ namespace cp {
 						while (pActive.begin != pActive.end) {
 							uint32_t value = (*pActive.begin & detail::gen::CaseValueMask);
 							if (*(pActive.begin++) & detail::gen::CaseIsNegative)
-								pCollector.next(pActive.cp - value);
+								pCollector.next(char32_t(uint32_t(pActive.cp) - value));
 							else
-								pCollector.next(pActive.cp + value);
+								pCollector.next(char32_t(uint32_t(pActive.cp) + value));
 						}
 						fCompleteChar(pActive.first);
 					}
@@ -308,9 +318,9 @@ namespace cp {
 				fProcessQueue<false>(cond);
 			}
 			constexpr void done() {
-				/* process the remaining queue and fail any incomplete conditions */
+				/* process the remaining queue and resolve any incomplete conditions (active condition is incomplete) */
 				if (pActive.begin != pActive.end)
-					fProcessQueue<true>(Condition::failed);
+					fProcessQueue<true>(Condition::incomplete);
 				pCollector.done();
 			}
 		};
@@ -352,24 +362,21 @@ namespace cp {
 			friend class detail::CaseMapper<CollType, detail::TitleMapper<CollType>>;
 		private:
 			using Super = detail::CaseMapper<CollType, detail::TitleMapper<CollType>>;
-			struct Lambda {
-				detail::TitleMapper<CollType>& self;
-				constexpr Lambda(detail::TitleMapper<CollType>& s) : self{ s } {}
-				constexpr void operator()(size_t, cp::BreakKind mode) {
-					self.fSeparate(mode != cp::BreakKind::none);
-				}
-			};
 
 		private:
-			str::detail::LocalBuffer<size_t> pWords;
-			str::detail::LocalBuffer<char32_t> pChars;
-			cp::WordBreak::Type<Lambda> pSeparator;
+			str::detail::LocalQueue<size_t> pWords;
+			str::detail::LocalQueue<char32_t> pChars;
+			detail::WordForward<size_t> pSeparator;
+			bool pInitialized = false;
 			bool pLower = false;
 
 		public:
-			constexpr TitleMapper(CollType&& collector, detail::CaseLocale locale) : Super{ std::forward<CollType>(collector), locale }, pSeparator{ cp::WordBreak{}(Lambda{ *this }) } {
+			constexpr TitleMapper(CollType&& coll, detail::CaseLocale locale) : Super{ std::forward<CollType>(coll), locale } {
 				pWords.push(1);
 			}
+
+		public:
+			using Super::collector;
 
 		private:
 			constexpr void fSeparate(bool separate) {
@@ -395,7 +402,14 @@ namespace cp {
 
 		public:
 			constexpr void next(char32_t cp) {
-				pSeparator.next(cp, 0);
+				/* feed the codepoint to the word-separator, which will produce the break-kind before each codepoint (except for the first) */
+				uint32_t raw = detail::gen::GetSegmentation(cp);
+				if (pInitialized)
+					pSeparator.next(raw, 0, [this](size_t, cp::BreakKind kind) { fSeparate(kind != cp::BreakKind::none); });
+				else {
+					pInitialized = true;
+					pSeparator.first(raw);
+				}
 
 				/* fast-path of no characters being cached and characters being immediately processable */
 				if (pChars.size() == 0) {
@@ -416,7 +430,8 @@ namespace cp {
 			constexpr void done() {
 				/* finalize the separator and flush the last cached characters (word-counter can be ignored, as
 				*	flushing the separator will already have matched the word-counter to the actual codepoints) */
-				pSeparator.done();
+				if (pInitialized)
+					pSeparator.done([this](size_t, cp::BreakKind kind) { fSeparate(kind != cp::BreakKind::none); });
 				while (pChars.size() > 0)
 					Super::next(pChars.pop());
 				Super::done();
@@ -442,40 +457,24 @@ namespace cp {
 		template <template<class> class MapType>
 		class TestCasing {
 		private:
-			struct Lambda {
-				detail::TestCasing<MapType>& self;
-				constexpr Lambda(detail::TestCasing<MapType>& s) : self{ s } {}
-				constexpr void next(char32_t cp) {
-					self.fNext(cp);
-				}
-				constexpr void done() {}
-			};
-
-		private:
-			MapType<Lambda> pMapper;
-			str::detail::LocalBuffer<char32_t> pChars;
-			bool pMatches = true;
+			MapType<str::detail::MatchCollector> pMapper;
 
 		public:
-			constexpr TestCasing(std::string_view locale = {}) : pMapper{ Lambda{ *this }, detail::ParseCaseLocale(locale) } {}
-
-		private:
-			constexpr void fNext(char32_t cp) {
-				if (pChars.size() == 0 || pChars.pop() != cp)
-					pMatches = false;
-			}
+			constexpr TestCasing(std::string_view locale = {}) : pMapper{ str::detail::MatchCollector{}, detail::ParseCaseLocale(locale) } {}
 
 		public:
 			constexpr void next(char32_t cp) {
-				if (pMatches) {
-					pChars.push(cp);
+				str::detail::MatchCollector& match = pMapper.collector();
+				if (match.matches) {
+					match.expected.push(cp);
 					pMapper.next(cp);
 				}
 			}
 			constexpr bool done() {
-				if (pMatches)
+				str::detail::MatchCollector& match = pMapper.collector();
+				if (match.matches)
 					pMapper.done();
-				return pMatches;
+				return match.completed();
 			}
 		};
 	}

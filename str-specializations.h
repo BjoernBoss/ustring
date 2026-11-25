@@ -91,7 +91,7 @@ namespace str {
 				sink.put(chr);
 		}
 		constexpr void operator()(Type& sink, const std::basic_string_view<ChType>& s) const {
-			sink.write(s.data(), s.size());
+			sink.write(s.data(), std::streamsize(s.size()));
 		}
 	};
 	template <detail::IsImpl<std::basic_ostream<wchar_t>> Type>
@@ -102,7 +102,7 @@ namespace str {
 				sink.put(chr);
 		}
 		constexpr void operator()(Type& sink, const std::basic_string_view<ChType>& s) const {
-			sink.write(s.data(), s.size());
+			sink.write(s.data(), std::streamsize(s.size()));
 		}
 	};
 	template <str::IsSink Type>
@@ -158,14 +158,14 @@ namespace str {
 	struct CharLoader<Type> {
 		using ChType = char;
 		constexpr size_t operator()(std::basic_istream<char>& src, ChType* buffer, size_t size) const {
-			return src.read(buffer, size).gcount();
+			return size_t(src.read(buffer, std::streamsize(size)).gcount());
 		}
 	};
 	template <detail::IsImpl<std::basic_istream<wchar_t>> Type>
 	struct CharLoader<Type> {
 		using ChType = wchar_t;
 		constexpr size_t operator()(std::basic_istream<wchar_t>& src, ChType* buffer, size_t size) const {
-			return src.read(buffer, size).gcount();
+			return size_t(src.read(buffer, std::streamsize(size)).gcount());
 		}
 	};
 	template <class Type>
@@ -261,7 +261,7 @@ namespace str {
 	template <detail::IsImpl<std::ostream> Type>
 	struct ByteWriter<Type> {
 		void operator()(Type& sink, const str::Data& d) const {
-			sink.write(reinterpret_cast<const char*>(d.data()), d.size());
+			sink.write(reinterpret_cast<const char*>(d.data()), std::streamsize(d.size()));
 		}
 	};
 	template <>
@@ -311,7 +311,7 @@ namespace str {
 	template <detail::IsImpl<std::istream> Type>
 	struct ByteLoader<Type> {
 		constexpr size_t operator()(std::istream& src, uint8_t* buffer, size_t size) const {
-			return src.read(reinterpret_cast<char*>(buffer), size).gcount();
+			return size_t(src.read(reinterpret_cast<char*>(buffer), std::streamsize(size)).gcount());
 		}
 	};
 	template <class Type>

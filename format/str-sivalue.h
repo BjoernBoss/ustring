@@ -51,11 +51,12 @@ namespace str {
 	namespace detail {
 		static constexpr size_t SiFirstGreater1 = 10;
 		static constexpr size_t SiNumScales = 20;
-		static constexpr const char32_t* SiPrefixCharAscii = U"qryzafpnumkMGTPEZYRQ";
-		static constexpr const char32_t* SiPrefixCharUnicode = U"qryzafpn\u00b5mkMGTPEZYRQ";
+		static constexpr const char32_t* SiPrefixCharAscii[] = { U"qryzafpnumkMGTPEZYRQ", U"qryzafpnumKMGTPEZYRQ" };
+		static constexpr const char32_t* SiPrefixCharUnicode[] = { U"qryzafpn\u00b5mkMGTPEZYRQ", U"qryzafpn\u00b5mKMGTPEZYRQ" };
 		static constexpr const char32_t SiPrefixBinaryIndicator = U'i';
-		static constexpr const char32_t SiPrefixCharDetectU[] = { U"qryzAFPNUmKMGTPEZYRQ\u039c" };
-		static constexpr const char32_t SiPrefixCharDetectL[] = { U"qryzafpnumkMgtpeZYRQ\u00b5" };
+		static constexpr size_t SiNumDetect = detail::SiNumScales + 1;
+		static constexpr const char32_t SiPrefixCharDetectU[] = { U"qryzAFpNUmKMGTPEZYRQ\u039c" };
+		static constexpr const char32_t SiPrefixCharDetectL[] = { U"qryzafpnumkMgtPeZYRQ\u00b5" };
 		static constexpr const char32_t SiPrefixBinaryDetectU = U'I';
 		static constexpr const char32_t SiPrefixBinaryDetectL = U'i';
 		static constexpr double SiScale10[] = {
@@ -67,6 +68,25 @@ namespace str {
 			0x1p+10, 0x1p+20, 0x1p+30, 0x1p+40, 0x1p+50, 0x1p+60, 0x1p+70, 0x1p+80, 0x1p+90, 0x1p+100, 0x1p-20
 		};
 
+		static_assert(std::size(detail::SiPrefixCharDetectU) == detail::SiNumDetect + 1 , "Uppercase detection string must match the scales");
+		static_assert(std::size(detail::SiPrefixCharDetectL) == detail::SiNumDetect + 1, "Lowercase detection string must match the scales");
+		static_assert(std::size(detail::SiScale10) == detail::SiNumDetect, "Scales must match the detection strings");
+		static_assert(std::size(detail::SiScale2) == detail::SiNumDetect, "Scales must match the detection strings");
+
+		template <class Type>
+		constexpr bool SiFitsType(double value) {
+			if constexpr (str::IsInteger<Type>) {
+				/* the upper bound of integers cannot be compared directly, as it is not
+				*	necessarily representable as double and might be rounded up while converting */
+				double upper = 1.0;
+				for (int i = 0; i < std::numeric_limits<Type>::digits; ++i)
+					upper *= 2.0;
+				return (value >= static_cast<double>(std::numeric_limits<Type>::lowest()) && value < upper);
+			}
+			else
+				return (value >= static_cast<double>(std::numeric_limits<Type>::lowest()) && value <= static_cast<double>(std::numeric_limits<Type>::max()));
+		}
+
 		template <class ChType>
 		constexpr str::ParsedSiScale ParseSiScale(const std::basic_string_view<ChType>& source, str::SiScaleMode scale) {
 			/* extract the first token (implicitly checks for empty strings) */
@@ -76,9 +96,9 @@ namespace str {
 
 			/* find the matching token and check if any have been found */
 			size_t index = 0;
-			while (index < std::size(detail::SiPrefixCharDetectU) && cp != detail::SiPrefixCharDetectU[index] && cp != detail::SiPrefixCharDetectL[index])
+			while (index < detail::SiNumDetect && cp != detail::SiPrefixCharDetectU[index] && cp != detail::SiPrefixCharDetectL[index])
 				++index;
-			if (index == std::size(detail::SiPrefixCharDetectU))
+			if (index == detail::SiNumDetect)
 				return str::ParsedSiScale{};
 
 			/* check if a binary scale is to be found */
@@ -128,7 +148,7 @@ namespace str {
 			/* setup the prefix type */
 			if (indexToUse == detail::SiNumScales)
 				return str::SiScale{};
-			const char32_t* prefix = (asciiOnly ? detail::SiPrefixCharAscii : detail::SiPrefixCharUnicode);
+			const char32_t* prefix = (asciiOnly ? detail::SiPrefixCharAscii : detail::SiPrefixCharUnicode)[binarySystem ? 1 : 0];
 			str::SiScale out = { .prefix = { 1, prefix[indexToUse] }, .scale = scale[indexToUse] };
 			if (binarySystem)
 				out.prefix.push_back(detail::SiPrefixBinaryIndicator);
@@ -186,7 +206,7 @@ namespace str {
 
 		/* check if the value cannot be represented by the corresponding type */
 		bool finite = std::isfinite(value);
-		if (!finite && str::IsInteger<Type>) {
+		if (!finite && str::IsInteger<Type> && result == str::NumResult::valid) {
 			num = 0;
 			return str::ParsedNum{ consumed, str::NumResult::invalid };
 		}
@@ -206,7 +226,7 @@ namespace str {
 
 			/* apply the scale and check if the value has not overflown/underflown */
 			value *= siScale.scale;
-			if (value != 0 && std::isfinite(value) && value >= static_cast<double>(std::numeric_limits<Type>::lowest()) && value <= static_cast<double>(std::numeric_limits<Type>::max())) {
+			if (value != 0 && std::isfinite(value) && detail::SiFitsType<Type>(value)) {
 				num = Type(value);
 
 				/* check if the loss of precision still results in a non-zero value */
@@ -226,7 +246,7 @@ namespace str {
 		if constexpr (str::IsInteger<Type>)
 			num = (value < 0 ? std::numeric_limits<Type>::min() : std::numeric_limits<Type>::max());
 		else
-			num = Type(value);
+			num = (value < 0 ? -std::numeric_limits<Type>::infinity() : std::numeric_limits<Type>::infinity());
 		return str::ParsedNum{ consumed, str::NumResult::range };
 	}
 

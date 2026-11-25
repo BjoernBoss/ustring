@@ -85,7 +85,7 @@ namespace str {
 		constexpr size_t fDetectBOM(const uint8_t* begin, const uint8_t* end, bool sourceComplete) {
 			/* write the data to the buffer and update the size */
 			size_t count = std::min<size_t>(detail::MaxBOMSize - pBufSize, size_t(end - begin));
-			std::copy(begin, begin + count, pBuffer);
+			std::copy(begin, begin + count, pBuffer + pBufSize);
 			pBufSize += count;
 
 			/* check what encoding it might be (check utf32 before utf16 as utf16-BOM is a subset of utf32-BOM) */
@@ -112,20 +112,20 @@ namespace str {
 				return count;
 			}
 
-			/* check if only a matching encoding may consume the BOM */
-			if (pMode == str::BOMMode::optional && detected != pCoding) {
-				pMode = str::BOMMode::none;
-				return count;
-			}
-
-			/* check if utf16-le was detected, which is a subset of utf32-le, in which case utf32-le might still become possible */
-			if (detected == str::Coding::utf16le && pBufSize < detail::Utf32BOMSize && !sourceComplete && pMode != str::BOMMode::detectNoUtf32le)
+			/* check if the decision is not yet final (regarding utf16-le/utf32-le), as it could still change */
+			if (detected == str::Coding::utf16le && pBufSize < detail::Utf32BOMSize && !sourceComplete && (pMode == str::BOMMode::detectAll || (pMode == str::BOMMode::optional && pCoding == str::Coding::utf32le)))
 				return count;
 
 			/* check if utf32-le was detected, which might be excluded in favor of utf16-le */
 			if (detected == str::Coding::utf32le && pMode == str::BOMMode::detectNoUtf32le) {
 				detected = str::Coding::utf16le;
 				bomSize = detail::Utf16BOMSize;
+			}
+
+			/* check if only a matching encoding may consume the BOM */
+			if (pMode == str::BOMMode::optional && detected != pCoding) {
+				pMode = str::BOMMode::none;
+				return count;
 			}
 
 			/* consume the bom-size number of bytes from the buffer */
@@ -138,51 +138,49 @@ namespace str {
 			pCoding = detected;
 			return count;
 		}
-		constexpr uint8_t fNextByte(const uint8_t* index, const uint8_t* begin) const {
-			if (index >= begin)
-				return *index;
-			return pBuffer[pBufSize - (begin - index)];
-		}
 		template <class WiType, bool LittleEndian, bool AsciiMode>
 		constexpr void fProcess(auto& sink, const uint8_t* begin, const uint8_t* end, bool sourceComplete) {
 			WiType buffer[TranscodeBufCapacity]{};
 			size_t chars = 0;
-			const uint8_t* index = begin - intptr_t(pBufSize);
+
+			/* the bytes to be processed consist of the cached bytes of the last call, followed by the incoming bytes */
+			size_t cached = pBufSize, total = cached + size_t(end - begin), index = 0;
+			const auto byteAt = [&](size_t i) -> uint8_t { return (i < cached ? pBuffer[i] : begin[i - cached]); };
 
 			/* iterate until all data have been transcoded */
 			while (true) {
-				size_t count = std::min<size_t>(TranscodeBufCapacity - chars, size_t(end - index) / sizeof(WiType));
+				size_t count = std::min<size_t>(TranscodeBufCapacity - chars, (total - index) / sizeof(WiType));
 				if (count == 0)
 					break;
 
 				/* fetch the next complete characters or until the buffer has been filled up (no space for optimization
 				*	if sizeof(WiType) == 1, as bytes might be located in pBuffer as well instead of just from the input) */
 				for (size_t i = 0; i < count; ++i) {
-					uint32_t value = uint32_t(fNextByte(index, begin));
+					uint32_t value = uint32_t(byteAt(index));
 
 					/* check if the value is little endian and extract it */
 					if constexpr (LittleEndian) {
 						if constexpr (sizeof(WiType) > 1)
-							value |= uint32_t(fNextByte(index + 1, begin)) << 8;
+							value |= uint32_t(byteAt(index + 1)) << 8;
 						if constexpr (sizeof(WiType) > 2) {
-							value |= uint32_t(fNextByte(index + 2, begin)) << 16;
-							value |= uint32_t(fNextByte(index + 3, begin)) << 24;
+							value |= uint32_t(byteAt(index + 2)) << 16;
+							value |= uint32_t(byteAt(index + 3)) << 24;
 						}
 					}
 
 					/* extract the big endian value */
 					else {
 						if constexpr (sizeof(WiType) > 1)
-							value = (value << 8) | fNextByte(index + 1, begin);
+							value = (value << 8) | byteAt(index + 1);
 						if constexpr (sizeof(WiType) > 2) {
-							value = (value << 8) | fNextByte(index + 2, begin);
-							value = (value << 8) | fNextByte(index + 3, begin);
+							value = (value << 8) | byteAt(index + 2);
+							value = (value << 8) | byteAt(index + 3);
 						}
 					}
 					buffer[chars++] = WiType(value);
 					index += sizeof(WiType);
 				}
-				std::basic_string_view<WiType> view = { buffer, buffer + chars };
+				std::basic_string_view<WiType> view{ buffer, chars };
 
 				/* iterate over the chars until all chars have been transcoded or an incomplete error has been returned */
 				size_t consumed = 0;
@@ -209,7 +207,7 @@ namespace str {
 
 			/* reset the index to not consider the buffered chars as consumed (in order to be able to fetch the raw non-reordered bytes) */
 			index -= chars * sizeof(WiType);
-			pBufSize = (end - index);
+			pBufSize = (total - index);
 
 			/* check if these were the last bytes, in which case any remaining data have
 			*	to be considered incomplete and an error char can be added for them */
@@ -223,7 +221,7 @@ namespace str {
 			/* write the remaining bytes back to the local buffer (cannot overwrite itself as it will at worst
 			*	write itself directly to itself, and at best, it will only read from the incoming data) */
 			else for (size_t i = 0; i < pBufSize; ++i)
-				pBuffer[i] = fNextByte(index++, begin);
+				pBuffer[i] = byteAt(index + i);
 		}
 		constexpr void fSinkInto(auto& sink, const uint8_t* ptr, size_t size, bool sourceComplete) {
 			const uint8_t* begin = ptr;
@@ -299,15 +297,10 @@ namespace str {
 	private:
 		template <class Type, bool LittleEndian>
 		static constexpr void fToBytes(uint8_t* buffer, Type value) {
-			if constexpr (LittleEndian) {
-				for (int i = 0; i < sizeof(Type); ++i) {
-					buffer[i] = uint8_t(value);
-					value >>= 8;
-				}
-			}
-			else for (int i = sizeof(Type) - 1; i >= 0; --i) {
-				buffer[i] = uint8_t(value);
-				value >>= 8;
+			std::make_unsigned_t<Type> bits = std::make_unsigned_t<Type>(value);
+			for (size_t i = 0; i < sizeof(Type); ++i) {
+				buffer[LittleEndian ? i : sizeof(Type) - 1 - i] = uint8_t(bits);
+				bits = std::make_unsigned_t<Type>(bits >> 8);
 			}
 		}
 		template <class WiType, bool LittleEndian, bool AsciiMode>
@@ -326,7 +319,7 @@ namespace str {
 				else {
 					/* have the buffer size be one to large, as some compile
 					*	time analyzers get confused about the write-length */
-					uint8_t buf[str::MaxEncBytes<WiType> +sizeof(WiType)] = { 0 };
+					uint8_t buf[str::MaxEncBytes<WiType> + sizeof(WiType)] = { 0 };
 					size_t off = 0;
 
 					/* perform the byteorder transformation (if necessary) */

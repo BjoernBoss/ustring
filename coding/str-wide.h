@@ -7,13 +7,18 @@
 #include "str-utf16.h"
 #include "str-utf32.h"
 
-namespace str {
-	/* [character cannot be represented in current code page; expression is never evaluated and might have side effects] */
+#ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable : 4566 6237)
+/* [character cannot be represented in current code page] */
+#pragma warning(disable : 4566)
+
+/* [expression is never evaluated and might have side effects] */
+#pragma warning(disable : 6237)
+#endif
+
+namespace str {
 	static constexpr bool WideIsUtf16 = (sizeof(wchar_t) == sizeof(char16_t) && detail::IsUtf16(L"\U00010000\U0000ff00"));
 	static constexpr bool WideIsUtf32 = (sizeof(wchar_t) == sizeof(char32_t) && detail::IsUtf32(L"\U00010000\U0000ff00"));
-#pragma warning(pop)
 
 	/* check expected assumptions */
 	static_assert(sizeof(wchar_t) == sizeof(uint16_t) || sizeof(wchar_t) == sizeof(uint32_t), "wchar_t is expected to be at least 16bit and at most 32bit");
@@ -50,3 +55,7 @@ namespace str {
 		}
 	}
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

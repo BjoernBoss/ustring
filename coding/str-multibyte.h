@@ -8,22 +8,25 @@
 #include "str-utf8.h"
 #include "str-wide.h"
 
-namespace str {
-	/* [character cannot be represented in current code page] */
+#ifdef _MSC_VER
 #pragma warning(push)
+/* [character cannot be represented in current code page] */
 #pragma warning(disable : 4566)
-	static constexpr bool CharIsUtf8 = detail::IsUtf8("\U0000007f\U0000ff00\U00010000");
-#pragma warning(pop)
 
-	/* [expression is never evaluated and might have side effects] */
-#pragma warning(push)
+/* [expression is never evaluated and might have side effects] */
 #pragma warning(disable : 6286)
+
+/* [std::wcrtomb is unsafe, use std::wcrtomb_s instead] */
+#pragma warning(disable : 4996)
+#endif
+
+namespace str {
+	static constexpr bool CharIsUtf8 = detail::IsUtf8("\U0000007f\U0000ff00\U00010000");
 	static constexpr bool CharHoldsAscii = (str::CharIsUtf8 || detail::HoldSameValues(
 		U"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
 		U" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177",
 		"\0\001\002\003\004\005\006\a\b\t\n\v\f\r\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
 		" !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\177"));
-#pragma warning(pop)
 
 	/* check expected assumptions */
 	static_assert(sizeof(char) == sizeof(uint8_t), "char is expected to be 8bit");
@@ -40,12 +43,12 @@ namespace str {
 				return detail::NextUtf8<char, AllowIncomplete>(cur, end);
 			else {
 				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)
-					return { char32_t(*cur), 1 };
+				if (str::CharHoldsAscii && uint8_t(*cur) < detail::AsciiRange)
+					return { char32_t(uint8_t(*cur)), 1 };
 
 				/* first decode multi-byte to wide-chars (as the standard libraries functions
 				*	to utf32 only work for utf8 inputs, at least on some msvc versions) */
-				std::mbstate_t state{ 0 };
+				std::mbstate_t state{};
 				wchar_t wc = 0;
 
 				/* read the next character and check if the character is incomplete (documentation suggests that a decoded codepoint should
@@ -58,8 +61,10 @@ namespace str {
 					return { str::Invalid, 1 };
 				if (res == static_cast<size_t>(-2)) {
 					/* ensure the max character-length promise is not broken */
-					if (AllowIncomplete && size_t(end - cur) < detail::CharLen)
-						return { str::Invalid, 0 };
+					if constexpr (AllowIncomplete) {
+						if (size_t(end - cur) < detail::CharLen)
+							return { str::Invalid, 0 };
+					}
 					return { str::Invalid, 1 };
 				}
 				uint32_t len = (res == 0 ? 1 : uint32_t(res));
@@ -83,17 +88,17 @@ namespace str {
 				return detail::PrevUtf8<char>(begin, cur);
 			else {
 				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint32_t(cur[-1]) <= detail::AsciiRange)
-					return { char32_t(cur[-1]), 1 };
+				if (str::CharHoldsAscii && uint8_t(cur[-1]) < detail::AsciiRange)
+					return { char32_t(uint8_t(cur[-1])), 1 };
 
 				/* first decode multi-byte to wide-chars (as the standard libraries functions
 				*	to utf32 only work for utf8 inputs, at least on some msvc versions) */
 				wchar_t wc = 0;
 
 				/* iteratively increase the length until a valid codepoint is encountered */
-				size_t len = 1, max = std::min<size_t>(detail::CharLen, cur - begin);
+				size_t len = 1, max = std::min<size_t>(detail::CharLen, size_t(cur - begin));
 				while (true) {
-					std::mbstate_t state{ 0 };
+					std::mbstate_t state{};
 					size_t res = std::mbrtowc(&wc, cur - len, len, &state);
 
 					/* check if the character is still considered invalid (probably not a valid start) */
@@ -128,7 +133,7 @@ namespace str {
 				return detail::MakeUtf8<char>(sink, cp);
 			else {
 				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint32_t(cp) <= detail::AsciiRange) {
+				if (str::CharHoldsAscii && uint32_t(cp) < detail::AsciiRange) {
 					str::CallSink(sink, char(cp), 1);
 					return true;
 				}
@@ -140,15 +145,10 @@ namespace str {
 				if (wc.size() != 1)
 					return false;
 
-				/* [std::wcrtomb is unsafe, use std::wcrtomb_s instead] */
-#pragma warning(push)
-#pragma warning(disable : 4996)
-
 				/* try to convert the character to the multi-byte presentation (no small-buffer, as MB_CUR_MAX is not necessarily constant...) */
 				std::basic_string<char> buf(MB_CUR_MAX, '\0');
-				std::mbstate_t state{ 0 };
+				std::mbstate_t state{};
 				size_t res = std::wcrtomb(&buf[0], wc[0], &state);
-#pragma warning(pop)
 
 				/* check if the character could not be converted or if the converted character would break the promise of
 				*	the string-conversion max encoding length in which case the codepoint is not considered encodable */
@@ -159,7 +159,7 @@ namespace str {
 				if (res == 1)
 					str::CallSink(sink, char(buf[0]), 1);
 				else
-					str::CallSink(sink, buf);
+					str::CallSink(sink, std::string_view{ buf.data(), res });
 				return true;
 			}
 		}
@@ -169,13 +169,13 @@ namespace str {
 				return detail::EstimateUtf8<char>(cur, end);
 			else {
 				/* fast-path for ascii-characters */
-				if (str::CharHoldsAscii && uint32_t(*cur) <= detail::AsciiRange)
+				if (str::CharHoldsAscii && uint8_t(*cur) < detail::AsciiRange)
 					return 1;
 
 				/* read the next character and check if the character is incomplete (documentation suggests that a decoded codepoint should
 				*	always fit into single wide-char, and fail if the max encoding length promise would be broken => should not be possible) */
-				std::mbstate_t state{ 0 };
-				size_t res = std::mbrtowc(0, cur, size_t(end - cur), &state);
+				std::mbstate_t state{};
+				size_t res = std::mbrtowc(nullptr, cur, size_t(end - cur), &state);
 
 				/* check if the character is invalid or considered incomplete and otherwise
 				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
@@ -192,3 +192,7 @@ namespace str {
 		}
 	}
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

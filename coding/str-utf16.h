@@ -19,7 +19,7 @@ namespace str {
 
 			/* check if its a valid single-token codepoint (valid at all times) */
 			if (first < detail::SurrogateFirst || first > detail::SurrogateLast)
-				return { first, 1 };
+				return { char32_t(first), 1 };
 
 			/* ensure that the first value is valid and there are enough characters for a surrogate-pair */
 			if (first >= detail::SurrogateUpper)
@@ -36,14 +36,14 @@ namespace str {
 				return { str::Invalid, 1 };
 
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
-			return { char32_t(0x10000 + ((first & 0x03ff) << 10) | (second & 0x03ff)), 2 };
+			return { char32_t(0x10000 + (((first & 0x03ff) << 10) | (second & 0x03ff))), 2 };
 		}
 		template <class ChType>
 		inline constexpr str::Decoded PrevUtf16(const ChType* begin, const ChType* cur) {
 			/* check if its a single codepoint */
 			uint32_t second = uint16_t(cur[-1]);
 			if (second < detail::SurrogateFirst || second > detail::SurrogateLast)
-				return { second, 1 };
+				return { char32_t(second), 1 };
 
 			/* ensure there are enough characters for a surrogate-pair and that the second value is valid */
 			if (second < detail::SurrogateUpper || cur - begin < 2)
@@ -55,7 +55,7 @@ namespace str {
 				return { str::Invalid, 1 };
 
 			/* decode the overall codepoint (cannot produce any invalid codepoints) */
-			return { char32_t(0x10000 + ((first & 0x03ff) << 10) | (second & 0x03ff)), 2 };
+			return { char32_t(0x10000 + (((first & 0x03ff) << 10) | (second & 0x03ff))), 2 };
 		}
 		template <class ChType>
 		inline constexpr bool MakeUtf16(auto& sink, char32_t cp) {
@@ -78,12 +78,13 @@ namespace str {
 			return true;
 		}
 		template <class ChType>
-		inline constexpr uint32_t EstimateUtf16(const ChType* cur, const ChType* end) {
-			if (*cur < detail::SurrogateFirst)
+		inline constexpr uint32_t EstimateUtf16(const ChType* cur, const ChType*) {
+			uint32_t first = uint16_t(*cur);
+			if (first < detail::SurrogateFirst)
 				return 1;
-			if (*cur < detail::SurrogateUpper)
+			if (first < detail::SurrogateUpper)
 				return 2;
-			if (*cur <= detail::SurrogateLast)
+			if (first <= detail::SurrogateLast)
 				return 0;
 			return 1;
 		}

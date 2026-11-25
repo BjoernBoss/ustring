@@ -13,8 +13,8 @@ namespace str {
 	template <str::IsChar ChType>
 	class NullChars {
 	private:
-		ChType* pBegin = 0;
-		ChType* pEnd = 0;
+		ChType* pBegin = nullptr;
+		ChType* pEnd = nullptr;
 		bool pOverflow = false;
 
 	public:
@@ -49,8 +49,13 @@ namespace str {
 				sz = size_t(pEnd - pBegin);
 				pOverflow = true;
 			}
-			std::copy(s.data(), s.data() + sz, pBegin);
-			*(pBegin += sz) = 0;
+
+			if (pBegin == nullptr)
+				pOverflow = true;
+			else {
+				std::copy(s.data(), s.data() + sz, pBegin);
+				*(pBegin += sz) = 0;
+			}
 		}
 		constexpr bool overflow() const {
 			return pOverflow;
@@ -62,7 +67,7 @@ namespace str {
 	template <str::IsChar ChType>
 	class Chars {
 	private:
-		ChType* pPtr = 0;
+		ChType* pPtr = nullptr;
 		size_t pSize = 0;
 		size_t pOffset = 0;
 		bool pOverflow = false;
@@ -106,7 +111,7 @@ namespace str {
 	*	Note: Must not outlive the source data as it stores a reference to it */
 	class Bytes {
 	private:
-		uint8_t* pPtr = 0;
+		uint8_t* pPtr = nullptr;
 		size_t pSize = 0;
 		size_t pOffset = 0;
 		bool pOverflow = false;
@@ -212,7 +217,7 @@ namespace str {
 			if (pView.empty())
 				pBuffer.clear();
 			else {
-				offset = (pView.data() - pBuffer.data());
+				offset = size_t(pView.data() - pBuffer.data());
 				if (offset >= pView.size()) {
 					pBuffer = pBuffer.substr(offset);
 					offset = 0;
@@ -247,7 +252,7 @@ namespace str {
 
 			/* copy the data out */
 			size = std::min<size_t>(size, pView.size());
-			std::copy(pView.begin(), pView.begin() + size, buffer);
+			std::copy(pView.data(), pView.data() + size, buffer);
 			pView = pView.substr(size);
 			return size;
 		}
@@ -314,7 +319,7 @@ namespace str {
 			if (pView.empty())
 				pBuffer.clear();
 			else {
-				offset = (pView.data() - pBuffer.data());
+				offset = size_t(pView.data() - pBuffer.data());
 				if (offset >= pView.size()) {
 					pBuffer = pBuffer.substr(offset);
 					offset = 0;
@@ -329,10 +334,10 @@ namespace str {
 
 				/* check if the end has been reached and trigger a final transcoding to ensure proper error-handling on incomplete characters) */
 				if (consumed == 0) {
-					auto [cp, consumed] = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
-					pStream.consume(consumed);
-					if (consumed > 0)
-						pBuffer.push_back(cp);
+					auto [lastCp, lastConsumed] = str::GetCodepoint<Error>(pStream.load(str::MaxEncSize<SChType>));
+					pStream.consume(lastConsumed);
+					if (lastConsumed > 0)
+						pBuffer.push_back(lastCp);
 					pClosed = true;
 					break;
 				}
@@ -352,13 +357,13 @@ namespace str {
 
 			/* copy the data out */
 			size = std::min<size_t>(size, pView.size());
-			std::copy(pView.begin(), pView.begin() + size, buffer);
+			std::copy(pView.data(), pView.data() + size, buffer);
 			pView = pView.substr(size);
 			return size;
 		}
 	};
-	template <class Type> U32Stream(Type&) -> U32Stream<str::SourceType<Type&>>;
-	template <class Type> U32Stream(Type&&) -> U32Stream<str::SourceType<Type>>;
+	template <class Type> U32Stream(Type&) -> U32Stream<str::StreamType<Type&>>;
+	template <class Type> U32Stream(Type&&) -> U32Stream<str::StreamType<Type>>;
 
 	/* [str::IsWire] structure to inherit from which can be used as a wire */
 	struct InheritWire {
@@ -496,15 +501,23 @@ namespace str {
 
 	public:
 		constexpr BufferSink(Type&& sink, size_t bufferSize) : pSink{ std::forward<Type>(sink) } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
-		~BufferSink() {
-			if (pContent > 0)
-				fFlush();
+		constexpr BufferSink(BufferSink&& b) : pBuffer{ b.pBuffer }, pSink{ std::forward<Type>(b.pSink) }, pContent{ b.pContent } {
+			b.pContent = 0;
+		}
+		BufferSink(const BufferSink&) = delete;
+		BufferSink& operator=(const BufferSink&) = delete;
+		BufferSink& operator=(BufferSink&&) = delete;
+		constexpr ~BufferSink() {
+			if (pContent == 0)
+				return;
+			try { fFlush(); }
+			catch (...) {}
 		}
 
 	private:
-		void fFlush() {
+		constexpr void fFlush() {
 			/* clear before writing out, to ensure exceptions dont trigger a
 			*	cleanup of this object, thereby triggering another nested flush */
 			size_t count = pContent;
@@ -517,7 +530,7 @@ namespace str {
 			while (count > 0) {
 				/* write the data to the buffer */
 				size_t _count = std::min<size_t>(count, pBuffer.size() - pContent);
-				std::fill_n(pBuffer.begin() + pContent, _count, chr);
+				std::fill_n(pBuffer.data() + pContent, _count, chr);
 				pContent += _count;
 				count -= _count;
 
@@ -530,7 +543,7 @@ namespace str {
 			while (!s.empty()) {
 				/* write the data to the buffer */
 				size_t _count = std::min<size_t>(s.size(), pBuffer.size() - pContent);
-				std::copy(s.begin(), s.begin() + _count, pBuffer.begin() + pContent);
+				std::copy(s.data(), s.data() + _count, pBuffer.data() + pContent);
 				pContent += _count;
 				s = s.substr(_count);
 
@@ -558,15 +571,23 @@ namespace str {
 
 	public:
 		constexpr BufferWire(Type&& wire, size_t bufferSize) : pWire{ std::forward<Type>(wire) } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
-		~BufferWire() {
-			if (pContent > 0)
-				fFlush();
+		constexpr BufferWire(BufferWire&& b) : pBuffer{ b.pBuffer }, pWire{ std::forward<Type>(b.pWire) }, pContent{ b.pContent } {
+			b.pContent = 0;
+		}
+		BufferWire(const BufferWire&) = delete;
+		BufferWire& operator=(const BufferWire&) = delete;
+		BufferWire& operator=(BufferWire&&) = delete;
+		constexpr ~BufferWire() {
+			if (pContent == 0)
+				return;
+			try { fFlush(); }
+			catch (...) {}
 		}
 
 	private:
-		void fFlush() {
+		constexpr void fFlush() {
 			/* clear before writing out, to ensure exceptions dont trigger a
 			*	cleanup of this object, thereby triggering another nested flush */
 			size_t count = pContent;
@@ -579,7 +600,7 @@ namespace str {
 			while (!d.empty()) {
 				/* write the data to the buffer */
 				size_t _count = std::min<size_t>(d.size(), pBuffer.size() - pContent);
-				std::copy(d.begin(), d.begin() + _count, pBuffer.begin() + pContent);
+				std::copy(d.data(), d.data() + _count, pBuffer.data() + pContent);
 				pContent += _count;
 				d = d.subspan(_count);
 
@@ -608,10 +629,10 @@ namespace str {
 
 	public:
 		constexpr BufferSource(const str::IsData auto& source, size_t bufferSize) : pSource{ source } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
 		constexpr BufferSource(Type&& source, size_t bufferSize) : pSource{ std::forward<Type>(source) } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
 
 	public:
@@ -630,14 +651,14 @@ namespace str {
 
 				/* consume data from the buffer */
 				size_t _count = std::min<size_t>(size, pEnd - pOffset);
-				std::copy(pBuffer.begin() + pOffset, pBuffer.begin() + pOffset + _count, buffer);
+				std::copy(pBuffer.data() + pOffset, pBuffer.data() + pOffset + _count, buffer);
 				pOffset += _count;
 
 				/* advance the buffer */
 				buffer += _count;
 				size -= _count;
 			}
-			return (buffer - _start);
+			return size_t(buffer - _start);
 		}
 	};
 	template <class Type> BufferSource(Type&, size_t) -> BufferSource<str::SourceType<Type&>>;
@@ -658,10 +679,10 @@ namespace str {
 
 	public:
 		constexpr BufferStream(const str::IsStr auto& stream, size_t bufferSize) : pStream{ stream } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
 		constexpr BufferStream(Type&& stream, size_t bufferSize) : pStream{ std::forward<Type>(stream) } {
-			pBuffer.resize(bufferSize);
+			pBuffer.resize(std::max<size_t>(bufferSize, 1));
 		}
 
 	public:
@@ -680,14 +701,14 @@ namespace str {
 
 				/* consume data from the buffer */
 				size_t _count = std::min<size_t>(size, pEnd - pOffset);
-				std::copy(pBuffer.begin() + pOffset, pBuffer.begin() + pOffset + _count, buffer);
+				std::copy(pBuffer.data() + pOffset, pBuffer.data() + pOffset + _count, buffer);
 				pOffset += _count;
 
 				/* advance the buffer */
 				buffer += _count;
 				size -= _count;
 			}
-			return (buffer - _start);
+			return size_t(buffer - _start);
 		}
 	};
 	template <class Type> BufferStream(Type&, size_t) -> BufferStream<str::StreamType<Type&>>;

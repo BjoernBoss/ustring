@@ -22,26 +22,27 @@ namespace str {
 	namespace detail {
 		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
 		constexpr bool IsBufferSame(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (sizeof(ExpType) != sizeof(ActType) || ExpSize != ActSize)
+			if constexpr (sizeof(ExpType) != sizeof(ActType) || ExpSize != ActSize)
 				return false;
-
-			size_t i = 0;
-			while (i < ExpSize && expected[i] == static_cast<ExpType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
+			else {
+				size_t i = 0;
+				while (i < ExpSize && expected[i] == static_cast<ExpType>(actual[i]))
+					++i;
+				return (i == ExpSize);
+			}
 		}
 		template <class ExpType, size_t ExpSize, class ActType, size_t ActSize>
 		constexpr bool HoldSameValues(const ExpType(&expected)[ExpSize], const ActType(&actual)[ActSize]) {
-			if (ExpSize != ActSize)
+			if constexpr (ExpSize != ActSize)
 				return false;
-			using LargeType = std::conditional_t<sizeof(ExpType) >= sizeof(ActType), ExpType, ActType>;
+			else {
+				using LargeType = std::conditional_t<sizeof(ExpType) >= sizeof(ActType), ExpType, ActType>;
 
-			size_t i = 0;
-			while (i < ExpSize && static_cast<LargeType>(expected[i]) == static_cast<LargeType>(actual[i]))
-				++i;
-
-			return (i == ExpSize);
+				size_t i = 0;
+				while (i < ExpSize && static_cast<LargeType>(expected[i]) == static_cast<LargeType>(actual[i]))
+					++i;
+				return (i == ExpSize);
+			}
 		}
 
 		/* utf8 test-string: \U0000007f\U0000ff00\U00010000 */
@@ -49,21 +50,21 @@ namespace str {
 		constexpr bool IsUtf8(const Type(&test)[Size]) {
 			constexpr uint8_t expected[] = { 0x7f, 0xef, 0xbc, 0x80, 0xf0, 0x90, 0x80, 0x80, 0x00 };
 			return detail::IsBufferSame(expected, test);
-		};
+		}
 
 		/* utf16 test-string: \U00010000\U0000ff00 */
 		template <class Type, size_t Size>
 		constexpr bool IsUtf16(const Type(&test)[Size]) {
 			constexpr uint16_t expected[] = { 0xd800, 0xdc00, 0xff00, 0x0000 };
 			return detail::IsBufferSame(expected, test);
-		};
+		}
 
 		/* utf32 test-string: \U00010000\U0000ff00 */
 		template <class Type, size_t Size>
 		constexpr bool IsUtf32(const Type(&test)[Size]) {
 			constexpr uint32_t expected[] = { 0x10000, 0xff00, 0x0000 };
 			return detail::IsBufferSame(expected, test);
-		};
+		}
 
 		static constexpr uint32_t SurrogateFirst = 0xd800;
 		static constexpr uint32_t SurrogateUpper = 0xdc00;

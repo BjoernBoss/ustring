@@ -106,7 +106,7 @@ namespace str {
 			constexpr StreamConst(const Type& s) : pView{ s } {}
 
 		public:
-			constexpr std::basic_string_view<ChType> load(size_t size) {
+			constexpr std::basic_string_view<ChType> load(size_t) {
 				return pView;
 			}
 			constexpr void consume(size_t size) {
@@ -132,7 +132,7 @@ namespace str {
 				size = std::max<size_t>(size, MinLoadCapacity);
 
 				/* check if the cache should be reset and reset it to have enough capacity */
-				size_t offset = (pView.empty() ? 0 : pView.data() - pBuffer.data());
+				size_t offset = (pView.empty() ? 0 : size_t(pView.data() - pBuffer.data()));
 				if (offset >= pView.size()) {
 					std::move(pView.begin(), pView.end(), pBuffer.begin());
 					offset = 0;
@@ -201,7 +201,7 @@ namespace str {
 			std::basic_string_view<ChType> data = pImpl.load(size);
 			size = std::min<size_t>(data.size(), size);
 
-			std::copy(data.begin(), data.begin() + size, buffer);
+			std::copy(data.data(), data.data() + size, buffer);
 			pImpl.consume(size);
 			return size;
 		}

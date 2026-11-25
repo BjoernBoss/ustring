@@ -37,31 +37,22 @@ namespace cp {
 	};
 
 	namespace detail {
-		template <class RecvType, template <class, class> class BreakType>
+		template <class RecvType, template <class> class BreakType>
 		class BreakSingle {
 		private:
-			struct Lambda {
-				detail::BreakSingle<RecvType, BreakType>& self;
-				constexpr Lambda(detail::BreakSingle<RecvType, BreakType>& s) : self{ s } {}
-				constexpr void operator()(size_t payload, cp::BreakKind kind) {
-					self.pRecv(payload, kind);
-				}
-			};
-
-		private:
-			BreakType<Lambda, size_t> pBreaker;
+			BreakType<size_t> pBreaker;
 			RecvType pRecv;
 			bool pInitialized = false;
 
 		public:
 			template <class... Args>
-			constexpr BreakSingle(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
+			constexpr BreakSingle(RecvType&& recv, Args&&... args) : pBreaker{ std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
 				uint32_t raw = detail::gen::GetSegmentation(cp);
 				if (pInitialized)
-					pBreaker.next(raw, index);
+					pBreaker.next(raw, index, pRecv);
 				else {
 					pInitialized = true;
 					pBreaker.first(raw);
@@ -69,27 +60,13 @@ namespace cp {
 			}
 			constexpr void done() {
 				if (pInitialized)
-					pBreaker.done();
+					pBreaker.done(pRecv);
 			}
 		};
-		template <class RecvType, template <class, class> class BreakType>
+		template <class RecvType, template <class> class BreakType>
 		class BreakRanges {
 		private:
-			struct Lambda {
-				detail::BreakRanges<RecvType, BreakType>& self;
-				constexpr Lambda(detail::BreakRanges<RecvType, BreakType>& s) : self{ s } {}
-				constexpr void operator()(size_t payload, cp::BreakKind kind) {
-					if (kind != cp::BreakKind::none) {
-						self.pRecv(cp::Range(self.pStart, self.pLast, self.pKind));
-						self.pStart = payload;
-						self.pKind = kind;
-					}
-					self.pLast = payload;
-				}
-			};
-
-		private:
-			BreakType<Lambda, size_t> pBreaker;
+			BreakType<size_t> pBreaker;
 			RecvType pRecv;
 			size_t pStart = 0;
 			size_t pLast = 0;
@@ -98,13 +75,23 @@ namespace cp {
 
 		public:
 			template <class... Args>
-			constexpr BreakRanges(RecvType&& recv, Args&&... args) : pBreaker{ Lambda{ *this }, std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
+			constexpr BreakRanges(RecvType&& recv, Args&&... args) : pBreaker{ std::forward<Args>(args)... }, pRecv{ std::forward<RecvType>(recv) } {}
+
+		private:
+			constexpr void fBreak(size_t payload, cp::BreakKind kind) {
+				if (kind != cp::BreakKind::none) {
+					pRecv(cp::Range(pStart, pLast, pKind));
+					pStart = payload;
+					pKind = kind;
+				}
+				pLast = payload;
+			}
 
 		public:
 			constexpr void next(char32_t cp, size_t index) {
 				uint32_t raw = detail::gen::GetSegmentation(cp);
 				if (pInitialized)
-					pBreaker.next(raw, index);
+					pBreaker.next(raw, index, [this](size_t payload, cp::BreakKind kind) { fBreak(payload, kind); });
 				else {
 					pInitialized = true;
 					pStart = index;
@@ -114,7 +101,7 @@ namespace cp {
 			}
 			constexpr void done() {
 				if (pInitialized) {
-					pBreaker.done();
+					pBreaker.done([this](size_t payload, cp::BreakKind kind) { fBreak(payload, kind); });
 					pRecv(cp::Range(pStart, pLast, pKind));
 				}
 			}
@@ -275,7 +262,7 @@ namespace cp {
 				return cp::BreakKind::none;
 			}
 		};
-		template <class RecvType, class PayloadType>
+		template <class PayloadType>
 		class GraphemeForward {
 			friend struct detail::GraphemeBreak;
 			using Host = detail::GraphemeBreak;
@@ -291,14 +278,13 @@ namespace cp {
 			};
 
 		private:
-			RecvType pRecv;
 			GB9cState pGB9cState = GB9cState::none;
 			GB11State pGB11State = GB11State::none;
 			Host::Type pLast = Host::Type::other;
 			bool pRICountOdd = false;
 
 		public:
-			constexpr GraphemeForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
+			constexpr GraphemeForward() = default;
 
 		private:
 			constexpr bool fGB9cHasConsonant() const {
@@ -341,7 +327,7 @@ namespace cp {
 				/* GB1: initialize the state */
 				pLast = Host::GetRaw(raw);
 			}
-			constexpr void next(uint32_t raw, const PayloadType& payload) {
+			constexpr void next(uint32_t raw, const PayloadType& payload, auto&& recv) {
 				/* GB2: no special handling for cleanup necessary */
 				Host::Type left = pLast, right = Host::GetRaw(raw);
 
@@ -353,9 +339,9 @@ namespace cp {
 
 				/* check if the two values should be separated and write the result to the receiver */
 				bool separate = (Host::Test(left, right, *this) == Host::Break::separate);
-				pRecv(payload, separate ? cp::BreakKind::optional : cp::BreakKind::none);
+				recv(payload, separate ? cp::BreakKind::optional : cp::BreakKind::none);
 			}
-			constexpr void done() {}
+			constexpr void done(auto&&) {}
 		};
 
 		struct WordBreak {
@@ -611,7 +597,7 @@ namespace cp {
 				return cp::BreakKind::none;
 			}
 		};
-		template <class RecvType, class PayloadType>
+		template <class PayloadType>
 		class WordForward {
 			friend struct detail::WordBreak;
 			using Host = detail::WordBreak;
@@ -631,8 +617,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<PayloadType> pCache;
-			RecvType pRecv;
+			str::detail::LocalQueue<PayloadType> pCache;
 			PayloadType pUncertainPayload{};
 			Host::Type pLast = Host::Type::other;
 			Host::Type pLastActual = Host::Type::other;
@@ -640,7 +625,7 @@ namespace cp {
 			bool pRICountOdd = false;
 
 		public:
-			constexpr WordForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
+			constexpr WordForward() = default;
 
 		private:
 			constexpr Host::Type fSkipWB4(Host::Type) const {
@@ -729,7 +714,7 @@ namespace cp {
 				pLast = right;
 				pLastActual = right;
 			}
-			constexpr void next(uint32_t raw, const PayloadType& payload) {
+			constexpr void next(uint32_t raw, const PayloadType& payload, auto&& recv) {
 				Host::Type right = Host::GetRaw(raw);
 
 				/* check if a current state for longer chains has been entered and handle it */
@@ -744,13 +729,13 @@ namespace cp {
 					pState = State::none;
 
 					/* flush the cached characters */
-					pRecv(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
+					recv(pUncertainPayload, cont == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
 					while (pCache.size() > 0)
-						pRecv(pCache.pop(), cp::BreakKind::none);
+						recv(pCache.pop(), cp::BreakKind::none);
 
 					/* check if the upcoming element can be consumed as well */
 					if (cont == Continue::combineIncludingRight) {
-						pRecv(payload, cp::BreakKind::none);
+						recv(payload, cp::BreakKind::none);
 						fUpdateLeft(right);
 						return;
 					}
@@ -759,10 +744,10 @@ namespace cp {
 				/* check the current values and update the state */
 				switch (Host::Test(pLastActual, right, *this)) {
 				case Host::Break::combine:
-					pRecv(payload, cp::BreakKind::none);
+					recv(payload, cp::BreakKind::none);
 					break;
 				case Host::Break::separate:
-					pRecv(payload, cp::BreakKind::optional);
+					recv(payload, cp::BreakKind::optional);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -770,15 +755,15 @@ namespace cp {
 				}
 				fUpdateLeft(right);
 			}
-			constexpr void done() {
+			constexpr void done(auto&& recv) {
 				/* WB2: check if a cached state needs to be ended */
 				if (pState == State::none)
 					return;
 
 				/* flush the cached characters */
-				pRecv(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
+				recv(pUncertainPayload, fCheckState(Host::Type::other) == Continue::breakBeforeCached ? cp::BreakKind::optional : cp::BreakKind::none);
 				while (pCache.size() > 0)
-					pRecv(pCache.pop(), cp::BreakKind::none);
+					recv(pCache.pop(), cp::BreakKind::none);
 			}
 		};
 
@@ -970,7 +955,7 @@ namespace cp {
 				return cp::BreakKind::none;
 			}
 		};
-		template <class RecvType, class PayloadType>
+		template <class PayloadType>
 		class SentenceForward {
 			friend struct detail::SentenceBreak;
 			using Host = detail::SentenceBreak;
@@ -981,15 +966,14 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache> pCache;
+			str::detail::LocalQueue<Cache> pCache;
 			PayloadType pUncertainPayload{};
-			RecvType pRecv;
 			Host::Type pLast = Host::Type::other;
 			Host::Chain pChain = Host::Chain::none;
 			bool pUncertain = false;
 
 		public:
-			constexpr SentenceForward(RecvType&& recv) : pRecv{ std::forward<RecvType>(recv) } {}
+			constexpr SentenceForward() = default;
 
 		private:
 			constexpr Host::Chain fGetChainState() const {
@@ -1045,7 +1029,7 @@ namespace cp {
 				return Host::Break::separate;
 			}
 			template <bool IsCleanup>
-			constexpr void fProcessQueue(Host::Break _break) {
+			constexpr void fProcessQueue(Host::Break _break, auto&& recv) {
 				/* process the cached characters */
 				while (true) {
 					/* check if the last state needs to be forcefully aborted or if the result is incomplete */
@@ -1054,7 +1038,7 @@ namespace cp {
 							return;
 						_break = Host::Break::separate;
 					}
-					pRecv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
+					recv(pUncertainPayload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
 
 					/* process the next character */
 					if (pCache.size() == 0) {
@@ -1079,14 +1063,14 @@ namespace cp {
 				pLast = Host::GetRaw(raw);
 				pChain = fUpdateChain(pLast);
 			}
-			constexpr void next(uint32_t raw, const PayloadType& payload) {
+			constexpr void next(uint32_t raw, const PayloadType& payload, auto&& recv) {
 				Host::Type right = Host::GetRaw(raw);
 
 				/* fast-path of not being in a look-ahead state */
 				if (!pUncertain) {
 					Host::Break _break = Host::Test(pLast, right, *this);
 					if (_break != Host::Break::uncertain)
-						pRecv(payload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
+						recv(payload, _break == Host::Break::separate ? cp::BreakKind::optional : cp::BreakKind::none);
 					else {
 						pUncertainPayload = payload;
 						pUncertain = true;
@@ -1098,12 +1082,12 @@ namespace cp {
 
 				/* add the character to the cache and update the current state */
 				pCache.push({ payload, right });
-				fProcessQueue<false>(fCheckState(right));
+				fProcessQueue<false>(fCheckState(right), recv);
 			}
-			constexpr void done() {
+			constexpr void done(auto&& recv) {
 				/* SB2: clear the cache and abort the current cached state */
 				if (pUncertain)
-					fProcessQueue<true>(Host::Break::separate);
+					fProcessQueue<true>(Host::Break::separate, recv);
 			}
 		};
 
@@ -1671,7 +1655,7 @@ namespace cp {
 				return cp::BreakKind::optional;
 			}
 		};
-		template <class RecvType, class PayloadType>
+		template <class PayloadType>
 		class PrimitiveLineForward {
 			friend struct detail::LineBreak;
 			using Host = detail::LineBreak;
@@ -1700,8 +1684,7 @@ namespace cp {
 			};
 
 		private:
-			str::detail::LocalBuffer<Cache> pCache;
-			RecvType pRecv;
+			str::detail::LocalQueue<Cache> pCache;
 			PayloadType pUncertainPayload{};
 			std::pair<Host::Type, bool> pLast = { Host::Type::_end, false };
 			std::pair<Host::Type, bool> pActual = { Host::Type::_end, false };
@@ -1712,7 +1695,7 @@ namespace cp {
 			cp::BreakKind pCombineValue = cp::BreakKind::none;
 
 		public:
-			constexpr PrimitiveLineForward(RecvType&& recv, bool emergencyAware) : pRecv{ std::forward<RecvType>(recv) } {
+			constexpr PrimitiveLineForward(bool emergencyAware) {
 				if (emergencyAware)
 					pCombineValue = cp::BreakKind::emergency;
 			}
@@ -1883,12 +1866,12 @@ namespace cp {
 			}
 
 		private:
-			constexpr void fPopQueue(bool combine) {
+			constexpr void fPopQueue(bool combine, auto&& recv) {
 				/* post all cached characters */
-				pRecv(pUncertainPayload, (combine ? pCombineValue : cp::BreakKind::optional));
+				recv(pUncertainPayload, (combine ? pCombineValue : cp::BreakKind::optional));
 				while (pCache.size() > 0) {
 					auto [payload, kind] = pCache.pop();
-					pRecv(payload, kind);
+					recv(payload, kind);
 				}
 			}
 
@@ -1907,14 +1890,14 @@ namespace cp {
 					pChain = Chain::lb20aMatch;
 				pNotFWH = true;
 			}
-			constexpr void next(uint32_t raw, const PayloadType& payload, bool withinGrapheme) {
+			constexpr void next(uint32_t raw, const PayloadType& payload, bool withinGrapheme, auto&& recv) {
 				std::pair<Host::Type, bool> right = Host::GetRaw(raw);
 
 				/* check if this lies within a grapheme and is therefore a true combine-value and either
 				*	write it out directly, or cache it to be processed once the cache is popped */
 				if (withinGrapheme) {
 					if (pState == State::none)
-						pRecv(payload, cp::BreakKind::none);
+						recv(payload, cp::BreakKind::none);
 					else
 						pCache.push({ payload, cp::BreakKind::none });
 					return;
@@ -1931,19 +1914,19 @@ namespace cp {
 					pState = State::none;
 
 					/* clear all cached characters */
-					fPopQueue(_break == Host::Break::combine);
+					fPopQueue(_break == Host::Break::combine, recv);
 				}
 
 				/* check the current values and update the state */
 				switch (Host::Test(pActual.first, pActual.second, right.first, right.second, *this)) {
 				case Host::Break::combine:
-					pRecv(payload, pCombineValue);
+					recv(payload, pCombineValue);
 					break;
 				case Host::Break::optional:
-					pRecv(payload, cp::BreakKind::optional);
+					recv(payload, cp::BreakKind::optional);
 					break;
 				case Host::Break::mandatory:
-					pRecv(payload, cp::BreakKind::mandatory);
+					recv(payload, cp::BreakKind::mandatory);
 					break;
 				case Host::Break::uncertain:
 					pUncertainPayload = payload;
@@ -1951,10 +1934,10 @@ namespace cp {
 				}
 				fUpdateLeft(right);
 			}
-			constexpr void done() {
+			constexpr void done(auto&& recv) {
 				/* LB3: cleanup the final cached state */
 				if (pState != State::none)
-					fPopQueue(pState == State::lb15b || pState == State::lb15c || pState == State::lb19a);
+					fPopQueue(pState == State::lb15b || pState == State::lb15c || pState == State::lb19a, recv);
 			}
 		};
 		template <class ItType>
@@ -2050,38 +2033,21 @@ namespace cp {
 				return kind;
 			}
 		};
-		template <class RecvType, class PayloadType>
+		template <class PayloadType>
 		class LineForward {
 		private:
 			struct GrPayload {
 				uint32_t raw = 0;
 				PayloadType payload{};
 			};
-			struct GrLambda {
-				LineForward<RecvType, PayloadType>& self;
-				constexpr GrLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
-				constexpr void operator()(const GrPayload& payload, cp::BreakKind kind) {
-					self.pLine.next(payload.raw, payload.payload, (kind == cp::BreakKind::none));
-				}
-			};
-			struct LnLambda {
-				LineForward<RecvType, PayloadType>& self;
-				constexpr LnLambda(LineForward<RecvType, PayloadType>& s) : self{ s } {}
-				constexpr void operator()(const PayloadType& payload, cp::BreakKind kind) {
-					self.pRecv(payload, kind);
-				}
-			};
 
 		private:
-			detail::GraphemeForward<GrLambda, GrPayload> pGrapheme;
-			detail::PrimitiveLineForward<LnLambda, PayloadType> pLine;
-			RecvType pRecv;
+			detail::GraphemeForward<GrPayload> pGrapheme;
+			detail::PrimitiveLineForward<PayloadType> pLine;
 			bool pGraphemes = false;
 
 		public:
-			constexpr LineForward(RecvType&& recv, cp::LineMode mode) : pGrapheme{ GrLambda{ *this } },
-				pLine{ LnLambda{ *this }, (mode == cp::LineMode::emergency) }, pRecv{ std::forward<RecvType>(recv) }, pGraphemes{ mode != cp::LineMode::basic } {
-			}
+			constexpr LineForward(cp::LineMode mode) : pLine{ mode == cp::LineMode::emergency }, pGraphemes{ mode != cp::LineMode::basic } {}
 
 		public:
 			constexpr void first(uint32_t raw) {
@@ -2089,16 +2055,16 @@ namespace cp {
 					pGrapheme.first(raw);
 				pLine.first(raw);
 			}
-			constexpr void next(uint32_t raw, const PayloadType& payload) {
+			constexpr void next(uint32_t raw, const PayloadType& payload, auto&& recv) {
 				if (pGraphemes)
-					pGrapheme.next(raw, { raw, payload });
+					pGrapheme.next(raw, GrPayload{ raw, payload }, [&](const GrPayload& gr, cp::BreakKind kind) { pLine.next(gr.raw, gr.payload, (kind == cp::BreakKind::none), recv); });
 				else
-					pLine.next(raw, payload, false);
+					pLine.next(raw, payload, false, recv);
 			}
-			constexpr void done() {
-				if (pGraphemes)
-					pGrapheme.done();
-				pLine.done();
+			constexpr void done(auto&& recv) {
+				if(pGraphemes)
+					pGrapheme.done([&](const GrPayload& gr, cp::BreakKind kind) { pLine.next(gr.raw, gr.payload, (kind == cp::BreakKind::none), recv); });
+				pLine.done(recv);
 			}
 		};
 	}

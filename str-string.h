@@ -218,14 +218,14 @@ namespace str {
 				auto r = RangeType{ fBase() };
 
 				for (auto it = r.begin(); it != r.end(); ++it)
-					collector.next(*it, it.base() - r.begin().base());
+					collector.next(*it, size_t(it.base() - r.begin().base()));
 				collector.done();
 			}
 
 			/* iterate over all codepoints of the two strings, apply the transformations, and check if the strings match */
 			template <class AChType, class BChType, class... Transforms>
 			static bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, const Transforms&... transforms) {
-				detail::LocalBuffer<char32_t> buffer;
+				detail::LocalQueue<char32_t> buffer;
 				int8_t state = 0;
 				bool valid = true;
 
@@ -264,22 +264,23 @@ namespace str {
 					}), transforms...);
 
 				/* iterate over the codepoints and feed them to the transformation and compare the outputs */
-				while (aIt != aEnd) {
-					if (bIt == bEnd)
-						return false;
-					aTrans.next(*aIt);
-					bTrans.next(*bIt);
-					++aIt; ++bIt;
+				while (aIt != aEnd || bIt != bEnd) {
+					if (aIt != aEnd) {
+						aTrans.next(*aIt);
+						++aIt;
+					}
+					if (bIt != bEnd) {
+						bTrans.next(*bIt);
+						++bIt;
+					}
 					if (!valid)
 						return false;
 				}
 
-				/* ensure that the other iterator has also reached its end and flush the transformations */
-				if (bIt != bEnd)
-					return false;
+				/* flush the transformations and ensure that both have produced the same number of codepoints */
 				aTrans.done();
 				bTrans.done();
-				return valid;
+				return (valid && buffer.size() == 0);
 			}
 
 			/* skip the first codepoints until the tester returns false */
@@ -290,7 +291,7 @@ namespace str {
 				/* iterate over the codepoints and look for the first fail */
 				for (auto it = r.begin(); it != r.end(); ++it) {
 					if (!tester(*it))
-						return ViewType{ fBase() }.substr(it.base() - r.begin().base());
+						return ViewType{ fBase() }.substr(size_t(it.base() - r.begin().base()));
 				}
 				return ViewType{};
 			}
@@ -304,7 +305,7 @@ namespace str {
 				for (auto it = r.end(); it != r.begin();) {
 					auto pt = std::prev(it);
 					if (!tester(*pt))
-						return ViewType{ fBase() }.substr(0, it.base() - r.begin().base());
+						return ViewType{ fBase() }.substr(0, size_t(it.base() - r.begin().base()));
 					it = pt;
 				}
 				return ViewType{};
@@ -625,20 +626,20 @@ namespace str {
 		public:
 			/* apply all of the transformations in nested order and write the result to the collector */
 			template <str::IsCollector<char32_t> CollType>
-			constexpr void transformTo(CollType&& collector, const str::IsMapper auto&... mapper) {
+			constexpr void transformTo(CollType&& collector, const str::IsMapper auto&... mapper) const {
 				fApply(std::forward<CollType>(collector), mapper...);
 			}
 
 			/* apply all of the transformations in nested order and write the result to an object of the given type and return it */
 			template <str::IsSink SinkType>
-			constexpr SinkType transform(const str::IsMapper auto&... mapper) {
+			constexpr SinkType transform(const str::IsMapper auto&... mapper) const {
 				SinkType out{};
 				fApply(str::Collect{ out }, mapper...);
 				return out;
 			}
 
 			/* test if the string is non-empty and fulfills the analysis after having the transformations applied in nested order */
-			constexpr bool analyze(str::IsAnalysis auto&& analysis, const str::IsMapper auto&... mapper) {
+			constexpr bool analyze(str::IsAnalysis auto&& analysis, const str::IsMapper auto&... mapper) const {
 				if (fBase().empty())
 					return false;
 				fApply(str::ForEach([&](char32_t cp) { analysis.next(cp); }), mapper...);
@@ -646,16 +647,16 @@ namespace str {
 			}
 
 			/* test if the string is non-empty and fulfills the tester after having the transformations applied in nested order */
-			constexpr bool test(const str::IsTester auto& tester, const str::IsMapper auto&... mapper) {
+			constexpr bool test(const str::IsTester auto& tester, const str::IsMapper auto&... mapper) const {
 				if (fBase().empty())
 					return false;
 				bool valid = true;
-				fApply(str::ForEach([&](char32_t cp) { valid && (valid = tester(cp)); }), mapper...);
+				fApply(str::ForEach([&](char32_t cp) { valid = (valid && tester(cp)); }), mapper...);
 				return valid;
 			}
 
 			/* apply all of the transformations in nested order to this string and the other string and compare the two transformed outputs */
-			constexpr bool transformEqual(const str::IsStr auto& str, const str::IsMapper auto&... mapper) {
+			constexpr bool transformEqual(const str::IsStr auto& str, const str::IsMapper auto&... mapper) const {
 				using OChType = str::StringChar<decltype(str)>;
 				return fCompare<ChType, OChType>(std::basic_string_view<ChType>{ fBase() }, std::basic_string_view<OChType>{ str }, mapper...);
 			}

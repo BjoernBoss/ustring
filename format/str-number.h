@@ -100,7 +100,8 @@ namespace str {
 	static constexpr size_t MaxRadix = 36;
 	static constexpr size_t HexFloat = std::numeric_limits<size_t>::max();
 
-	/* to be used for number arguments */
+	/* to be used for number arguments (precision of 0 implies shortest
+	*	number of digits, which still parse back to the identical value) */
 	struct ArgsParse {
 		size_t radix = 10;
 		str::PrefixMode prefix = str::PrefixMode::none;
@@ -153,7 +154,7 @@ namespace str {
 
 		/* ensure that exponent of this size will not result in any overflows for primitive additions
 		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
-		static constexpr int32_t LargeIntSafeExponentLimit = int32_t(0x01 << 24);
+		static constexpr int32_t LargeIntSafeExponentLimit = (0x01 << 24);
 
 		static constexpr double LogBase2[str::MaxRadix + 1] = {
 			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
@@ -256,7 +257,7 @@ namespace str {
 		*	- last data-package is considered scratch-pad and is not guaranteed to preserve any information */
 		template <size_t Units>
 		struct LargeInt {
-			std::conditional_t<detail::DynamicInt<Units>, std::vector<uint32_t>, uint32_t[Units]> data{};
+			std::conditional_t<detail::DynamicInt<Units>, std::vector<uint32_t>, uint32_t[std::max<size_t>(Units, 1)]> data{};
 			int32_t size = 0;
 			int32_t nulls = 0;
 			int32_t capacity = 0;
@@ -266,12 +267,12 @@ namespace str {
 		constexpr detail::LargeInt<Units> LargeLoad(uint64_t v, uint32_t capacity) {
 			detail::LargeInt<Units> out;
 			if constexpr (detail::DynamicInt<Units>) {
-				int32_t actual = std::max<uint32_t>(capacity, 2);
+				uint32_t actual = std::max<uint32_t>(capacity, 2);
 				out.data.resize(actual);
-				out.capacity = actual;
+				out.capacity = int32_t(actual);
 			}
 			else
-				out.capacity = Units;
+				out.capacity = int32_t(Units);
 
 			/* check if the value itself is null */
 			if (v == 0)
@@ -282,7 +283,7 @@ namespace str {
 				out.size = 1;
 			else
 				out.nulls = 1;
-			if ((out.data[out.size] = uint32_t(v >> 32)))
+			if ((out.data[size_t(out.size)] = uint32_t(v >> 32)))
 				++out.size;
 			return out;
 		}
@@ -297,7 +298,7 @@ namespace str {
 
 			/* count the leading nulls of a and compute its actual size */
 			int32_t aOff = 0;
-			while (a.data[aOff] == 0)
+			while (a.data[size_t(aOff)] == 0)
 				++aOff;
 			int32_t aSize = a.size - aOff;
 
@@ -311,13 +312,13 @@ namespace str {
 			if (skip) {
 				a.size = a.capacity;
 				++a.nulls;
-				carry = uint32_t((uint64_t(b) * uint64_t(a.data[aOff])) >> 32);
+				carry = uint32_t((uint64_t(b) * uint64_t(a.data[size_t(aOff)])) >> 32);
 				++aOff;
 				--aSize;
 			}
 
+#ifdef _MSC_VER
 #pragma warning(push)
-
 			/* [Reading invalid data from 'a.data']:
 			*	aOff + (aSize - 1) cannot become larger than a.capacity, as aSize = a.size - aOff (aSize + aOff = a.size)
 			*	and further if a skip occurs, aOff is increased, but aSize is decreased again */
@@ -327,27 +328,30 @@ namespace str {
 			*	Cannot overrun as aSize can at most be (a.capacity - 1), as aSize = a.capacity
 			*	would trigger a skip, which would again reduce aSize by one */
 #pragma warning(disable : 6386)
+#endif
 
 			/* iterate over the elements of a and perform the multiplication */
 			for (int32_t i = 0; i < aSize; ++i) {
-				uint64_t value = uint64_t(b) * uint64_t(a.data[aOff + i]) + uint64_t(carry);
+				uint64_t value = uint64_t(b) * uint64_t(a.data[size_t(aOff + i)]) + uint64_t(carry);
 
 				/* write the value to the output and update the shift */
-				a.data[i] = uint32_t(value);
+				a.data[size_t(i)] = uint32_t(value);
 				carry = uint32_t(value >> 32);
 			}
 
 			/* write the remainder of the carry to the output */
-			a.data[aSize] = carry;
+			a.data[size_t(aSize)] = carry;
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
 			/* clip any trailing nulls in the output (cannot underflow as value cannot be null) */
-			while (a.data[a.size - 1] == 0)
+			while (a.data[size_t(a.size - 1)] == 0)
 				--a.size;
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargeMul(const detail::LargeInt<Units>& a, const detail::LargeInt<Units>& b) {
-			detail::LargeInt<Units> out = detail::LargeLoad<Units>(0, a.capacity);
+			detail::LargeInt<Units> out = detail::LargeLoad<Units>(0, uint32_t(a.capacity));
 
 			/* check if the values themselves are null */
 			if (a.size == 0 || b.size == 0)
@@ -355,9 +359,9 @@ namespace str {
 
 			/* count the leading nulls of a and b and compute their actual sizes */
 			int32_t aOff = 0, bOff = 0;
-			while (a.data[aOff] == 0)
+			while (a.data[size_t(aOff)] == 0)
 				++aOff;
-			while (b.data[bOff] == 0)
+			while (b.data[size_t(bOff)] == 0)
 				++bOff;
 			int32_t aSize = a.size - aOff, bSize = b.size - bOff;
 
@@ -373,8 +377,8 @@ namespace str {
 
 			/* perform the multiplication with the smaller of the two values on the outer loop */
 			uint32_t* resData = &out.data[0];
-			const uint32_t* outerData = (aSize <= bSize ? &a.data[aOff] : &b.data[bOff]);
-			const uint32_t* innerData = (aSize <= bSize ? &b.data[bOff] : &a.data[aOff]);
+			const uint32_t* outerData = (aSize <= bSize ? &a.data[size_t(aOff)] : &b.data[size_t(bOff)]);
+			const uint32_t* innerData = (aSize <= bSize ? &b.data[size_t(bOff)] : &a.data[size_t(aOff)]);
 			int32_t outerSize = (aSize <= bSize ? aSize : bSize), innerSize = (aSize <= bSize ? bSize : aSize);
 			for (int32_t oIndex = 0; oIndex < outerSize; ++oIndex) {
 				uint64_t oValue = outerData[oIndex];
@@ -404,7 +408,7 @@ namespace str {
 			}
 
 			/* clip any trailing nulls in the output (cannot underflow as value cannot be null) */
-			while (out.data[out.size - 1] == 0)
+			while (out.data[size_t(out.size - 1)] == 0)
 				--out.size;
 			return out;
 		}
@@ -416,7 +420,7 @@ namespace str {
 
 			/* skip any leading nulls in the denominator (cannot overflow, as the denominator must not be null) */
 			int32_t dOff = 0;
-			while (d.data[dOff] == 0)
+			while (d.data[size_t(dOff)] == 0)
 				++dOff;
 			int32_t dSize = (d.size - dOff);
 
@@ -543,7 +547,7 @@ namespace str {
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargePowDef(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
-			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(b, v.capacity);
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(b, uint32_t(v.capacity));
 
 			/* square-multiply algorithm */
 			while (e > 0) {
@@ -576,14 +580,14 @@ namespace str {
 			detail::LargeInt<Units> out = v;
 
 			/* compute the shift to be applied to the nulls itself and multiply the rest with the remainder */
-			out.nulls += (e / 32);
+			out.nulls += int32_t(e / 32);
 			if ((e %= 32) > 0)
 				detail::LargeMul<Units>(out, uint32_t(0x01) << e);
 			return out;
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargePowTen(const detail::LargeInt<Units>& v, uint32_t e) {
-			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(0, v.capacity);
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(0, uint32_t(v.capacity));
 
 			do {
 				/* break up the power-computation (but limit it by the precomputed amount of data, might require multiple iterations for very large exponents) */
@@ -714,15 +718,15 @@ namespace str {
 
 			/* setup the overflow detection values */
 			using UType = std::make_unsigned_t<Type>;
-			UType valueLimit = std::numeric_limits<Type>::max();
+			UType valueLimit = UType(std::numeric_limits<Type>::max());
 			if constexpr (std::is_signed_v<Type>) {
 				/* ensure that the largest absolute negative value is larger by one than its positive largest value */
 				static_assert(-std::numeric_limits<Type>::max() == std::numeric_limits<Type>::min() + 1, "Signed type is expected to use the two's complement");
 				if (negative)
 					++valueLimit;
 			}
-			UType valueLastDigit = valueLimit % radix;
-			valueLimit /= UType(radix);
+			UType valueLastDigit = UType(valueLimit % UType(radix));
+			valueLimit = UType(valueLimit / UType(radix));
 
 			/* iterate over the digits and parse them */
 			UType value = 0;
@@ -734,7 +738,7 @@ namespace str {
 
 				/* update the value and check for an overflow */
 				if (value < valueLimit || (value == valueLimit && digit <= valueLastDigit))
-					value = value * UType(radix) + UType(digit);
+					value = UType(value * UType(radix) + UType(digit));
 				else
 					overflow = true;
 
@@ -745,7 +749,7 @@ namespace str {
 
 			/* apply the sign and return the value */
 			if constexpr (std::is_signed_v<Type>)
-				return { (negative ? -Type(value) : Type(value)), totalConsumed, overflow };
+				return { Type(negative ? UType(UType(0) - value) : value), totalConsumed, overflow };
 			else
 				return { value, totalConsumed, overflow };
 		}
@@ -759,10 +763,8 @@ namespace str {
 			/* check if an overflow occurred and setup the overflow value */
 			if (!overflow)
 				num = value;
-			else if (std::is_signed_v<Type> && negative)
-				num = std::numeric_limits<Type>::min();
 			else
-				num = std::numeric_limits<Type>::max();
+				num = (negative ? std::numeric_limits<Type>::min() : std::numeric_limits<Type>::max());
 
 			/* finalize the output structure (string cannot be empty, or will only be empty if a prefix
 			*	has already been parsed, in which case the empty string will be considered an error as well) */
@@ -790,7 +792,7 @@ namespace str {
 			bool negative = false;
 			if constexpr (std::is_signed_v<NumType>) {
 				if ((negative = (num < 0)))
-					act = uint64_t(-int64_t(num));
+					act = uint64_t(0) - uint64_t(int64_t(num));
 				else
 					act = uint64_t(int64_t(num));
 			}
@@ -1005,7 +1007,7 @@ namespace str {
 					denominator = detail::LargePow<Units>(denominator, radix, uint32_t(-exponent));
 
 				/* loop until the required number of mantissa-bits have been extracted */
-				uint32_t fetchedBits = 0, requiredBits = std::numeric_limits<Type>::digits;
+				uint32_t fetchedBits = 0, requiredBits = uint32_t(Limits::digits);
 				do {
 					/* compute the number of bits to extract this iteration and perform the multiply/division */
 					uint32_t numberOfBits = std::min<uint32_t>(requiredBits - fetchedBits, 24);
@@ -1015,7 +1017,7 @@ namespace str {
 					/* check if this is the initial number, in which case any leading bits need to be corrected for */
 					if (fetchedBits == 0) {
 						uint32_t actual = detail::BitsForNumber(temp);
-						flExponent -= (numberOfBits - actual);
+						flExponent -= int(numberOfBits - actual);
 						numberOfBits = actual;
 					}
 
@@ -1105,7 +1107,7 @@ namespace str {
 			}
 
 			/* validate the range of the exponent */
-			if (range == 0 && detail::NumAbs(exponent.exponent * detail::LogBase2[radix]) > detail::LargeIntSafeExponentLimit)
+			if (range == 0 && detail::NumAbs(double(exponent.exponent) * detail::LogBase2[radix]) > detail::LargeIntSafeExponentLimit)
 				range = (exponent.exponent < 0 ? -1 : 1);
 
 			/* check if the mantissa is null, in which case any range-errors are ignored */
@@ -1132,17 +1134,17 @@ namespace str {
 			return str::ParsedNum{ totalConsumed, str::NumResult::range };
 		}
 
-		constexpr void FlushFloatDigits(auto& sink, char32_t digit, size_t count, intptr_t& digitsBeforePoint) {
+		constexpr void FlushFloatDigits(auto& sink, char32_t digit, intptr_t count, intptr_t& digitsBeforePoint) {
 			/* check if the point will be inserted within this iteration */
-			if (digitsBeforePoint >= 0 && size_t(digitsBeforePoint) < count) {
+			if (digitsBeforePoint >= 0 && digitsBeforePoint < count) {
 				str::CodepointTo<str::CodeError::nothing>(sink, digit, size_t(digitsBeforePoint));
 				str::CodepointTo<str::CodeError::nothing>(sink, U'.', 1);
-				str::CodepointTo<str::CodeError::nothing>(sink, digit, count - size_t(digitsBeforePoint));
+				str::CodepointTo<str::CodeError::nothing>(sink, digit, size_t(count - digitsBeforePoint));
 			}
 
 			/* insert all digits */
 			else
-				str::CodepointTo<str::CodeError::nothing>(sink, digit, count);
+				str::CodepointTo<str::CodeError::nothing>(sink, digit, size_t(count));
 			digitsBeforePoint -= count;
 		}
 

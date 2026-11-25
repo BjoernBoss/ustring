@@ -7,6 +7,7 @@
 
 /*
 *	Decoding-issues will consume as many characters as are considered invalid
+*	Escaped strings are pure ascii (any non-ascii character is considered a decoding-issue)
 *
 *	Escape sequences:
 *		Common patterns (such as \0, \n)
@@ -155,7 +156,7 @@ namespace str {
 		constexpr str::Decoded SingleEscaped(const std::basic_string_view<ChType>& view) {
 			if (view.empty())
 				return {};
-			str::Decoded dec = detail::ParseEscaped<ChType, true>(view);
+			str::Decoded dec = detail::ParseEscaped<ChType, AllowIncomplete>(view);
 
 			/* check if an error occurred and the codepoint should either be replaced or an exception raised */
 			if constexpr (Error != str::CodeError::nothing) {
@@ -173,7 +174,19 @@ namespace str {
 
 		template <str::CodeError Error>
 		constexpr inline void EscapeTo(auto& sink, char32_t cp, bool compact, size_t count) {
-			const char32_t* escaped = 0;
+			const char32_t* escaped = nullptr;
+
+			/* check if the codepoint is invalid, and apply the corresponding error handling */
+			if ((cp >= detail::SurrogateFirst && cp <= detail::SurrogateLast) || cp >= detail::UnicodeRange) {
+				if constexpr (Error == str::CodeError::nothing)
+					return;
+				else if constexpr (Error == str::CodeError::exception)
+					throw str::CodingException{ "Codepoint could not be escaped" };
+				else if constexpr (Error == str::CodeError::replace)
+					cp = str::RepCharUnicode;
+				else
+					cp = detail::CustomError<Error>();
+			}
 
 			/* check if the character is an escape sequence */
 			if (cp == U'\t')
@@ -192,7 +205,7 @@ namespace str {
 				escaped = U"\\\\";
 
 			/* check if an escape sequence was found */
-			if (escaped != 0) {
+			if (escaped != nullptr) {
 				if (escaped[1] == U'\0')
 					str::CodepointTo<Error>(sink, escaped[0], count);
 				else for (size_t i = 0; i < count; ++i)
@@ -205,7 +218,7 @@ namespace str {
 
 			/* check if the codepoint can be added as short-version */
 			else if (cp <= 0xff) {
-				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(cp >> 4), cp::ascii::GetRadixLower(cp & 0x0f) };
+				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(size_t(cp >> 4)), cp::ascii::GetRadixLower(size_t(cp & 0x0f)) };
 				for (size_t i = 0; i < count; ++i)
 					str::FastcodeAllTo<Error>(sink, std::u32string_view{ buf, 4 });
 			}
@@ -220,7 +233,7 @@ namespace str {
 				char32_t buf[detail::MaxEscapeSize] = { U'\\', U'u', U'{', 0 };
 				size_t len = 3;
 				do {
-					buf[len++] = cp::ascii::GetRadixLower((cp >> shift) & 0x0f);
+					buf[len++] = cp::ascii::GetRadixLower(size_t((cp >> shift) & 0x0f));
 				} while ((shift -= 4) >= 0);
 				buf[len++] = U'}';
 
@@ -243,7 +256,7 @@ namespace str {
 
 	/* local-string to hold the single escaped codepoint for the corresponding type */
 	template <str::IsChar ChType>
-	using Escaped = str::Local<ChType, str::MaxEscapeSize* detail::EscScale<ChType>::value>;
+	using Escaped = str::Local<ChType, str::MaxEscapeSize * detail::EscScale<ChType>::value>;
 
 	/* create the escape-sequence in ascii-only characters using ascii characters, common escape sequences, \xhh,
 	*	\u{(0|[1-9a-fA-F]h*)} and write it to the sink and return it (compact is designed for one-liner strings) */

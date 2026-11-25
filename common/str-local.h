@@ -8,7 +8,7 @@
 namespace str {
 	namespace detail {
 		template <class Type>
-		class LocalBuffer {
+		class LocalQueue {
 		private:
 			static constexpr size_t BufferSize = 4;
 
@@ -20,72 +20,118 @@ namespace str {
 
 		private:
 			std::variant<Static, Dynamic> pBuffer;
-			Type* pBegin = 0;
-			Type* pEnd = 0;
+			Type* pStart = nullptr;
+			size_t pSize = 0;
 
 		public:
-			constexpr LocalBuffer() : pBuffer{ Static{} } {
-				pBegin = std::get<Static>(pBuffer).buffer;
-				pEnd = pBegin;
+			constexpr LocalQueue() : pBuffer{ Static{} } {
+				pStart = std::get<Static>(pBuffer).buffer;
+			}
+			constexpr LocalQueue(const LocalQueue& o) : pBuffer{ o.pBuffer }, pSize{ o.pSize } {
+				pStart = fGetBase() + o.fGetOffset();
+			}
+			constexpr LocalQueue(LocalQueue&& o) {
+				size_t offset = o.fGetOffset();
+				std::swap(pBuffer, o.pBuffer);
+				pSize = std::exchange(o.pSize, 0);
+				pStart = fGetBase() + offset;
+			}
+			constexpr LocalQueue& operator=(const LocalQueue& o) {
+				if (this != &o) {
+					pBuffer = o.pBuffer;
+					pSize = o.pSize;
+					pStart = fGetBase() + o.fGetOffset();
+				}
+				return *this;
+			}
+			constexpr LocalQueue& operator=(LocalQueue&& o) {
+				if (this != &o) {
+					size_t offset = o.fGetOffset();
+					std::swap(pBuffer, o.pBuffer);
+					pSize = std::exchange(o.pSize, 0);
+					pStart = fGetBase() + offset;
+				}
+				return *this;
+			}
+
+		private:
+			Type* fGetBase() {
+				return (std::holds_alternative<Static>(pBuffer) ? std::get<Static>(pBuffer).buffer : std::get<Dynamic>(pBuffer).data());
+			}
+			size_t fGetOffset() {
+				return (pStart - fGetBase());
 			}
 
 		public:
 			constexpr void push(const Type& t) {
-				if (std::holds_alternative<Dynamic>(pBuffer)) {
-					Dynamic& d = std::get<Dynamic>(pBuffer);
-					if (size_t(pEnd - d.data()) >= d.size()) {
-						size_t bOff = pBegin - d.data(), eOff = pEnd - d.data();
-						d.resize(d.size() + BufferSize);
-						pBegin = d.data() + bOff;
-						pEnd = d.data() + eOff;
+				/* copy the value, as it might be a reference into this buffer itself */
+				Type value = t;
+
+				/* check if the buffer needs to be resized */
+				if (std::holds_alternative<Static>(pBuffer)) {
+					Static& s = std::get<Static>(pBuffer);
+					if (pSize == 0)
+						pStart = s.buffer;
+					else if (size_t(pStart - s.buffer) + pSize == BufferSize) {
+						Dynamic d; d.reserve(2 * BufferSize);
+						d.assign(pStart, pStart + pBuffer);
+						d.resize(2 * BufferSize);
+						pStart = (pBuffer = std::move(d)).data();
 					}
 				}
-				else if (pEnd - std::get<Static>(pBuffer).buffer >= BufferSize) {
-					Dynamic v{ pBegin, pEnd };
-					v.push_back(t);
-					pBuffer = std::move(v);
-					pBegin = std::get<Dynamic>(pBuffer).data();
-					pEnd = pBegin + std::get<Dynamic>(pBuffer).size();
-					return;
+				else {
+					Dynamic& d = std::get<Dynamic>(pBuffer);
+					if (pSize == 0)
+						pStart = d.data();
+					else if (size_t off = size_t(pStart - d.data()); off + pSize == d.size()) {
+						d.resize(pSize + BufferSize);
+						pStart = d.data() + off;
+					}
 				}
-				*pEnd = t;
-				++pEnd;
+
+				/* write the new value to the queue */
+				pStart[pSize++] = value;
 			}
 			constexpr Type pop() {
-				Type val = *pBegin;
-				if (++pBegin == pEnd) {
-					if (std::holds_alternative<Static>(pBuffer))
-						pBegin = std::get<Static>(pBuffer).buffer;
-					else
-						pBegin = std::get<Dynamic>(pBuffer).data();
-					pEnd = pBegin;
-				}
-				return val;
+				--pSize;
+				return *(pStart++);
 			}
 			constexpr void clear() {
-				if (std::holds_alternative<Static>(pBuffer))
-					pBegin = std::get<Static>(pBuffer).buffer;
-				else
-					pBegin = std::get<Dynamic>(pBuffer).data();
-				pEnd = pBegin;
+				pSize = 0;
 			}
 			constexpr size_t size() const {
-				return (pEnd - pBegin);
+				return pSize;
 			}
 			constexpr Type& get(size_t i) {
-				return pBegin[i];
+				return pStart[i];
 			}
 			constexpr Type& front() {
-				return pBegin[0];
+				return pStart[0];
 			}
 			constexpr Type& back() {
-				return pEnd[-1];
+				return pStart[pSize - 1];
 			}
 			constexpr Type* begin() {
-				return pBegin;
+				return pStart;
 			}
 			constexpr Type* end() {
-				return pEnd;
+				return pStart + pSize;
+			}
+		};
+
+		struct MatchCollector {
+		public:
+			detail::LocalQueue<char32_t> expected;
+			bool matches = true;
+
+		public:
+			constexpr void next(char32_t cp) {
+				if (expected.size() == 0 || expected.pop() != cp)
+					matches = false;
+			}
+			constexpr void done() {}
+			constexpr bool completed() {
+				return (matches && expected.size() == 0);
 			}
 		};
 
