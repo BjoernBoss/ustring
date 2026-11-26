@@ -17,8 +17,8 @@
 #endif
 
 namespace str {
-	static constexpr bool WideIsUtf16 = (sizeof(wchar_t) == sizeof(char16_t) && detail::IsUtf16(L"\U00010000\U0000ff00"));
-	static constexpr bool WideIsUtf32 = (sizeof(wchar_t) == sizeof(char32_t) && detail::IsUtf32(L"\U00010000\U0000ff00"));
+	static constexpr bool WideIsUtf16 = detail::IsUtf16(L"\U00010000\U0000ff00");
+	static constexpr bool WideIsUtf32 = detail::IsUtf32(L"\U00010000\U0000ff00");
 
 	/* check expected assumptions */
 	static_assert(sizeof(wchar_t) == sizeof(uint16_t) || sizeof(wchar_t) == sizeof(uint32_t), "wchar_t is expected to be at least 16bit and at most 32bit");

@@ -6,6 +6,7 @@
 #include "../coding/str-coding.h"
 
 #include <cmath>
+#include <cerrno>
 #include <utility>
 #include <tuple>
 #include <optional>
@@ -182,8 +183,8 @@ namespace str {
 			 6,  6,  6,  6,  6,  6,  6,  6,
 			 6,  6,  6,  6,  6
 		};
-		static constexpr const char32_t* PrefixLower = U"__b_q___o_d_____x___________________";
-		static constexpr const char32_t* PrefixUpper = U"__B_Q___O_D_____X___________________";
+		static constexpr const char32_t* PrefixLower = U"__b_q___o_d_____x____________________";
+		static constexpr const char32_t* PrefixUpper = U"__B_Q___O_D_____X____________________";
 		static constexpr const char32_t* DigitLower = U"0123456789abcdefghijklmnopqrstuvwxyz";
 		static constexpr uint8_t AsciiDigitMap[detail::AsciiRange] = {
 		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -973,20 +974,15 @@ namespace str {
 
 		template <class Type, size_t Units>
 		constexpr std::pair<Type, int8_t> ConstructFloat(uint64_t mantissa, uint8_t manShift, int32_t exponent, uint32_t radix, bool hexFloat, bool trailIsNull) {
-			uint64_t flMantissa = 0;
+			uint64_t flMantissa = 0, flTail = 0;
 			int flExponent = 0;
-			bool roundUp = false;
 
 			/* check if this is a hex-float, in which case the exponent only needs to be corrected by the mantissa-shift
 			*	(exponent is guaranteed to fit into an integer) and otherwise use the large-integers to produce the bits */
 			if (hexFloat) {
 				flExponent = int(exponent + manShift);
 				flMantissa = mantissa;
-
-				/* setup the rounding information */
-				int32_t bits = int32_t(detail::BitsForNumber(flMantissa)) - std::numeric_limits<Type>::digits;
-				if (bits >= 0)
-					roundUp = detail::RoundToNearestRoundUp(flMantissa >> bits, (flMantissa << (64 - bits)) | (trailIsNull ? 0x00 : 0x01));
+				flTail = (trailIsNull ? 0x00 : 0x01);
 			}
 			else {
 				/* compute the binary exponent of the number and the number of bits of the mantissa (exponent is guaranteed to fit into an integer;
@@ -1007,7 +1003,7 @@ namespace str {
 					denominator = detail::LargePow<Units>(denominator, radix, uint32_t(-exponent));
 
 				/* loop until the required number of mantissa-bits have been extracted */
-				uint32_t fetchedBits = 0, requiredBits = uint32_t(Limits::digits);
+				uint32_t fetchedBits = 0, requiredBits = uint32_t(std::numeric_limits<Type>::digits);
 				do {
 					/* compute the number of bits to extract this iteration and perform the multiply/division */
 					uint32_t numberOfBits = std::min<uint32_t>(requiredBits - fetchedBits, 24);
@@ -1030,11 +1026,21 @@ namespace str {
 				/* extract the rounding information */
 				detail::LargeMul<Units>(numerator, 0x02);
 				bool tailBit = (detail::LargeDiv<Units>(numerator, denominator) != 0);
-				roundUp = detail::RoundToNearestRoundUp(flMantissa, (uint64_t(tailBit ? 0x01 : 0x00) << 63) | ((trailIsNull && numerator.size == 0) ? 0x00 : 0x01));
+				flTail = (uint64_t(tailBit ? 0x01 : 0x00) << 63) | ((trailIsNull && numerator.size == 0) ? 0x00 : 0x01);
+			}
+
+			/* check if bits of the mantissa need to be dropped into the tail, as the mantissa either
+			*	contains too many bits, or the value is subnormal and can therefore hold fewer bits */
+			int32_t flBits = int32_t(detail::BitsForNumber(flMantissa));
+			int32_t flDropped = (flBits - std::numeric_limits<Type>::digits) + std::max<int32_t>(0, std::numeric_limits<Type>::min_exponent - (flExponent + flBits));
+			if (flDropped > 0) {
+				flTail = (flDropped > 64 ? 0x01 : (flMantissa << (64 - flDropped))) | (flTail != 0 ? 0x01 : 0x00);
+				flMantissa = (flDropped >= 64 ? 0 : (flMantissa >> flDropped));
+				flExponent += flDropped;
 			}
 
 			/* check if the mantissa needs to be rounded up and update it and the exponent accordingly */
-			if (roundUp) {
+			if (detail::RoundToNearestRoundUp(flMantissa, flTail)) {
 				if (flMantissa == std::numeric_limits<uint64_t>::max()) {
 					flMantissa >>= 1;
 					++flExponent;
@@ -1045,9 +1051,9 @@ namespace str {
 			/* construct the final value and check if an overflow/underflow occurred */
 			errno = 0;
 			Type value = std::ldexp(Type(flMantissa), flExponent);
-			if (errno == ERANGE || value == 0.0)
-				return { Type(), (exponent < 0 ? -1 : 1) };
-			return { value, 0 };
+			if (errno == ERANGE || value == 0.0 || !std::isfinite(value))
+				return { Type(), int8_t(exponent < 0 ? -1 : 1) };
+			return { value, int8_t(0) };
 		}
 
 		template <class Type, class ChType>
@@ -1112,7 +1118,7 @@ namespace str {
 
 			/* check if the mantissa is null, in which case any range-errors are ignored */
 			if (mantissa.mantissa == 0) {
-				num = 0;
+				num = (negative ? -Type(0) : Type(0));
 				return str::ParsedNum{ totalConsumed, str::NumResult::valid };
 			}
 
@@ -1483,7 +1489,7 @@ namespace str {
 					str::CodepointTo<str::CodeError::nothing>(sink, U'.', 1);
 					if (totalDigits <= 1 || style == str::FloatStyle::generalTrim || style == str::FloatStyle::fixedTrim || style == str::FloatStyle::scientificTrim)
 						totalDigits = 2;
-					str::CodepointTo<str::CodeError::nothing>(sink, U'0', totalDigits - 1);
+					str::CodepointTo<str::CodeError::nothing>(sink, U'0', size_t(totalDigits - 1));
 				}
 
 				/* check if an exponent needs to be added */
@@ -1503,8 +1509,8 @@ namespace str {
 
 			/* select the resolution to be used (add two additional data-packages for scratch-pad and imprecisions/accumulating errors,
 			*	and make it dependent on the digits and rounding-digit, as well as an imprecision-correction for larger exponents) */
-			uint32_t expBits = uint32_t(detail::BitsForNumber(detail::NumAbs(flExponent))) * 2;
-			uint32_t digitsBits = uint32_t(std::ceil((totalDigits + 1) * detail::LogBase2[radix]));
+			uint32_t expBits = uint32_t(detail::BitsForNumber(uint64_t(detail::NumAbs(flExponent)))) * 2;
+			uint32_t digitsBits = uint32_t(std::ceil(double(totalDigits + 1) * detail::LogBase2[radix]));
 			uint32_t dataPackages = ((expBits + digitsBits + 31) / 32) + 2;
 			if (dataPackages <= 4)
 				detail::PrintNormalFloat<Type, 4>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
@@ -1527,7 +1533,7 @@ namespace str {
 			bool hexFloat = (args.radix == str::HexFloat);
 
 			/* ensure the radix is valid (set it even for hex-floats in order to ensure the prefix is parsed correctly) */
-			if (str::IsFloat<Type> && hexFloat) {
+			if (hexFloat && str::IsFloat<Type>) {
 				args.radix = 16;
 				if (args.prefix == str::PrefixMode::overwrite)
 					args.prefix = str::PrefixMode::optional;
