@@ -311,7 +311,7 @@ class Ranges:
 				last = bFirst - 1
 
 			# invoke the callback and add the next range to the output
-			val = fn(aNext.values if aFirst <= first else None, bNext.values if bFirst <= first else None)
+			val = fn(aNext.values if (aNext is not None and aFirst <= first) else None, bNext.values if (bNext is not None and bFirst <= first) else None)
 			if val is not None:
 				Ranges._appOrMerge(out, Range(first, last, val))
 			nextProcessed = last + 1
@@ -492,7 +492,7 @@ class Ranges:
 			lastEnd = a[i].last
 
 		# add the final inversion to the 2**32
-		if lastEnd + 1 < Range.RangeLast:
+		if lastEnd < Range.RangeLast:
 			out.append(Range(lastEnd + 1, Range.RangeLast, 1))
 		return out
 	@staticmethod
@@ -517,7 +517,7 @@ class CodeGenIndirect:
 	def minBufferSize(self) -> int:
 		return self._minBufferSize
 	@property
-	def shiftTests(self) -> int:
+	def shiftTests(self) -> list[int]:
 		return self._shiftTests
 
 class CodeGenDensityIfElse:
@@ -532,7 +532,7 @@ class CodeGenDensityIfElse:
 	def minClusterSize(self) -> int:
 		return self._minClusterSize
 	@property
-	def preferAscii(self) -> int:
+	def preferAscii(self) -> bool:
 		return self._preferAscii
 
 class CodeGenBinarySearch:
@@ -551,7 +551,7 @@ class CodeGenBinarySearch:
 	def minBufferSize(self) -> int:
 		return self._minBufferSize
 	@property
-	def shiftTests(self) -> int:
+	def shiftTests(self) -> list[int]:
 		return self._shiftTests
 
 type CodeGenOpts = CodeGenIndirect|CodeGenDensityIfElse|CodeGenBinarySearch
@@ -1053,7 +1053,7 @@ class CodeGen:
 
 		# check if its only a single direct lookup
 		if shiftSum == 0:
-			indexLookupCode = f'{list[bufferName.values()][0]}[{inVarName}]'
+			indexLookupCode = f'{list(bufferName.values())[0]}[{inVarName}]'
 			self._code += f'{indent}{self._outTo} {self._type.dynLookup(indexLookupCode)};\n'
 			if lowerClipped or upperClipped:
 				self._code += '}\n'
@@ -1267,7 +1267,7 @@ class GeneratedFile:
 		self.writeln(f'namespace cp::detail::gen{"::test" if self._test else ""} {{')
 		self._indented = True
 		return self
-	def __exit__(self, *args) -> None:
+	def __exit__(self, *args) -> bool:
 		if self._file is not None:
 			self._file.write('}\n')
 			self._file.close()
@@ -1309,7 +1309,7 @@ class GeneratedFile:
 		return CodeGen(self, blockName, desc)
 
 class ParsedFile:
-	def _parseLine(self, line: str) -> None:
+	def _parseLine(self, line: str) -> list|None:
 		missing = ('@missing:' in line)
 
 		# check if this is a missing line
@@ -1490,7 +1490,7 @@ def DownloadUCDFiles(refreshFiles: bool, includeMain: bool, includeTest: bool, b
 		urllib.request.urlretrieve(url, path)
 
 	# fetch the version from the read-me
-	with open('ucd/ReadMe.txt', 'r') as f:
+	with open(mapping['ReadMe'], 'r', encoding='utf-8') as f:
 		fileContent = f.read().replace('\r', '').replace('\n', ' ').replace('  ', ' ')
 	version = re.findall('[vV]ersion ([0-9]+(\\.[0-9]+)*) of the Unicode (Standard|Character Database)', fileContent)
 	if len(version) != 1:
@@ -2322,8 +2322,8 @@ def _ApplyCorrection(r: list[Range], c: int, v: tuple[int]) -> list[Range]:
 	val = Ranges.lookup(r, c)
 	if val is None:
 		raise RuntimeError('Unable to apply normalization correction')
-	if len(val) == 1 and val[0] == v[0]:
-		return Ranges.merge(r, [Range(c, c, v[1])], lambda _, b: b)
+	if len(val) == 2 and val[1] == v[0]:
+		return Ranges.merge(r, [Range(c, c, (val[0], v[1]))], lambda _, b: b)
 	return r
 def _TranslateComposition(v: tuple[int], shift: int, sizeMask: int) -> tuple[int]:
 	count = len(v) // 2

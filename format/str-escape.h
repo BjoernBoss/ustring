@@ -219,7 +219,7 @@ namespace str {
 
 			/* check if the codepoint can be added as short-version */
 			else if (cp <= 0xff) {
-				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(size_t(cp >> 4)), cp::ascii::GetRadixLower(size_t(cp & 0x0f)) };
+				char32_t buf[4] = { U'\\', U'x', cp::ascii::GetRadixLower(cp >> 4), cp::ascii::GetRadixLower(cp & 0x0f) };
 				for (size_t i = 0; i < count; ++i)
 					str::FastcodeAllTo<Error>(sink, std::u32string_view{ buf, 4 });
 			}
@@ -234,7 +234,7 @@ namespace str {
 				char32_t buf[detail::MaxEscapeSize] = { U'\\', U'u', U'{', 0 };
 				size_t len = 3;
 				do {
-					buf[len++] = cp::ascii::GetRadixLower(size_t((cp >> shift) & 0x0f));
+					buf[len++] = cp::ascii::GetRadixLower((cp >> shift) & 0x0f);
 				} while ((shift -= 4) >= 0);
 				buf[len++] = U'}';
 

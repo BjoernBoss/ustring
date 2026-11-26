@@ -205,9 +205,9 @@ namespace str {
 		);
 
 		struct PreComputedEntry {
-			int32_t size = 0;
-			int32_t nulls = 0;
-			int32_t offset = 0;
+			uint32_t size = 0;
+			uint32_t nulls = 0;
+			uint32_t offset = 0;
 		};
 		static constexpr uint32_t MaxPowerTenEntries = 16;
 		static constexpr uint32_t MaxPowerTenSplit = 20;
@@ -259,9 +259,9 @@ namespace str {
 		template <size_t Units>
 		struct LargeInt {
 			std::conditional_t<detail::DynamicInt<Units>, std::vector<uint32_t>, uint32_t[std::max<size_t>(Units, 1)]> data{};
-			int32_t size = 0;
-			int32_t nulls = 0;
-			int32_t capacity = 0;
+			uint32_t size = 0;
+			uint32_t nulls = 0;
+			uint32_t capacity = 0;
 		};
 
 		template <size_t Units>
@@ -270,10 +270,10 @@ namespace str {
 			if constexpr (detail::DynamicInt<Units>) {
 				uint32_t actual = std::max<uint32_t>(capacity, 2);
 				out.data.resize(actual);
-				out.capacity = int32_t(actual);
+				out.capacity = actual;
 			}
 			else
-				out.capacity = int32_t(Units);
+				out.capacity = uint32_t(Units);
 
 			/* check if the value itself is null */
 			if (v == 0)
@@ -284,7 +284,7 @@ namespace str {
 				out.size = 1;
 			else
 				out.nulls = 1;
-			if ((out.data[size_t(out.size)] = uint32_t(v >> 32)))
+			if ((out.data[out.size] = uint32_t(v >> 32)))
 				++out.size;
 			return out;
 		}
@@ -298,10 +298,10 @@ namespace str {
 			}
 
 			/* count the leading nulls of a and compute its actual size */
-			int32_t aOff = 0;
-			while (a.data[size_t(aOff)] == 0)
+			uint32_t aOff = 0;
+			while (a.data[aOff] == 0)
 				++aOff;
-			int32_t aSize = a.size - aOff;
+			uint32_t aSize = a.size - aOff;
 
 			/* compute the output size and nulls and check if additional information must be skipped, as the result would overflow the capacity */
 			a.size = aSize + 1;
@@ -313,7 +313,7 @@ namespace str {
 			if (skip) {
 				a.size = a.capacity;
 				++a.nulls;
-				carry = uint32_t((uint64_t(b) * uint64_t(a.data[size_t(aOff)])) >> 32);
+				carry = uint32_t((uint64_t(b) * a.data[aOff]) >> 32);
 				++aOff;
 				--aSize;
 			}
@@ -332,44 +332,44 @@ namespace str {
 #endif
 
 			/* iterate over the elements of a and perform the multiplication */
-			for (int32_t i = 0; i < aSize; ++i) {
-				uint64_t value = uint64_t(b) * uint64_t(a.data[size_t(aOff + i)]) + uint64_t(carry);
+			for (uint32_t i = 0; i < aSize; ++i) {
+				uint64_t value = uint64_t(b) * a.data[aOff + i] + carry;
 
 				/* write the value to the output and update the shift */
-				a.data[size_t(i)] = uint32_t(value);
+				a.data[i] = uint32_t(value);
 				carry = uint32_t(value >> 32);
 			}
 
 			/* write the remainder of the carry to the output */
-			a.data[size_t(aSize)] = carry;
+			a.data[aSize] = carry;
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
 			/* clip any trailing nulls in the output (cannot underflow as value cannot be null) */
-			while (a.data[size_t(a.size - 1)] == 0)
+			while (a.data[a.size - 1] == 0)
 				--a.size;
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargeMul(const detail::LargeInt<Units>& a, const detail::LargeInt<Units>& b) {
-			detail::LargeInt<Units> out = detail::LargeLoad<Units>(0, uint32_t(a.capacity));
+			detail::LargeInt<Units> out = detail::LargeLoad<Units>(0, a.capacity);
 
 			/* check if the values themselves are null */
 			if (a.size == 0 || b.size == 0)
 				return out;
 
 			/* count the leading nulls of a and b and compute their actual sizes */
-			int32_t aOff = 0, bOff = 0;
-			while (a.data[size_t(aOff)] == 0)
+			uint32_t aOff = 0, bOff = 0;
+			while (a.data[aOff] == 0)
 				++aOff;
-			while (b.data[size_t(bOff)] == 0)
+			while (b.data[bOff] == 0)
 				++bOff;
-			int32_t aSize = a.size - aOff, bSize = b.size - bOff;
+			uint32_t aSize = a.size - aOff, bSize = b.size - bOff;
 
 			/* compute the output size and nulls and check if additional information must be skipped, as the result would overflow the capacity */
 			out.size = aSize + bSize;
 			out.nulls = a.nulls + b.nulls + aOff + bOff;
-			int32_t skipped = 0;
+			uint32_t skipped = 0;
 			if (out.size > out.capacity) {
 				skipped = (out.size - out.capacity);
 				out.size = out.capacity;
@@ -378,38 +378,37 @@ namespace str {
 
 			/* perform the multiplication with the smaller of the two values on the outer loop */
 			uint32_t* resData = &out.data[0];
-			const uint32_t* outerData = (aSize <= bSize ? &a.data[size_t(aOff)] : &b.data[size_t(bOff)]);
-			const uint32_t* innerData = (aSize <= bSize ? &b.data[size_t(bOff)] : &a.data[size_t(aOff)]);
-			int32_t outerSize = (aSize <= bSize ? aSize : bSize), innerSize = (aSize <= bSize ? bSize : aSize);
-			for (int32_t oIndex = 0; oIndex < outerSize; ++oIndex) {
+			const uint32_t* outerData = (aSize <= bSize ? &a.data[aOff] : &b.data[bOff]);
+			const uint32_t* innerData = (aSize <= bSize ? &b.data[bOff] : &a.data[aOff]);
+			uint32_t outerSize = (aSize <= bSize ? aSize : bSize), innerSize = (aSize <= bSize ? bSize : aSize);
+			for (uint32_t oIndex = 0; oIndex < outerSize; ++oIndex) {
 				uint64_t oValue = outerData[oIndex];
 
 				/* check if any data to be multiplied exist and compute the index into the output buffer and into the input inner-data */
 				if (oValue == 0)
 					continue;
-				int32_t offset = oIndex - skipped, iIndex = 0;
-				uint32_t carry = 0;
-				if (offset < 0) {
-					if ((iIndex = -offset) >= innerSize)
+				uint32_t iIndex = 0, carry = 0;
+				if (oIndex < skipped) {
+					if ((iIndex = skipped - oIndex) >= innerSize)
 						continue;
-					carry = uint32_t((oValue * uint64_t(innerData[size_t(iIndex - 1)])) >> 32);
+					carry = uint32_t((oValue * innerData[iIndex - 1]) >> 32);
 				}
 
 				/* iterate over the elements of a and perform the multiplication */
 				for (; iIndex < innerSize; ++iIndex) {
-					uint64_t value = oValue * uint64_t(innerData[iIndex]) + uint64_t(resData[size_t(offset + iIndex)]) + uint64_t(carry);
+					uint64_t value = oValue * innerData[iIndex] + resData[oIndex + iIndex - skipped] + carry;
 
 					/* write the value to the output and update the shift */
-					resData[size_t(offset + iIndex)] = uint32_t(value);
+					resData[oIndex + iIndex - skipped] = uint32_t(value);
 					carry = uint32_t(value >> 32);
 				}
 
 				/* write the remainder of the carry to the output */
-				resData[size_t(offset + iIndex)] = carry;
+				resData[oIndex + iIndex - skipped] = carry;
 			}
 
 			/* clip any trailing nulls in the output (cannot underflow as value cannot be null) */
-			while (out.data[size_t(out.size - 1)] == 0)
+			while (out.data[out.size - 1] == 0)
 				--out.size;
 			return out;
 		}
@@ -420,41 +419,41 @@ namespace str {
 				return 0;
 
 			/* skip any leading nulls in the denominator (cannot overflow, as the denominator must not be null) */
-			int32_t dOff = 0;
-			while (d.data[size_t(dOff)] == 0)
+			uint32_t dOff = 0;
+			while (d.data[dOff] == 0)
 				++dOff;
-			int32_t dSize = (d.size - dOff);
+			uint32_t dSize = (d.size - dOff);
 
 			/* extract the high-order denominator to be used (shift it for the 32nd bit to be set) */
 			uint32_t shift = 0;
-			uint64_t denValue = uint64_t(d.data[size_t(dOff + dSize - 1)]);
+			uint64_t denValue = d.data[dOff + dSize - 1];
 			while ((denValue << 1) <= std::numeric_limits<uint32_t>::max()) {
 				denValue <<= 1;
 				++shift;
 			}
 			if (shift != 0 && dSize > 1)
-				denValue |= uint64_t(d.data[size_t(dOff + dSize - 2)] >> (32 - shift));
+				denValue |= uint64_t(d.data[dOff + dSize - 2] >> (32 - shift));
 
 			/* perform the division by performing a partial division (only using the high-order values) and then performing a multiply-subtraction */
 			uint32_t result = 0;
 			while (diff >= 0) {
 				/* check if the numerator needs to be shifted such that the subtraction has enough space to be performed without
 				*	loss of information (cannot result in an underflow of nulls, as total difference must at least be equal) */
-				int32_t minSize = (diff > 0 && dSize < n.capacity ? dSize + 1 : dSize);
+				uint32_t minSize = (diff > 0 && dSize < n.capacity ? dSize + 1 : dSize);
 				if (minSize > n.size) {
-					int32_t nulls = (minSize - n.size);
-					for (int32_t i = minSize; i > 0; --i)
-						n.data[size_t(i - 1)] = (i > nulls ? n.data[size_t(i - 1 - nulls)] : 0);
+					uint32_t nulls = (minSize - n.size);
+					for (uint32_t i = minSize; i > 0; --i)
+						n.data[i - 1] = (i > nulls ? n.data[i - 1 - nulls] : 0);
 					n.nulls -= nulls;
 					n.size += nulls;
 				}
 
 				/* extract the next numerator to be used and check if the end has been reached */
-				uint64_t numValue = uint64_t(n.data[size_t(n.size - 1)]);
+				uint64_t numValue = n.data[n.size - 1];
 				if (shift != 0) {
 					numValue <<= shift;
 					if (n.size > 1)
-						numValue |= (uint64_t(n.data[size_t(n.size - 2)]) >> (32 - shift));
+						numValue |= (uint64_t(n.data[n.size - 2]) >> (32 - shift));
 				}
 				if (diff == 0 && numValue < denValue)
 					break;
@@ -464,9 +463,9 @@ namespace str {
 				if (additional) {
 					numValue <<= 32;
 					if (n.size > 1)
-						numValue |= uint64_t(n.data[size_t(n.size - 2)]) << shift;
+						numValue |= uint64_t(n.data[n.size - 2]) << shift;
 					if (n.size > 2)
-						numValue |= (uint64_t(n.data[size_t(n.size - 3)]) >> (32 - shift));
+						numValue |= (uint64_t(n.data[n.size - 3]) >> (32 - shift));
 				}
 
 				/* perform the actual division and limit it to prevent overflows (will at all times result in a value
@@ -479,25 +478,25 @@ namespace str {
 				/* setup the offsets and actual size to be used for the multiply-subtraciton (loss
 				*	of information in case of the denominator holding maximum-number of information) */
 				uint32_t borrow = 0, initSub = 0;
-				int32_t subSize = dSize, nOff = (n.size - dSize);
+				uint32_t subSize = dSize, nOff = (n.size - dSize), nLost = 0;
 				if (additional) {
 					++subSize;
-					--nOff;
+					(nOff > 0 ? --nOff : ++nLost);
 				}
 
 				/* perform the mulitply-subtraction on the numerator */
-				for (int32_t i = 0; i < subSize; ++i) {
+				for (uint32_t i = 0; i < subSize; ++i) {
 					uint64_t sub = borrow;
 					if (i < dSize)
-						sub += uint64_t(d.data[size_t(dOff + i)]) * divResult;
+						sub += d.data[dOff + i] * divResult;
 					borrow = uint32_t(sub >> 32);
 
 					/* perform the subtraction and check if a borrow has to be carried through */
-					if (i > 0 || nOff >= 0) {
-						uint32_t old = n.data[size_t(i + nOff)];
+					if (i > 0 || nLost == 0) {
+						uint32_t old = n.data[i + nOff - nLost];
 						if (old < uint32_t(sub))
 							++borrow;
-						n.data[size_t(i + nOff)] -= uint32_t(sub);
+						n.data[i + nOff - nLost] -= uint32_t(sub);
 					}
 					else if (uint32_t(sub) > 0) {
 						initSub = uint32_t(sub);
@@ -511,16 +510,16 @@ namespace str {
 
 					/* perform the addition back again (any remaining carry can be ignored, as it will be equivalent to the previous borrow, which is now being fixed) */
 					uint32_t carry = 0;
-					for (int32_t i = 0; i < subSize; ++i) {
+					for (uint32_t i = 0; i < subSize; ++i) {
 						uint64_t add = carry;
 						if (i < dSize)
-							add += uint64_t(d.data[size_t(dOff + i)]);
+							add += d.data[dOff + i];
 
-						if (i == 0 && nOff < 0)
+						if (i == 0 && nLost > 0)
 							add += initSub;
 						else {
-							add += n.data[size_t(i + nOff)];
-							n.data[size_t(i + nOff)] = uint32_t(add);
+							add += n.data[i + nOff - nLost];
+							n.data[i + nOff - nLost] = uint32_t(add);
 						}
 						carry = uint32_t(add >> 32);
 					}
@@ -533,7 +532,7 @@ namespace str {
 				result = uint32_t(divResult);
 
 				/* update the numerator size by checking how many slots have been cleared form the numerator */
-				while (n.size > 0 && n.data[size_t(n.size - 1)] == 0) {
+				while (n.size > 0 && n.data[n.size - 1] == 0) {
 					--n.size;
 					--diff;
 				}
@@ -548,7 +547,7 @@ namespace str {
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargePowDef(const detail::LargeInt<Units>& v, uint32_t b, uint32_t e) {
-			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(b, uint32_t(v.capacity));
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(b, v.capacity);
 
 			/* square-multiply algorithm */
 			while (e > 0) {
@@ -581,14 +580,14 @@ namespace str {
 			detail::LargeInt<Units> out = v;
 
 			/* compute the shift to be applied to the nulls itself and multiply the rest with the remainder */
-			out.nulls += int32_t(e / 32);
+			out.nulls += (e / 32);
 			if ((e %= 32) > 0)
 				detail::LargeMul<Units>(out, uint32_t(0x01) << e);
 			return out;
 		}
 		template <size_t Units>
 		constexpr detail::LargeInt<Units> LargePowTen(const detail::LargeInt<Units>& v, uint32_t e) {
-			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(0, uint32_t(v.capacity));
+			detail::LargeInt<Units> out = v, temp = detail::LargeLoad<Units>(0, v.capacity);
 
 			do {
 				/* break up the power-computation (but limit it by the precomputed amount of data, might require multiple iterations for very large exponents) */
@@ -599,8 +598,8 @@ namespace str {
 					const detail::PreComputedEntry& entry = detail::PreComputedPowerTen[large];
 
 					/* populate the intermediate large-int */
-					temp.size = std::min<int32_t>(temp.capacity, entry.size);
-					int32_t skipped = (entry.size - temp.size);
+					temp.size = std::min<uint32_t>(temp.capacity, entry.size);
+					uint32_t skipped = (entry.size - temp.size);
 					temp.nulls = entry.nulls + skipped;
 					std::copy(detail::PreComputedPowerTenData + entry.offset + skipped, detail::PreComputedPowerTenData + entry.offset + skipped + temp.size, std::begin(temp.data));
 
@@ -786,7 +785,7 @@ namespace str {
 
 			/* digit map to contain all digits */
 			uint8_t digits[sizeof(num) * 8] = { 0 };
-			uint8_t* next = digits;
+			size_t count = 0;
 
 			/* check if a sign needs to be added */
 			uint64_t act = 0;
@@ -802,7 +801,7 @@ namespace str {
 
 			/* extract the separate digits */
 			do {
-				*(next++) = uint8_t(act % radix);
+				digits[count++] = uint8_t(act % radix);
 				act /= radix;
 			} while (act > 0);
 
@@ -820,14 +819,14 @@ namespace str {
 			}
 
 			/* write the additional null-digits out */
-			if (size_t(next - digits) < digitCount)
-				str::CodepointTo<str::CodeError::nothing>(sink, U'0', digitCount - size_t(next - digits));
+			if (count < digitCount)
+				str::CodepointTo<str::CodeError::nothing>(sink, U'0', digitCount - count);
 
 
 			/* write the digits out */
 			const char32_t* digitSet = (upperCase ? detail::DigitUpper : detail::DigitLower);
-			while (next != digits)
-				str::CodepointTo<str::CodeError::nothing>(sink, digitSet[*(--next)], 1);
+			while (count > 0)
+				str::CodepointTo<str::CodeError::nothing>(sink, digitSet[digits[--count]], 1);
 		}
 
 		struct SpecialOut {
@@ -988,7 +987,7 @@ namespace str {
 				/* compute the binary exponent of the number and the number of bits of the mantissa (exponent is guaranteed to fit into an integer;
 				*	manShift can be ignored, as it cancels out when scaling the mantissa, compared to dividing it by the mantissa-bits) */
 				flExponent = int(std::ceil(exponent * detail::LogBase2[radix]));
-				int32_t manDigits = int32_t(detail::BitsForNumber(mantissa));
+				int32_t manDigits = detail::BitsForNumber(mantissa);
 
 				/* construct the numerator and denominator of the large type used to compute the final bits */
 				detail::LargeInt<Units> numerator = detail::LargeLoad<Units>(mantissa, 0), denominator = detail::LargeLoad<Units>(1, 0);
@@ -1031,7 +1030,7 @@ namespace str {
 
 			/* check if bits of the mantissa need to be dropped into the tail, as the mantissa either
 			*	contains too many bits, or the value is subnormal and can therefore hold fewer bits */
-			int32_t flBits = int32_t(detail::BitsForNumber(flMantissa));
+			int32_t flBits = detail::BitsForNumber(flMantissa);
 			int32_t flDropped = (flBits - std::numeric_limits<Type>::digits) + std::max<int32_t>(0, std::numeric_limits<Type>::min_exponent - (flExponent + flBits));
 			if (flDropped > 0) {
 				flTail = (flDropped > 64 ? 0x01 : (flMantissa << (64 - flDropped))) | (flTail != 0 ? 0x01 : 0x00);
@@ -1405,7 +1404,7 @@ namespace str {
 		}
 
 		template <class Type>
-		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, size_t radix, size_t precision, bool addPrefix, bool upperCase, bool hexFloat) {
+		constexpr void PrintFloat(auto& sink, Type num, str::FloatStyle style, uint32_t radix, size_t precision, bool addPrefix, bool upperCase, bool hexFloat) {
 			using Limits = std::numeric_limits<Type>;
 
 			/* validate the float-type is usable (to ensure the exponent cannot trigger any overflow in the power-operations) */
@@ -1513,19 +1512,19 @@ namespace str {
 			uint32_t digitsBits = uint32_t(std::ceil(double(totalDigits + 1) * detail::LogBase2[radix]));
 			uint32_t dataPackages = ((expBits + digitsBits + 31) / 32) + 2;
 			if (dataPackages <= 4)
-				detail::PrintNormalFloat<Type, 4>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 4>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else if (dataPackages <= 8)
-				detail::PrintNormalFloat<Type, 8>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 8>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else if (dataPackages <= 16)
-				detail::PrintNormalFloat<Type, 16>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 16>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else if (dataPackages <= 32)
-				detail::PrintNormalFloat<Type, 32>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 32>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else if (dataPackages <= 64)
-				detail::PrintNormalFloat<Type, 64>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 64>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else if (dataPackages <= 128)
-				detail::PrintNormalFloat<Type, 128>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, 0);
+				detail::PrintNormalFloat<Type, 128>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, 0);
 			else
-				detail::PrintNormalFloat<Type, 0>(sink, totalDigits, flExponent, flMantissa, style, uint32_t(radix), upperCase, dataPackages);
+				detail::PrintNormalFloat<Type, 0>(sink, totalDigits, flExponent, flMantissa, style, radix, upperCase, dataPackages);
 		}
 
 		template <class Type, class ChType>
@@ -1671,7 +1670,7 @@ namespace str {
 			args.radix = 10;
 		bool addPrefix = (args.numStyle == str::NumStyle::lowerWithPrefix || args.numStyle == str::NumStyle::upperWithPrefix);
 		bool upperCase = (args.numStyle == str::NumStyle::upper || args.numStyle == str::NumStyle::upperWithPrefix);
-		detail::PrintFloat<NumType>(sink, num, args.fltStyle, args.radix, args.precision, addPrefix, upperCase, hexFloat);
+		detail::PrintFloat<NumType>(sink, num, args.fltStyle, uint32_t(args.radix), args.precision, addPrefix, upperCase, hexFloat);
 	}
 
 	/* write the integer to an object of the given sink-type using str::IntTo and return it */
