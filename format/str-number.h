@@ -157,6 +157,9 @@ namespace str {
 		*	(including additions/subtractions of normal integer-type sizes such as 32/64/128/...) */
 		static constexpr int32_t LargeIntSafeExponentLimit = (0x01 << 24);
 
+		/* smallest exponent in scientific notation, for which the general style will still use the fixed notation */
+		static constexpr int32_t GeneralMinFixedExponent = -4;
+
 		static constexpr double LogBase2[str::MaxRadix + 1] = {
 			0.0000000000000000, 0.0000000000000000, 1.0000000000000000, 1.5849625007211563,
 			2.0000000000000000, 2.3219280948873620, 2.5849625007211560, 2.8073549220576040,
@@ -1091,15 +1094,16 @@ namespace str {
 			/* check if an exponent has been detected and parse it */
 			detail::ExponentOut exponent;
 			if (hexFloat ? (dec.cp == U'p' || dec.cp == U'P') : (dec.cp == U'e' || dec.cp == U'E' || dec.cp == U'^')) {
-				dec = str::GetAscii<str::CodeError::nothing>(view.substr(totalConsumed += dec.consumed));
+				size_t indicator = dec.consumed;
+				dec = str::GetAscii<str::CodeError::nothing>(view.substr(totalConsumed + indicator));
 
-				/* parse the exponent and check if an error occurred */
-				exponent = detail::ParseFloatExponent<ChType>(view.substr(totalConsumed), (hexFloat ? 10 : radix), dec);
-				totalConsumed += exponent.consumed;
-				if (exponent.invalid) {
-					num = (negative ? -Type(0) : Type(0));
-					return str::ParsedNum{ totalConsumed, str::NumResult::invalid };
-				}
+				/* parse the exponent and check if it is incomplete, in which case
+				*	the exponent indicator is not considered part of the number */
+				exponent = detail::ParseFloatExponent<ChType>(view.substr(totalConsumed + indicator), (hexFloat ? 10 : radix), dec);
+				if (exponent.invalid)
+					exponent = detail::ExponentOut{};
+				else
+					totalConsumed += indicator + exponent.consumed;
 			}
 
 			/* check if a range-error occurred */
@@ -1263,8 +1267,9 @@ namespace str {
 
 			/* check whether or not the scientific mode should be used */
 			bool scientific = (style == str::FloatStyle::scientificShort || style == str::FloatStyle::scientificTrim || style == str::FloatStyle::scientificFull);
-			if (style == str::FloatStyle::generalShort || style == str::FloatStyle::generalTrim || style == str::FloatStyle::generalFull)
-				scientific = (flExponent >= totalDigits || -flExponent > totalDigits);
+			bool general = (style == str::FloatStyle::generalShort || style == str::FloatStyle::generalTrim || style == str::FloatStyle::generalFull);
+			if (general)
+				scientific = (flExponent > totalDigits || flExponent <= detail::GeneralMinFixedExponent);
 
 			/* setup the visual properties of the string formatting from the style */
 			intptr_t digitsBeforePoint = (scientific ? 1 : std::max<intptr_t>(1, flExponent));
@@ -1381,9 +1386,18 @@ namespace str {
 					*	out of the digits (can only occur for fixed-style floats with at least one digit on the integer side) */
 					if (lastDigit == radix - 1) {
 						++flExponent;
-						if (!scientific)
-							++digitsBeforePoint;
 						lastDigit = 0;
+
+						/* check if the rounding moved the exponent across a boundary of the general style, in which
+						*	case the style is changed (no digits have been written out yet, as all are delayed) */
+						if (general && scientific != (flExponent > totalDigits || flExponent <= detail::GeneralMinFixedExponent)) {
+							scientific = !scientific;
+							digitsBeforePoint = 1;
+							if (!scientific)
+								detail::FlushFloatDigits(sink, U'0', 1 - flExponent, digitsBeforePoint);
+						}
+						else if (!scientific)
+							++digitsBeforePoint;
 					}
 
 					/* check for the edge-case of the rounding being carried into the leading
