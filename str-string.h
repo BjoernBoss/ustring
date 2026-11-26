@@ -72,20 +72,20 @@ namespace str {
 
 	public:
 		using Super::Super;
-		View(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		View(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
+		constexpr View(const std::basic_string_view<ChType>& v) : Super{ v } {}
+		constexpr View(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
-		View(const str::View<ChType, OError>& v) : Super{ v } {}
+		constexpr View(const str::View<ChType, OError>& v) : Super{ v } {}
 		template <str::CodeError OError>
-		View(str::View<ChType, OError>&& v) : Super{ std::move(v) } {}
+		constexpr View(str::View<ChType, OError>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
-		View(const str::String<ChType, OError>& v) : Super{ std::basic_string_view<ChType>{ v } } {}
+		constexpr View(const str::String<ChType, OError>& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 		template <str::CodeError OError>
-		View(str::String<ChType, OError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
+		constexpr View(str::String<ChType, OError>&& v) : Super{ std::basic_string_view<ChType>{ v } } {}
 	};
 	template <str::IsChStr<char> Type> View(Type) -> View<char, str::CodeError::replace>;
 	template <str::IsChStr<wchar_t> Type> View(Type) -> View<wchar_t, str::CodeError::replace>;
@@ -101,14 +101,14 @@ namespace str {
 
 	public:
 		using Super::Super;
-		explicit String(const std::basic_string_view<ChType>& v) : Super{ v } {}
-		explicit String(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
+		constexpr explicit String(const std::basic_string_view<ChType>& v) : Super{ v } {}
+		constexpr explicit String(std::basic_string_view<ChType>&& v) : Super{ std::move(v) } {}
 
 	public:
 		template <str::CodeError OError>
-		String(const str::String<ChType, OError>& v) : Super{ v } {}
+		constexpr String(const str::String<ChType, OError>& v) : Super{ v } {}
 		template <str::CodeError OError>
-		String(str::String<ChType, OError>&& v) : Super{ std::move(v) } {}
+		constexpr String(str::String<ChType, OError>&& v) : Super{ std::move(v) } {}
 
 	public:
 		constexpr operator str::View<ChType, Error>() const {
@@ -143,8 +143,8 @@ namespace str {
 
 		public:
 			using BaseType::BaseType;
-			UWrapper(const BaseType& v) : BaseType{ v } {}
-			UWrapper(BaseType&& v) : BaseType{ std::move(v) } {}
+			constexpr UWrapper(const BaseType& v) : BaseType{ v } {}
+			constexpr UWrapper(BaseType&& v) : BaseType{ std::move(v) } {}
 
 		private:
 			constexpr const BaseType& fBase() const {
@@ -228,7 +228,7 @@ namespace str {
 
 			/* iterate over all codepoints of the two strings, apply the transformations, and check if the strings match */
 			template <class AChType, class BChType, class... Transforms>
-			static bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, const Transforms&... transforms) {
+			static constexpr bool fCompare(const std::basic_string_view<AChType>& a, const std::basic_string_view<BChType>& b, const Transforms&... transforms) {
 				detail::LocalQueue<char32_t> buffer;
 				int8_t state = 0;
 				bool valid = true;

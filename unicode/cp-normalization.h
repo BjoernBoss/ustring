@@ -13,6 +13,8 @@
 
 namespace cp {
 	namespace detail {
+		static constexpr size_t SmallInsertionSort = 16;
+
 		template <bool WithData>
 		class Decomposer {
 		private:
@@ -37,8 +39,14 @@ namespace cp {
 				if (pChars.size() == 0)
 					return;
 
-				/* sort the cached chars with ccc in ascending order (sorting is guaranteed to preserve order between equal ccc-values) */
-				std::stable_sort(pChars.begin(), pChars.end(), [](const auto& a, const auto& b) -> bool { return a.ccc < b.ccc; });
+				/* sort the cached chars with ccc in ascending order (insertion-sort is guaranteed
+				*	to preserve order between equal ccc-values; manual for compile time evaluation) */
+				if (!std::is_constant_evaluated() || pChars.size() > detail::SmallInsertionSort)
+					std::stable_sort(pChars.begin(), pChars.end(), [](const auto& a, const auto& b) -> bool { return a.ccc < b.ccc; });
+				else for (auto it = std::next(pChars.begin()); it != pChars.end(); ++it) {
+					for (auto ot = it; ot != pChars.begin() && ot[-1].ccc > ot[0].ccc; --ot)
+						std::swap(ot[-1], ot[0]);
+				}
 
 				/* write the sorted codepoints out */
 				while (pChars.size() > 0) {

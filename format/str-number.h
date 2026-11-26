@@ -477,11 +477,11 @@ namespace str {
 
 				/* setup the offsets and actual size to be used for the multiply-subtraciton (loss
 				*	of information in case of the denominator holding maximum-number of information) */
-				uint32_t borrow = 0, initSub = 0;
-				uint32_t subSize = dSize, nOff = (n.size - dSize), nLost = 0;
+				uint32_t borrow = 0, lostSlot = 0, subSize = dSize;
+				int32_t nOff = int32_t(n.size - dSize);
 				if (additional) {
 					++subSize;
-					(nOff > 0 ? --nOff : ++nLost);
+					--nOff;
 				}
 
 				/* perform the mulitply-subtraction on the numerator */
@@ -492,37 +492,41 @@ namespace str {
 					borrow = uint32_t(sub >> 32);
 
 					/* perform the subtraction and check if a borrow has to be carried through */
-					if (i > 0 || nLost == 0) {
-						uint32_t old = n.data[i + nOff - nLost];
-						if (old < uint32_t(sub))
+					if (i > 0 || nOff >= 0) {
+						uint32_t index = uint32_t(int32_t(i) + nOff);
+						if (n.data[index] < uint32_t(sub))
 							++borrow;
-						n.data[i + nOff - nLost] -= uint32_t(sub);
+						n.data[index] -= uint32_t(sub);
 					}
 					else if (uint32_t(sub) > 0) {
-						initSub = uint32_t(sub);
+						lostSlot = uint32_t(0) - uint32_t(sub);
 						++borrow;
 					}
 				}
 
-				/* check if a borrow is left, in which case the result was too large by one and has to be added back again */
-				if (borrow > 0) {
+				/* check if a borrow is left, in which case the result was too large and has to be added back again */
+				while (borrow > 0) {
 					--divResult;
 
-					/* perform the addition back again (any remaining carry can be ignored, as it will be equivalent to the previous borrow, which is now being fixed) */
+					/* perform the addition back again (any remaining carry is equivalent to the previous borrow, which is now being fixed) */
 					uint32_t carry = 0;
 					for (uint32_t i = 0; i < subSize; ++i) {
 						uint64_t add = carry;
 						if (i < dSize)
 							add += d.data[dOff + i];
 
-						if (i == 0 && nLost > 0)
-							add += initSub;
+						if (i == 0 && nOff < 0) {
+							add += lostSlot;
+							lostSlot = uint32_t(add);
+						}
 						else {
-							add += n.data[i + nOff - nLost];
-							n.data[i + nOff - nLost] = uint32_t(add);
+							uint32_t index = uint32_t(int32_t(i) + nOff);
+							add += n.data[index];
+							n.data[index] = uint32_t(add);
 						}
 						carry = uint32_t(add >> 32);
 					}
+					borrow -= carry;
 				}
 
 				/* check if the division yielded no result, in which case the numerator holds the remainder (check
@@ -893,13 +897,13 @@ namespace str {
 					/* mark the result as valid as it contains at least one digit */
 					out.invalid = false;
 
-					/* update the dot-offset as either the ignored digits of the integer part or the considered digits
-					*	of the fractional part (check if dot-offset overflows - should in reality never happen) */
+					/* update the dot-offset as either the ignored digits of the integer part or the considered digits of the fractional part
+					*	(check if dot-offset overflows - should in reality never happen; limited to allow the offset to be scaled for hex-floats) */
 					if (inFraction) {
-						if (!valueClosed && --out.dotOffset == 0)
+						if (!valueClosed && out.range == 0 && --out.dotOffset == std::numeric_limits<int64_t>::min() / 4)
 							out.range = -1;
 					}
-					else if (valueClosed && ++out.dotOffset == 0)
+					else if (valueClosed && out.range == 0 && ++out.dotOffset == std::numeric_limits<int64_t>::max() / 4)
 						out.range = 1;
 
 					/* check if an actual digit has been encountered and add it to the mantissa-accumulation */
@@ -1105,10 +1109,11 @@ namespace str {
 
 			/* apply the shift to the exponent, based on the encountered fractional digits, and check if a range-error occurred */
 			if (range == 0 && mantissa.dotOffset != 0) {
-				int64_t old = exponent.exponent;
-				exponent.exponent += (hexFloat ? mantissa.dotOffset * 4 : mantissa.dotOffset);
-				if (mantissa.dotOffset < 0 ? (old <= exponent.exponent) : (old >= exponent.exponent))
-					range = (mantissa.dotOffset < 0 ? -1 : 1);
+				int64_t shift = (hexFloat ? mantissa.dotOffset * 4 : mantissa.dotOffset);
+				if (shift < 0 ? (exponent.exponent < std::numeric_limits<int64_t>::min() - shift) : (exponent.exponent > std::numeric_limits<int64_t>::max() - shift))
+					range = (shift < 0 ? -1 : 1);
+				else
+					exponent.exponent += shift;
 			}
 
 			/* validate the range of the exponent */
@@ -1352,6 +1357,23 @@ namespace str {
 				roundValueUp = detail::RoundToNearestRoundUp(lowerMantissa, (uint64_t(0x01) << 63) | (tailIsZero ? 0x00 : 0x01));
 			}
 
+			/* for and odd radix, half would be an endless chain of middle digits, therefore use the first differing digit to decide the rounding */
+			else if (2 * roundingDigit + 1 == radix) {
+				while (next < detail::DigitsIn32Bit[radix] && digits[next] == roundingDigit)
+					++next;
+				if (next < detail::DigitsIn32Bit[radix])
+					roundValueUp = (digits[next] > roundingDigit);
+				else {
+					/* compare the remainder of the tail to 0.5 */
+					detail::LargeMul<Units>(numerator, 0x02);
+					bool tailBit = (detail::LargeDiv<Units>(numerator, denominator) != 0);
+
+					/* check if the value should be rounded */
+					uint32_t lowerMantissa = (delayed == 0 ? lastDigit : (delayed > 0 ? radix - 1 : 0));
+					roundValueUp = detail::RoundToNearestRoundUp(lowerMantissa, (uint64_t(tailBit ? 0x01 : 0x00) << 63) | (numerator.size == 0 ? 0x00 : 0x01));
+				}
+			}
+
 			/* add the delayed non-zero digits and apply the rounding */
 			if (delayed >= 0) {
 				if (roundValueUp) {
@@ -1363,6 +1385,11 @@ namespace str {
 							++digitsBeforePoint;
 						lastDigit = 0;
 					}
+
+					/* check for the edge-case of the rounding being carried into the leading
+					*	nulls, in which case the new digit replaces one of the flipped nulls */
+					else if (delayed == totalDigits)
+						--delayed;
 
 					/* write the last value out (increased by one) and update the delayed-count as it now contains all flipped nulls */
 					detail::FlushFloatDigits(sink, digitSet[lastDigit + 1], 1, digitsBeforePoint);
