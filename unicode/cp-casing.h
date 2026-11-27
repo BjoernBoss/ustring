@@ -226,7 +226,7 @@ namespace cp {
 				}
 
 				/* notify the self-type of the completed character */
-				static_cast<SelfType*>(this)->fDone();
+				static_cast<SelfType*>(this)->fDone(val);
 			}
 			constexpr void fProcessSingle(char32_t cp, uint32_t data) {
 				/* extract the proper codepoint to be used */
@@ -340,7 +340,7 @@ namespace cp {
 			constexpr uint32_t fTypeFlag() {
 				return detail::gen::CaseIsUpper;
 			}
-			constexpr void fDone() {}
+			constexpr void fDone(uint32_t) {}
 		};
 
 		template <class CollType>
@@ -356,7 +356,7 @@ namespace cp {
 			constexpr uint32_t fTypeFlag() {
 				return detail::gen::CaseIsLower;
 			}
-			constexpr void fDone() {}
+			constexpr void fDone(uint32_t) {}
 		};
 
 		template <class CollType>
@@ -383,7 +383,8 @@ namespace cp {
 		private:
 			constexpr void fSeparate(bool separate) {
 				if (pWords.size() == 0) {
-					pLower = !separate;
+					if (separate)
+						pLower = false;
 					pWords.push(1);
 				}
 				else if (separate)
@@ -394,11 +395,14 @@ namespace cp {
 			constexpr uint32_t fTypeFlag() {
 				return (pLower ? detail::gen::CaseIsLower : detail::gen::CaseIsTitle);
 			}
-			constexpr void fDone() {
-				pLower = true;
+			constexpr void fDone(uint32_t val) {
+				/* only the first cased character of a word is title-cased, all characters before it remain unchanged */
+				if ((val & detail::gen::CaseIsCased) != 0)
+					pLower = true;
 				if (--pWords.front() == 0) {
 					pWords.pop();
-					pLower = false;
+					if (pWords.size() > 0)
+						pLower = false;
 				}
 			}
 
@@ -451,7 +455,7 @@ namespace cp {
 			constexpr uint32_t fTypeFlag() {
 				return detail::gen::CaseIsFold;
 			}
-			constexpr void fDone() {}
+			constexpr void fDone(uint32_t) {}
 		};
 
 		template <template<class> class MapType>

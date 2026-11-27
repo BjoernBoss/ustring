@@ -177,10 +177,12 @@ namespace str {
 				std::mbstate_t state{};
 				size_t res = std::mbrtowc(nullptr, cur, size_t(end - cur), &state);
 
-				/* check if the character is invalid or considered incomplete and otherwise
-				*	fetch the length (1 for null-byte, otherwise directly equals to the result) */
-				if (res == static_cast<size_t>(-1) || res == static_cast<size_t>(-2))
+				/* check if the character is invalid or considered incomplete, in which case a length larger than the available characters is returned
+				*	(unless the max character-length promise would be broken; otherwise fetch the length: 1 for null-byte, else equal to the result) */
+				if (res == static_cast<size_t>(-1))
 					return 0;
+				if (res == static_cast<size_t>(-2))
+					return (size_t(end - cur) < detail::CharLen ? uint32_t(end - cur) + 1 : 0);
 				uint32_t len = (res == 0 ? 1 : uint32_t(res));
 
 				/* check if the char is longer than the internal max character-length, which should
